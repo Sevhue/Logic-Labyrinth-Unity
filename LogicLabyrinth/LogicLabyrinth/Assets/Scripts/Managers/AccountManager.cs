@@ -28,6 +28,7 @@ public class AccountManager : MonoBehaviour
         public int andGatesCollected = 0;
         public int orGatesCollected = 0;
         public int notGatesCollected = 0;
+        
 
         public PlayerData(string user, string pass)
         {
@@ -72,50 +73,77 @@ public class AccountManager : MonoBehaviour
 
     public PlayerData GetCurrentPlayer() => currentPlayer;
 
-    // --- AUTHENTICATION FUNCTIONS ---
     public void Login(string user, string pass, System.Action<bool> onResult)
     {
-        dbRef.Child("users").Child(user).GetValueAsync().ContinueWithOnMainThread(task => {
-            if (task.IsFaulted || task.Result.Value == null)
+        Firebase.Auth.FirebaseAuth.DefaultInstance.SignInWithEmailAndPasswordAsync(user, pass).ContinueWithOnMainThread(authTask => {
+            // I-check kung successful ang login task
+            if (authTask.IsCompleted && !authTask.IsFaulted && !authTask.IsCanceled)
             {
-                Debug.LogError("User not found!");
-                onResult?.Invoke(false); // Ibalik ang 'false' sa UI
-                return;
-            }
+                // TAMA NA SYNTAX: Gamitin ang authTask.Result.User.UserId
+                string userId = authTask.Result.User.UserId;
+                Debug.Log("Login Successful! UID: " + userId);
 
-            PlayerData data = JsonUtility.FromJson<PlayerData>(task.Result.GetRawJsonValue());
-            if (data.passwordHash == pass)
-            {
-                currentPlayer = data;
-                UIManager.Instance.ShowMainMenu();
-                onResult?.Invoke(true);
+                // Dito na natin i-load ang data mula sa Realtime Database
+                dbRef.Child("users").Child(userId).GetValueAsync().ContinueWithOnMainThread(dbTask => {
+                    if (dbTask.IsCompleted && dbTask.Result.Exists)
+                    {
+                        currentPlayer = JsonUtility.FromJson<PlayerData>(dbTask.Result.GetRawJsonValue());
+                        if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                        onResult?.Invoke(true);
+                    }
+                    else
+                    {
+                        Debug.LogWarning("No database record found for this UID.");
+                        onResult?.Invoke(false);
+                    }
+                });
             }
             else
             {
+                Debug.LogError("Login Failed: " + authTask.Exception);
                 onResult?.Invoke(false);
             }
         });
     }
-
-  public void CreateAccountWithSecurity(string user, string pass, string q, string a, System.Action<bool> onResult)
+    public void CreateAccountWithSecurity(string user, string pass, string q, string a, System.Action<bool> onResult)
     {
-        PlayerData newData = new PlayerData(user, pass)
+        Firebase.Auth.FirebaseAuth auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
+
+        // Note: Sa production, dapat may Register method ka sa Firebase Auth. 
+        // Pero para sa logic mo ngayon, siguraduhin nating ang path ay UID:
+        if (auth.CurrentUser != null)
         {
-            securityQuestion = q,
-            securityAnswer = a
-        };
-        string json = JsonUtility.ToJson(newData);
-        dbRef.Child("users").Child(user).SetRawJsonValueAsync(json).ContinueWithOnMainThread(task => {
-            if (task.IsCompleted)
+            string userId = auth.CurrentUser.UserId; // Eto ang 'key' na kailangan ng Rules mo
+
+            PlayerData newData = new PlayerData(user, pass)
             {
-                currentPlayer = newData;
-                onResult?.Invoke(true);
-            }
-         else
+                securityQuestion = q,
+                securityAnswer = a,
+                username = user // Itabi pa rin ang username sa loob ng data
+            };
+
+            string json = JsonUtility.ToJson(newData);
+
+            // Child(userId) na dapat, hindi Child(user)!
+            dbRef.Child("users").Child(userId).SetRawJsonValueAsync(json).ContinueWithOnMainThread(task => {
+                if (task.IsCompleted)
+                {
+                    currentPlayer = newData;
+                    Debug.Log("Manual Account Created under UID: " + userId);
+                    onResult?.Invoke(true);
+                }
+                else
+                {
+                    Debug.LogError("Database Error: " + task.Exception);
+                    onResult?.Invoke(false);
+                }
+            });
+        }
+        else
         {
+            Debug.LogError("No Authenticated User found! Login to Firebase Auth first.");
             onResult?.Invoke(false);
         }
-    });
     }
 
     // --- SECURITY & PASSWORD RESET ---
@@ -160,12 +188,14 @@ public class AccountManager : MonoBehaviour
         var auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
         if (auth.CurrentUser != null)
         {
+            // UID ang gamitin para tanggapin ng Rules mo (auth.uid === $userId)
             string userId = auth.CurrentUser.UserId;
             string json = JsonUtility.ToJson(currentPlayer);
 
+            // DITO DAPAT PAPASOK SA "users/UID"
             dbRef.Child("users").Child(userId).SetRawJsonValueAsync(json).ContinueWithOnMainThread(task => {
-                if (task.IsFaulted) Debug.LogError("Save Failed: " + task.Exception);
-                else Debug.Log("Progress Saved Successfully using UID!");
+                if (task.IsCompleted) Debug.Log("Cloud Update Success!");
+                else Debug.LogError("Cloud Update Failed: " + task.Exception);
             });
         }
     }
