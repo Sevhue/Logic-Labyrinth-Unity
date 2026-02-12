@@ -15,12 +15,25 @@ public class UIManager : MonoBehaviour
     public GameObject createAccountPanel;
     public GameObject optionsPanel;
 
-   
+
     public GameObject mainLoginPanel;
     public GameObject completeProfilePanel;
     public GameObject accountProfilePanel;
     public GameObject leaderboardsPanel;
-    public GameObject forgotPasswordPanel; 
+    public GameObject forgotPasswordPanel;
+    [Header("Sign Up Panel 1 (Credentials)")]
+    public GameObject credentialsPanel; //Panel 1
+    public TMP_InputField signUpUsername;
+    public TMP_InputField signUpPassword;
+    public TMP_InputField signUpConfirmPassword;
+
+    [Header("Security Question Panel (Details)")]
+    public GameObject detailsPanel; //Panel 2  
+    public TMP_InputField securityAnswer;
+    public TMP_Dropdown genderDropdown;
+    public TMP_Dropdown ageDropdown;
+    public Toggle termsToggle;
+    public TMP_Text feedbackText; // Isang feedback text lang para sa lahat
 
     [Header("Confirmation Popups")]
     public GameObject exitPopup;
@@ -44,10 +57,14 @@ public class UIManager : MonoBehaviour
     public Camera menuCamera;
     public Camera playerCamera;
 
+    [Header("Validation Popup")]
+    public GameObject validationPopup; 
+    public TMP_Text validationMessageText;
+
     private GameObject playerObject;
     private bool isInitialized = false;
 
-    
+
     private static UIManager _currentInstance;
     public static UIManager GetUIManager() => _currentInstance;
     public static bool IsUIManagerAvailable() => _currentInstance != null;
@@ -89,7 +106,7 @@ public class UIManager : MonoBehaviour
         }
         else
         {
-            ShowMainLoginPanel(); 
+            ShowMainLoginPanel();
             Debug.Log("UIManager Start - Showing login panel (No user found)");
         }
     }
@@ -144,7 +161,7 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    
+
     void FindPlayerObject()
     {
         playerObject = GameObject.FindGameObjectWithTag("Player");
@@ -156,7 +173,7 @@ public class UIManager : MonoBehaviour
 
         if (playerObject == null)
         {
-            
+
             PlayerController playerController = FindAnyObjectByType<PlayerController>();
             if (playerController != null)
             {
@@ -185,7 +202,7 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    
+
     private void SetGameplayActive(bool gameplayActive)
     {
         if (menuCamera != null)
@@ -202,7 +219,7 @@ public class UIManager : MonoBehaviour
         Debug.Log(gameplayActive ? "Gameplay activated" : "Menu activated");
     }
 
-    
+
     public void SetCursorState(bool locked)
     {
         if (locked)
@@ -220,7 +237,7 @@ public class UIManager : MonoBehaviour
 
     public void ShowMainMenu()
     {
-        HideAllPanels(); 
+        HideAllPanels();
 
         bool isLoggedIn = AccountManager.Instance != null && AccountManager.Instance.GetCurrentPlayer() != null;
 
@@ -241,7 +258,7 @@ public class UIManager : MonoBehaviour
             }
         }
 
-        SetCursorState(false); 
+        SetCursorState(false);
     }
 
     public void ShowLoginPanel()
@@ -265,7 +282,7 @@ public class UIManager : MonoBehaviour
         SetCursorState(false);
     }
 
-    
+
     public void ShowMainLoginPanel()
     {
         HideAllPanels();
@@ -294,7 +311,7 @@ public class UIManager : MonoBehaviour
         SetCursorState(false);
     }
 
-    
+
     public void ShowForgotPasswordPanel()
     {
         HideAllPanels();
@@ -302,7 +319,7 @@ public class UIManager : MonoBehaviour
         SetCursorState(false);
     }
 
-    
+
     public void ShowExitPopup()
     {
         if (exitPopup != null) exitPopup.SetActive(true);
@@ -325,7 +342,7 @@ public class UIManager : MonoBehaviour
         if (savePopup != null) savePopup.SetActive(false);
     }
 
-    
+
     public void QuitGame()
     {
         Application.Quit();
@@ -375,7 +392,7 @@ public class UIManager : MonoBehaviour
         SetCursorState(true);
     }
 
-    
+
     public void ShowInteractPrompt(bool show, string message = "Press E to interact")
     {
         if (interactPrompt != null)
@@ -392,7 +409,7 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    
+
     public void UpdateInventoryDisplay()
     {
         if (InventoryManager.Instance != null && gateCountText != null)
@@ -415,26 +432,26 @@ public class UIManager : MonoBehaviour
             gateCountText.text = $"AND: {andCount} | OR: {orCount} | NOT: {notCount}";
         }
 
-        
+
         Debug.Log($"INVENTORY UPDATE - AND: {andCount}, OR: {orCount}, NOT: {notCount}");
     }
 
-    
+
     public void OnGateCollected(string gateType)
     {
         Debug.Log($"GATE COLLECTED: {gateType}");
 
-        
+
         UpdateInventoryDisplay();
 
-        
+
         if (gateCountText != null)
         {
             StartCoroutine(ShowCollectionMessage(gateType));
         }
     }
 
-    
+
     private IEnumerator ShowCollectionMessage(string gateType)
     {
         if (gateCountText != null)
@@ -447,13 +464,13 @@ public class UIManager : MonoBehaviour
 
             yield return new WaitForSeconds(1.5f);
 
-            
+
             UpdateInventoryDisplay();
             gateCountText.color = originalColor;
         }
     }
 
-    
+
     public void ShowPuzzleComplete()
     {
         if (puzzleCompletePanel != null)
@@ -480,10 +497,10 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    
+
     void HideAllPanels()
     {
-        
+
         if (loggedOutPanel != null) loggedOutPanel.SetActive(false);
         if (loggedInPanel != null) loggedInPanel.SetActive(false);
         if (loginPanel != null) loginPanel.SetActive(false);
@@ -491,26 +508,26 @@ public class UIManager : MonoBehaviour
         if (optionsPanel != null) optionsPanel.SetActive(false);
         if (levelSelectionPanel != null) levelSelectionPanel.SetActive(false);
 
-        
+
         if (mainLoginPanel != null) mainLoginPanel.SetActive(false);
         if (completeProfilePanel != null) completeProfilePanel.SetActive(false);
         if (accountProfilePanel != null) accountProfilePanel.SetActive(false);
         if (leaderboardsPanel != null) leaderboardsPanel.SetActive(false);
-        if (forgotPasswordPanel != null) forgotPasswordPanel.SetActive(false); 
+        if (forgotPasswordPanel != null) forgotPasswordPanel.SetActive(false);
 
-        
+
         if (gameUI != null) gameUI.SetActive(false);
         if (puzzleUI != null) puzzleUI.SetActive(false);
         if (puzzleCompletePanel != null) puzzleCompletePanel.SetActive(false);
         if (gameCompletePanel != null) gameCompletePanel.SetActive(false);
     }
 
-    
+
     void AutoFindInteractPrompt()
     {
         if (interactPrompt == null)
         {
-            
+
             TextMeshProUGUI[] allTexts = FindObjectsByType<TextMeshProUGUI>(FindObjectsSortMode.None);
             foreach (TextMeshProUGUI text in allTexts)
             {
@@ -530,7 +547,7 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    
+
     [ContextMenu("OnLoginButton")]
     public void OnLoginButton()
     {
@@ -587,7 +604,7 @@ public class UIManager : MonoBehaviour
         ShowLogoutPopup();
     }
 
-    
+
     [ContextMenu("OnAccountsProfileButton")]
     public void OnAccountsProfileButton()
     {
@@ -606,7 +623,7 @@ public class UIManager : MonoBehaviour
         ShowSavePopup();
     }
 
-    
+
     [ContextMenu("OnForgotPasswordButton")]
     public void OnForgotPasswordButton()
     {
@@ -622,7 +639,7 @@ public class UIManager : MonoBehaviour
         }
     }
 
-    
+
     public static void SafeShowInteractPrompt(bool show, string message = "Press E to interact")
     {
         if (IsUIManagerAvailable())
@@ -643,7 +660,7 @@ public class UIManager : MonoBehaviour
         }
     }
 
-   
+
     public static void SafeOnGateCollected(string gateType)
     {
         if (IsUIManagerAvailable())
@@ -677,9 +694,104 @@ public class UIManager : MonoBehaviour
     }
     public void LinkWithGoogle(string email, string gid, string name)
     {
-     
+
         AccountManager.Instance.LinkWithGoogle(email, gid, name);
         UIManager.Instance.ShowMainMenu();
     }
 
+    public void OnSignUpEnterPressed(string dummy)
+    {
+        if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+        {
+            GoToNextSignUpPanel();
+        }
+    }
+    public void GoToNextSignUpPanel()
+    {
+        // SAFETY CHECK: I-check kung may "None" sa Inspector bago magpatuloy
+        if (validationMessageText == null || validationPopup == null)
+        {
+            Debug.LogError("UIManager Error: I-drag mo muna yung Validation objects sa Inspector!");
+            return; // Hindi mag-e-error ang game, hihinto lang ang function
+        }
+
+        // 1. Check fields
+        if (string.IsNullOrEmpty(signUpUsername.text) || string.IsNullOrEmpty(signUpPassword.text))
+        {
+            validationMessageText.text = "PLEASE FILL IN ALL FIELDS!";
+            validationPopup.SetActive(true);
+            return;
+        }
+
+        // 2. Check password length
+        if (signUpPassword.text.Length < 8)
+        {
+            validationMessageText.text = "PASSWORD MUST BE AT LEAST 8 CHARACTERS!";
+            validationPopup.SetActive(true);
+            return;
+        }
+
+        // 3. KUNG TAMA LAHAT
+        credentialsPanel.SetActive(false);
+        detailsPanel.SetActive(true);
+    }
+
+    public void ExecuteFinalSignUp()
+    {
+        if (!termsToggle.isOn)
+        {
+            UpdateFeedback("Please accept the Terms & Conditions!", Color.red);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(signUpUsername.text)) return;
+
+        // Eto yung ginawa mong dummy email
+        string cleanUsername = signUpUsername.text.Trim();
+        string emailForAuth = signUpUsername.text + "@logic.com";
+        string gender = genderDropdown.options[genderDropdown.value].text;
+        string age = ageDropdown.options[ageDropdown.value].text;
+
+        
+        AccountManager.Instance.CreateFullAccount(
+            emailForAuth, 
+            signUpPassword.text,
+            securityAnswer.text,
+            gender,
+            age,
+            (success) => {
+                if (success)
+                {
+                    UpdateFeedback("ACCOUNT WAS SUCCESSFULLY CREATED", Color.green);
+                    Invoke("ShowMainMenu", 2f);
+                }
+                else
+                {
+                    UpdateFeedback("Signup Failed! Try again.", Color.red);
+                }
+            });
+    }
+    public void CloseValidationPopup()
+    {
+        // Itatago ang popup pagka-click ng OKAY sa loob nito
+        if (validationPopup != null)
+        {
+            validationPopup.SetActive(false);
+        }
+    }
+
+    private void UpdateFeedback(string message, Color color)
+    {
+        if (feedbackText != null)
+        {
+            feedbackText.text = message;
+            feedbackText.color = color;
+            Invoke("ClearFeedback", 3f);
+        }
+        Debug.Log(message);
+    }
+    private void ClearFeedback()
+    {
+        feedbackText.text = "";
+    }
 }
