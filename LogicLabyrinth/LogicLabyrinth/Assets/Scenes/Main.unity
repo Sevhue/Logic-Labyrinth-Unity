@@ -2072,7 +2072,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &103762334
 RectTransform:
   m_ObjectHideFlags: 0
@@ -2237,7 +2237,6 @@ RectTransform:
   m_Children:
   - {fileID: 747161369}
   - {fileID: 809797137}
-  - {fileID: 2007327226}
   - {fileID: 103762334}
   m_Father: {fileID: 2086810623}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -10152,7 +10151,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &417463244
 RectTransform:
   m_ObjectHideFlags: 0
@@ -15213,7 +15212,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &687634321
 RectTransform:
   m_ObjectHideFlags: 0
@@ -17723,6 +17722,7 @@ RectTransform:
   - {fileID: 931788947}
   - {fileID: 1446950491}
   - {fileID: 916263109}
+  - {fileID: 2007327226}
   m_Father: {fileID: 108322036}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
@@ -20193,7 +20193,19 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 916263111}
   m_OnClick:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 1454566365}
+        m_TargetAssemblyTypeName: UIManager, Assembly-CSharp
+        m_MethodName: ExecuteFinalSignUp
+        m_Mode: 1
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
 --- !u!114 &916263111
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -32503,6 +32515,16 @@ MonoBehaviour:
   accountProfilePanel: {fileID: 1324337122}
   leaderboardsPanel: {fileID: 243164823}
   forgotPasswordPanel: {fileID: 50931313}
+  credentialsPanel: {fileID: 747161368}
+  signUpUsername: {fileID: 2000015703}
+  signUpPassword: {fileID: 958285164}
+  signUpConfirmPassword: {fileID: 1738768583}
+  detailsPanel: {fileID: 809797136}
+  securityAnswer: {fileID: 919949609}
+  genderDropdown: {fileID: 1557502780}
+  ageDropdown: {fileID: 931788948}
+  termsToggle: {fileID: 1446950492}
+  feedbackText: {fileID: 1692930806}
   exitPopup: {fileID: 1619794946}
   logoutPopup: {fileID: 393103001}
   savePopup: {fileID: 683689765}
@@ -32515,6 +32537,8 @@ MonoBehaviour:
   gameCompletePanel: {fileID: 0}
   menuCamera: {fileID: 0}
   playerCamera: {fileID: 135983810}
+  validationPopup: {fileID: 687634320}
+  validationMessageText: {fileID: 1094719713}
 --- !u!114 &1454566366
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -38642,25 +38666,13 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 2086810626}
-        m_TargetAssemblyTypeName: CreateAccountPanel
+      - m_Target: {fileID: 1454566365}
+        m_TargetAssemblyTypeName: UIManager, Assembly-CSharp
         m_MethodName: CloseValidationPopup
         m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object
-          m_IntArgument: 0
-          m_FloatArgument: 0
-          m_StringArgument: 
-          m_BoolArgument: 0
-        m_CallState: 2
-      - m_Target: {fileID: 0}
-        m_TargetAssemblyTypeName: UIManager
-        m_MethodName: 
-        m_Mode: 1
-        m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: 
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
           m_IntArgument: 0
           m_FloatArgument: 0
           m_StringArgument: 
@@ -39686,7 +39698,19 @@ MonoBehaviour:
   m_CharacterLimit: 0
   m_OnEndEdit:
     m_PersistentCalls:
-      m_Calls: []
+      m_Calls:
+      - m_Target: {fileID: 1454566365}
+        m_TargetAssemblyTypeName: UIManager, Assembly-CSharp
+        m_MethodName: OnSignUpEnterPressed
+        m_Mode: 5
+        m_Arguments:
+          m_ObjectArgument: {fileID: 0}
+          m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+          m_IntArgument: 0
+          m_FloatArgument: 0
+          m_StringArgument: 
+          m_BoolArgument: 0
+        m_CallState: 2
   m_OnSubmit:
     m_PersistentCalls:
       m_Calls: []
@@ -45012,15 +45036,15 @@ RectTransform:
   m_GameObject: {fileID: 2007327225}
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 0.06190031, y: 0.07841478, z: 1.3719999}
+  m_LocalScale: {x: 0.36463395, y: 1.7545617, z: 0.8353478}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 2129777982}
-  m_Father: {fileID: 108322036}
+  m_Father: {fileID: 809797137}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 40.45294, y: 1.5862441}
+  m_AnchoredPosition: {x: 577.3491, y: 47.7865}
   m_SizeDelta: {x: 160, y: 30}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &2007327227
@@ -46762,11 +46786,11 @@ MonoBehaviour:
   securityAnswerField: {fileID: 919949609}
   ageDropdown: {fileID: 931788948}
   genderDropdown: {fileID: 1557502780}
-  termsToggle: {fileID: 0}
+  termsToggle: {fileID: 1446950492}
   createButton: {fileID: 916263110}
   backButton: {fileID: 359027523}
-  messageText: {fileID: 0}
-  passwordText: {fileID: 0}
+  messageText: {fileID: 417463245}
+  passwordText: {fileID: 1094719713}
   validationPopup: {fileID: 687634320}
   validationMessageText: {fileID: 1094719713}
 --- !u!1 &2089303563
@@ -47664,7 +47688,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &2129777982
 RectTransform:
   m_ObjectHideFlags: 0

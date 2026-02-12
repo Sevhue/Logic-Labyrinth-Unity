@@ -18,7 +18,8 @@ public class AccountManager : MonoBehaviour
         public string googleId;
         public string googleEmail;
         public string displayName;
-
+        public string gender;
+        public string age;
         public int unlockedLevels = 1;
         public int lastCompletedLevel = 0;
 
@@ -75,15 +76,23 @@ public class AccountManager : MonoBehaviour
 
     public void Login(string user, string pass, System.Action<bool> onResult)
     {
-        Firebase.Auth.FirebaseAuth.DefaultInstance.SignInWithEmailAndPasswordAsync(user, pass).ContinueWithOnMainThread(authTask => {
-            // I-check kung successful ang login task
+        // 1. LINISIN ANG INPUT: Tanggalin ang spaces at siguraduhing lowercase (standard sa email)
+        string cleanUser = user.Trim().ToLower();
+
+        // 2. FORMATTING: Siguraduhin na isa lang ang @logic.com
+        string emailToAuthenticate = cleanUser.Contains("@") ? cleanUser : cleanUser + "@logic.com";
+
+        // 3. DEBUG: Tignan mo sa Console kung ano ang lalabas dito. 
+        // Kapag may space ito o maling format, dito natin mahuhuli.
+        Debug.Log("DEBUG: Attempting login with: [" + emailToAuthenticate + "]");
+
+        Firebase.Auth.FirebaseAuth.DefaultInstance.SignInWithEmailAndPasswordAsync(emailToAuthenticate, pass).ContinueWithOnMainThread(authTask => {
+
             if (authTask.IsCompleted && !authTask.IsFaulted && !authTask.IsCanceled)
             {
-                // TAMA NA SYNTAX: Gamitin ang authTask.Result.User.UserId
                 string userId = authTask.Result.User.UserId;
                 Debug.Log("Login Successful! UID: " + userId);
 
-                // Dito na natin i-load ang data mula sa Realtime Database
                 dbRef.Child("users").Child(userId).GetValueAsync().ContinueWithOnMainThread(dbTask => {
                     if (dbTask.IsCompleted && dbTask.Result.Exists)
                     {
@@ -93,14 +102,15 @@ public class AccountManager : MonoBehaviour
                     }
                     else
                     {
-                        Debug.LogWarning("No database record found for this UID.");
+                        Debug.LogWarning("No DB record found for: " + userId);
                         onResult?.Invoke(false);
                     }
                 });
             }
             else
             {
-                Debug.LogError("Login Failed: " + authTask.Exception);
+                // Pag nag-error, tignan mo ang InnerException
+                Debug.LogError("Firebase Auth Error: " + authTask.Exception.Flatten().InnerExceptions[0].Message);
                 onResult?.Invoke(false);
             }
         });
@@ -144,6 +154,49 @@ public class AccountManager : MonoBehaviour
             Debug.LogError("No Authenticated User found! Login to Firebase Auth first.");
             onResult?.Invoke(false);
         }
+    }
+    public void CreateFullAccount(string user, string pass, string securityAnswer, string gender, string age, System.Action<bool> onResult)
+    {
+        var auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
+
+        // STEP 1: Gagawa muna ng user sa AUTH tab
+        // Siguraduhing 'user' dito ay yung may @logic.com at na-Trim() na sa UIManager
+        auth.CreateUserWithEmailAndPasswordAsync(user, pass).ContinueWithOnMainThread(task => {
+
+            if (task.IsCanceled || task.IsFaulted)
+            {
+                Debug.LogError("Registration Failed: " + task.Exception);
+                onResult?.Invoke(false);
+                return;
+            }
+
+            // STEP 2: Pag success, kunin ang UID para sa Database
+            string userId = task.Result.User.UserId;
+
+            PlayerData newData = new PlayerData(user, pass)
+            {
+                securityAnswer = securityAnswer,
+                gender = gender,
+                age = age,
+                username = user.Replace("@logic.com", "") // Para malinis ang username sa DB
+            };
+
+            string json = JsonUtility.ToJson(newData);
+
+            // STEP 3: I-save sa Realtime Database
+            dbRef.Child("users").Child(userId).SetRawJsonValueAsync(json).ContinueWithOnMainThread(dbTask => {
+                if (dbTask.IsCompleted)
+                {
+                    currentPlayer = newData;
+                    Debug.Log("Success! Account created and saved to DB.");
+                    onResult?.Invoke(true);
+                }
+                else
+                {
+                    onResult?.Invoke(false);
+                }
+            });
+        });
     }
 
     // --- SECURITY & PASSWORD RESET ---

@@ -99,9 +99,5 @@ InitTestScene*.unity*
 /[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*
 
 # Firebase test assets
-/[Aa]ssets/Firebase/Plugins/x86_64/FirebaseCppApp-13_6_0.bundle
-/[Aa]ssets/Firebase/Plugins/x86_64/FirebaseCppApp-13_6_0.so
-Firebase Test/Assets/Firebase/Plugins/x86_64/FirebaseCppApp-13_6_0.bundle
-Firebase Test/Assets/Firebase/Plugins/x86_64/FirebaseCppApp-13_6_0.so
 LogicLabyrinth/LogicLabyrinth/Assets/Firebase/Plugins/x86_64/FirebaseCppApp-13_7_0.bundle
 LogicLabyrinth/LogicLabyrinth/Assets/Firebase/Plugins/x86_64/FirebaseCppApp-13_7_0.so
