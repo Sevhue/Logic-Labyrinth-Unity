@@ -57,15 +57,25 @@ public class AccountManager : MonoBehaviour
     void Start()
     {
         var auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
+
+        // 1. Siguraduhin na ang Main Login (Landing Page) ang unang lilitaw
+        if (UIManager.Instance != null)
+        {
+            // Palitan ang ShowLoginPanel() ng function na nagbubukas ng Main Screen mo
+            UIManager.Instance.ShowMainLoginPanel();
+        }
+
+        // 2. AUTO-LOGIN CHECK: Papasok lang kung may session
         if (auth.CurrentUser != null)
         {
             string userId = auth.CurrentUser.UserId;
-
             dbRef.Child("users").Child(userId).GetValueAsync().ContinueWithOnMainThread(task => {
                 if (task.IsCompleted && task.Result.Exists)
                 {
                     currentPlayer = JsonUtility.FromJson<PlayerData>(task.Result.GetRawJsonValue());
-                    Debug.Log("User data loaded via UID");
+                    Debug.Log("Auto-login: Session found.");
+
+                    // Diretso sa Main Menu kung may account na dati
                     if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
                 }
             });
@@ -288,8 +298,17 @@ public class AccountManager : MonoBehaviour
 
     public void Logout()
     {
+        // 1. Firebase Sign Out
+        Firebase.Auth.FirebaseAuth.DefaultInstance.SignOut();
+
+        // 2. Clear local player data
         currentPlayer = null;
-        if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+
+        // 3. Ibalik sa Main Login Screen (yung may 4 buttons)
+        if (UIManager.Instance != null)
+        {
+            UIManager.Instance.ShowMainLoginPanel();
+        }
     }
     public string GetSecurityQuestion(string username)
     {

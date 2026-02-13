@@ -282,11 +282,22 @@ public class UIManager : MonoBehaviour
         SetCursorState(false);
     }
 
-
     public void ShowMainLoginPanel()
     {
-        HideAllPanels();
-        if (mainLoginPanel != null) mainLoginPanel.SetActive(true);
+        HideAllPanels(); // Siguraduhin nating malinis muna ang screen
+
+        // Gamitin ang tamang variable names mula sa line 14-25 ng script mo
+        if (mainLoginPanel != null)
+        {
+            mainLoginPanel.SetActive(true);
+            Debug.Log("UIManager: Main Login Panel Activated");
+        }
+        else
+        {
+            // Lalabas ito sa Console kung nakalimutan mong i-drag ang panel sa Inspector
+            Debug.LogError("UIManager: mainLoginPanel is MISSING in Inspector!");
+        }
+
         SetCursorState(false);
     }
 
@@ -572,10 +583,9 @@ public class UIManager : MonoBehaviour
         ShowExitPopup();
     }
 
-    [ContextMenu("OnBackButton")]
     public void OnBackButton()
     {
-        ShowMainMenu();
+        ShowMainLoginPanel();
     }
 
     [ContextMenu("OnNewGameButton")]
