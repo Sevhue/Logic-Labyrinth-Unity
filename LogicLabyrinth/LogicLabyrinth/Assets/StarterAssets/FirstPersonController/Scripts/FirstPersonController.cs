@@ -43,6 +43,25 @@ namespace StarterAssets
 		[Tooltip("What layers the character uses as ground")]
 		public LayerMask GroundLayers;
 
+		[Header("Stamina")]
+		[Tooltip("Maximum stamina")]
+		public float MaxStamina = 100f;
+		[Tooltip("How fast stamina drains per second while sprinting")]
+		public float StaminaDrainRate = 25f;
+		[Tooltip("How fast stamina regenerates per second while not sprinting")]
+		public float StaminaRegenRate = 15f;
+		[Tooltip("Delay in seconds before stamina starts regenerating after sprinting stops")]
+		public float StaminaRegenDelay = 1.0f;
+		[Tooltip("Minimum stamina needed to START sprinting (prevents flicker)")]
+		public float MinStaminaToSprint = 10f;
+
+		// Public read-only for UI
+		public float CurrentStamina { get; private set; }
+		public float StaminaPercent => MaxStamina > 0f ? CurrentStamina / MaxStamina : 0f;
+		public bool IsExhausted { get; private set; }
+
+		private float _staminaRegenTimer;
+
 		[Header("Cinemachine")]
 		[Tooltip("The follow target set in the Cinemachine Virtual Camera that the camera will follow")]
 		public GameObject CinemachineCameraTarget;
@@ -108,10 +127,17 @@ namespace StarterAssets
 			// reset our timeouts on start
 			_jumpTimeoutDelta = JumpTimeout;
 			_fallTimeoutDelta = FallTimeout;
+
+			// Initialize stamina
+			CurrentStamina = MaxStamina;
+			IsExhausted = false;
 		}
 
 		private void Update()
 		{
+			// Don't process input while game is paused
+			if (PauseMenuController.IsPaused) return;
+
 			JumpAndGravity();
 			GroundedCheck();
 			Move();
@@ -119,14 +145,38 @@ namespace StarterAssets
 
 		private void LateUpdate()
 		{
+			// Don't rotate camera while paused
+			if (PauseMenuController.IsPaused) return;
+
 			CameraRotation();
 		}
 
 		private void GroundedCheck()
 		{
-			// set sphere position, with offset
-			Vector3 spherePosition = new Vector3(transform.position.x, transform.position.y - GroundedOffset, transform.position.z);
-			Grounded = Physics.CheckSphere(spherePosition, GroundedRadius, GroundLayers, QueryTriggerInteraction.Ignore);
+			// Use a combination of a small sphere check (to avoid walls/ceilings triggering false grounded)
+			// and the CharacterController's built-in isGrounded for reliability.
+			// The sphere check alone can clip into walls/ceilings in tight dungeon environments.
+			
+			float ccBottom = _controller.center.y - _controller.height / 2f;
+			Vector3 spherePosition = new Vector3(transform.position.x, transform.position.y + ccBottom, transform.position.z);
+			
+			// Use a smaller radius than the CC to avoid wall clipping, and cast downward
+			float checkRadius = _controller.radius * 0.5f; // Half the CC radius - much less likely to clip walls
+			float checkDistance = 0.3f; // How far below feet to check
+			
+			// SphereCast downward from the CC bottom - only detects ground BELOW the player
+			bool sphereGrounded = Physics.SphereCast(
+				spherePosition + Vector3.up * checkDistance, // Start slightly above the feet
+				checkRadius,
+				Vector3.down,
+				out RaycastHit hit,
+				checkDistance + 0.1f, // Cast distance
+				GroundLayers,
+				QueryTriggerInteraction.Ignore
+			);
+			
+			// Also check CC's built-in grounded (handles edge cases)
+			Grounded = sphereGrounded || _controller.isGrounded;
 		}
 
 		private void CameraRotation()
@@ -153,8 +203,39 @@ namespace StarterAssets
 
 		private void Move()
 		{
+			// --- Stamina logic ---
+			bool wantsSprint = _input.sprint && _input.move != Vector2.zero;
+			bool canSprint = !IsExhausted && CurrentStamina > 0f;
+
+			// If exhausted, need to recharge past the threshold before sprinting again
+			if (IsExhausted && CurrentStamina >= MinStaminaToSprint)
+				IsExhausted = false;
+
+			bool isSprinting = wantsSprint && canSprint;
+
+			if (isSprinting)
+			{
+				CurrentStamina -= StaminaDrainRate * Time.deltaTime;
+				CurrentStamina = Mathf.Max(0f, CurrentStamina);
+				_staminaRegenTimer = StaminaRegenDelay;
+
+				if (CurrentStamina <= 0f)
+					IsExhausted = true;
+			}
+			else
+			{
+				// Countdown regen delay
+				if (_staminaRegenTimer > 0f)
+					_staminaRegenTimer -= Time.deltaTime;
+				else
+				{
+					CurrentStamina += StaminaRegenRate * Time.deltaTime;
+					CurrentStamina = Mathf.Min(CurrentStamina, MaxStamina);
+				}
+			}
+
 			// set target speed based on move speed, sprint speed and if sprint is pressed
-			float targetSpeed = _input.sprint ? SprintSpeed : MoveSpeed;
+			float targetSpeed = isSprinting ? SprintSpeed : MoveSpeed;
 
 			// a simplistic acceleration and deceleration designed to be easy to remove, replace, or iterate upon
 
@@ -239,6 +320,13 @@ namespace StarterAssets
 				_input.jump = false;
 			}
 
+			// If we hit a ceiling while going up, immediately stop upward velocity
+			// This prevents getting stuck against ceilings in enclosed dungeon environments
+			if (_verticalVelocity > 0f && (_controller.collisionFlags & CollisionFlags.Above) != 0)
+			{
+				_verticalVelocity = 0f;
+			}
+
 			// apply gravity over time if under terminal (multiply by delta time twice to linearly speed up over time)
 			if (_verticalVelocity < _terminalVelocity)
 			{
@@ -261,8 +349,18 @@ namespace StarterAssets
 			if (Grounded) Gizmos.color = transparentGreen;
 			else Gizmos.color = transparentRed;
 
-			// when selected, draw a gizmo in the position of, and matching radius of, the grounded collider
-			Gizmos.DrawSphere(new Vector3(transform.position.x, transform.position.y - GroundedOffset, transform.position.z), GroundedRadius);
+			// Draw the ground check sphere at the CC bottom
+			CharacterController cc = GetComponent<CharacterController>();
+			if (cc != null)
+			{
+				float ccBottom = cc.center.y - cc.height / 2f;
+				float checkRadius = cc.radius * 0.5f;
+				Gizmos.DrawSphere(new Vector3(transform.position.x, transform.position.y + ccBottom, transform.position.z), checkRadius);
+			}
+			else
+			{
+				Gizmos.DrawSphere(new Vector3(transform.position.x, transform.position.y - GroundedOffset, transform.position.z), GroundedRadius);
+			}
 		}
 	}
 }

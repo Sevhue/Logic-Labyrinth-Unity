@@ -53,6 +53,9 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
+        // Don't do anything while a puzzle UI, swap UI, or pause menu is open
+        if (PuzzleTableController.IsOpen || SwapGateUI.IsOpen || PauseMenuController.IsPaused) return;
+
         // Auto-lock cursor in level scenes
         string currentScene = SceneManager.GetActiveScene().name;
         if (currentScene.StartsWith("Level") && Cursor.lockState != CursorLockMode.Locked)
@@ -138,6 +141,12 @@ public class PlayerController : MonoBehaviour
 
     void HandleLook()
     {
+        if (playerCamera == null)
+        {
+            playerCamera = GetComponentInChildren<Camera>();
+            if (playerCamera == null) return;
+        }
+
         // Apply mouse look
         float mouseX = lookInput.x * mouseSensitivity * Time.deltaTime;
         float mouseY = lookInput.y * mouseSensitivity * Time.deltaTime;
@@ -151,6 +160,8 @@ public class PlayerController : MonoBehaviour
 
     void HandleInteraction()
     {
+        if (playerCamera == null) return;
+
         Ray ray = new Ray(playerCamera.transform.position, playerCamera.transform.forward);
         RaycastHit hit;
 

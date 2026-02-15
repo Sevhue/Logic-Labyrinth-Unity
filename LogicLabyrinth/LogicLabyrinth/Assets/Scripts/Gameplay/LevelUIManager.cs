@@ -20,8 +20,25 @@ public class LevelUIManager : MonoBehaviour
 
     void Start()
     {
+        // Bootstrap the GameInventoryUI if it doesn't already exist
+        EnsureGameInventoryUI();
+
         // ADDED: Update UI when level loads to show saved inventory
         RefreshUIOnLoad();
+    }
+
+    /// <summary>
+    /// Creates a GameInventoryUI if one doesn't exist yet.
+    /// The GameInventoryUI builds its own visual hierarchy in code.
+    /// </summary>
+    void EnsureGameInventoryUI()
+    {
+        if (GameInventoryUI.Instance == null)
+        {
+            GameObject inventoryUIGO = new GameObject("GameInventoryUI");
+            inventoryUIGO.AddComponent<GameInventoryUI>();
+            Debug.Log("LevelUIManager: Created GameInventoryUI");
+        }
     }
 
     public void UpdateGateCount(int andCount, int orCount, int notCount)
@@ -65,11 +82,18 @@ public class LevelUIManager : MonoBehaviour
 
         if (InventoryManager.Instance != null)
         {
-            UpdateGateCount(
-                InventoryManager.Instance.GetGateCount("AND"),
-                InventoryManager.Instance.GetGateCount("OR"),
-                InventoryManager.Instance.GetGateCount("NOT")
-            );
+            int andCount = InventoryManager.Instance.GetGateCount("AND");
+            int orCount = InventoryManager.Instance.GetGateCount("OR");
+            int notCount = InventoryManager.Instance.GetGateCount("NOT");
+
+            UpdateGateCount(andCount, orCount, notCount);
+
+            // Also refresh the new GameInventoryUI bar
+            if (GameInventoryUI.Instance != null)
+            {
+                GameInventoryUI.Instance.UpdateCounts(andCount, orCount, notCount);
+            }
+
             Debug.Log("UI refreshed with saved inventory on level load");
         }
     }

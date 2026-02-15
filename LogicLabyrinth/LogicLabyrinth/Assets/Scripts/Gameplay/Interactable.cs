@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using System.Collections;
+using System.Globalization;
 
 public class Interactable : MonoBehaviour
 {
@@ -12,27 +13,61 @@ public class Interactable : MonoBehaviour
 
     void Start()
     {
-        
+        // Generate a deterministic ID if one wasn't set in the Inspector.
+        // Keep the SAME format that was used when the gate was first collected & saved,
+        // so existing saves in Firebase still match.
         if (string.IsNullOrEmpty(gateID))
         {
             gateID = $"{gateType}_{gameObject.name}_{transform.position.x}_{transform.position.y}_{transform.position.z}";
         }
 
-        
+        Debug.Log($"[Gate] Start: gateID='{gateID}'");
+
+        // ── Immediate check (frame 0) — no delay ──
+        if (IsAlreadyCollected())
+        {
+            Debug.Log($"[Gate] {gateID} already collected — destroying immediately.");
+            Destroy(gameObject);
+            return;
+        }
+
+        // ── Delayed safety-net — catches edge cases where data arrives late ──
         StartCoroutine(CheckIfDestroyedAfterDelay());
+    }
+
+    /// <summary>
+    /// Returns true if this gate's ID is in the player's destroyedGates list.
+    /// Checks both the current gateID and an invariant-culture variant for robustness.
+    /// </summary>
+    private bool IsAlreadyCollected()
+    {
+        if (AccountManager.Instance == null) return false;
+        var player = AccountManager.Instance.GetCurrentPlayer();
+        if (player == null || player.destroyedGates == null) return false;
+
+        if (player.destroyedGates.Contains(gateID))
+            return true;
+
+        // Also try an invariant-culture formatted ID in case saved on a different locale
+        string invariantID = string.Format(CultureInfo.InvariantCulture,
+            "{0}_{1}_{2:F3}_{3:F3}_{4:F3}",
+            gateType, gameObject.name,
+            transform.position.x, transform.position.y, transform.position.z);
+
+        return player.destroyedGates.Contains(invariantID);
     }
 
     private IEnumerator CheckIfDestroyedAfterDelay()
     {
-        
-        yield return new WaitForSeconds(0.5f);
+        // Wait a couple of frames (not 0.5s) — just enough for late-init managers.
+        yield return null;
+        yield return null;
+        yield return null;
 
-        if (AccountManager.Instance != null &&
-            AccountManager.Instance.GetCurrentPlayer() != null &&
-            AccountManager.Instance.GetCurrentPlayer().destroyedGates.Contains(gateID))
+        if (IsAlreadyCollected())
         {
-            Destroy(gameObject); 
-            Debug.Log($"Gate {gateID} was already collected - destroyed on load");
+            Debug.Log($"[Gate] {gateID} found in destroyedGates (delayed check) — destroying.");
+            Destroy(gameObject);
         }
     }
 
@@ -60,7 +95,7 @@ public class Interactable : MonoBehaviour
         if (AccountManager.Instance != null && AccountManager.Instance.GetCurrentPlayer() != null)
         {
             AccountManager.Instance.GetCurrentPlayer().destroyedGates.Add(gateID);
-            Debug.Log($"Marked gate {gateID} as destroyed");
+            Debug.Log($"[Gate] Marked gate {gateID} as destroyed (destroyedGates count: {AccountManager.Instance.GetCurrentPlayer().destroyedGates.Count})");
         }
 
         

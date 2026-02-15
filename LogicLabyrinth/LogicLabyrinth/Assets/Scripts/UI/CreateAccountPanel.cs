@@ -25,10 +25,12 @@ public class CreateAccountPanel : MonoBehaviour
 
     void Start()
     {
+        // Replace entire onClick to clear any Inspector-wired persistent listeners (e.g. ExecuteFinalSignUp)
+        createButton.onClick = new Button.ButtonClickedEvent();
         createButton.onClick.AddListener(OnCreateClicked);
+
         backButton.onClick.AddListener(OnBackClicked);
 
-        
         InitializeSecurityQuestions();
     }
 
@@ -84,114 +86,116 @@ public class CreateAccountPanel : MonoBehaviour
     {
         Debug.Log("=== CREATE ACCOUNT CLICKED ===");
 
-        string username = usernameField.text.Trim();
-        string password = passwordField.text;
-        string confirmPassword = confirmPasswordField.text;
+        string username = usernameField != null ? usernameField.text.Trim() : "";
+        string password = passwordField != null ? passwordField.text : "";
+        string confirmPassword = confirmPasswordField != null ? confirmPasswordField.text : "";
 
         // 1. CLEAR PREVIOUS MESSAGES
         ShowMessage("", false);
         ShowPasswordMessage("", false);
         CloseValidationPopup();
 
-        // 2. INPUT VALIDATIONS (The logic you were worried about)
+        // 2. INPUT VALIDATIONS — use shared SignUpValidator
         if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password) || string.IsNullOrEmpty(confirmPassword))
         {
-            ShowValidationPopup("Please fill in all fields");
+            ShowValidationPopup("Please fill in all fields!");
             return;
         }
 
-        string usernameError = GetUsernameError(username);
+        // Username validation (length, allowed chars, profanity)
+        string usernameError = SignUpValidator.ValidateUsername(username);
         if (!string.IsNullOrEmpty(usernameError))
         {
             ShowValidationPopup(usernameError);
             return;
         }
 
+        // Password validation (8-20 chars, letters+numbers, no specials)
+        string passwordError = SignUpValidator.ValidatePassword(password);
+        if (!string.IsNullOrEmpty(passwordError))
+        {
+            ShowValidationPopup(passwordError);
+            return;
+        }
+
         if (password != confirmPassword)
         {
-            ShowValidationPopup("Passwords don't match");
+            ShowValidationPopup("Passwords don't match!");
             return;
         }
 
         if (securityQuestionDropdown != null && securityQuestionDropdown.value == 0)
         {
-            ShowValidationPopup("Please select a security question");
+            ShowValidationPopup("Please select a security question!");
+            return;
+        }
+
+        if (securityAnswerField != null && string.IsNullOrEmpty(securityAnswerField.text.Trim()))
+        {
+            ShowValidationPopup("Please fill in your security answer!");
             return;
         }
 
         if (termsToggle != null && !termsToggle.isOn)
         {
-            ShowValidationPopup("You must agree to the terms and conditions");
+            ShowValidationPopup("You must agree to the Terms and Conditions!");
             return;
         }
 
         Debug.Log("ALL VALIDATIONS PASSED - Calling AccountManager");
 
-        // 3. FIREBASE CALL (Wrapped in Action callback to fix CS0029 & CS7036)
+        // Collect all fields
+        string secQuestion = (securityQuestionDropdown != null && securityQuestionDropdown.value > 0)
+            ? securityQuestionDropdown.options[securityQuestionDropdown.value].text
+            : "";
+        string secAnswer = securityAnswerField != null ? securityAnswerField.text.Trim() : "";
+        string gender = (genderDropdown != null && genderDropdown.value > 0)
+            ? genderDropdown.options[genderDropdown.value].text
+            : "";
+        string age = (ageDropdown != null && ageDropdown.value > 0)
+            ? ageDropdown.options[ageDropdown.value].text
+            : "";
+
+        Debug.Log($"[CreateAccountPanel] Sending: user={username}, secQ={secQuestion}, secA={secAnswer}, gender={gender}, age={age}");
+
+        // Disable button to prevent double-clicks
+        if (createButton != null) createButton.interactable = false;
+
+        // 3. FIREBASE CALL — creates Auth user + saves all data
         AccountManager.Instance.CreateAccountWithSecurity(
             username,
             password,
-            securityQuestionDropdown.options[securityQuestionDropdown.value].text,
-            securityAnswerField.text.Trim(),
-            (success) => { // Dito papasok ang resulta galing Firebase
+            secQuestion,
+            secAnswer,
+            gender,
+            age,
+            (success, message) => {
+
+                // Re-enable button
+                if (createButton != null) createButton.interactable = true;
 
                 if (success)
                 {
                     Debug.Log("SUCCESS: Account created!");
-                    ShowMessage("Account created successfully!", false);
 
-                    // AUTO-LOGIN CALL
-                    AccountManager.Instance.Login(username, password, (loginSuccess) => {
-                        if (loginSuccess)
-                        {
-                            Debug.Log("SUCCESS: Auto-login worked");
-                            Invoke("GoToMainMenu", 2f);
-                        }
-                        else
-                        {
-                            Debug.Log("WARNING: Auto-login failed");
-                            Invoke("GoToLogin", 2f);
-                        }
-                    });
+                    // Go straight to LoggedIn panel
+                    if (UIManager.Instance != null)
+                    {
+                        UIManager.Instance.ShowMainMenu();
+                    }
                 }
                 else
                 {
-                    Debug.Log("FAILED: Account creation failed");
-                    ShowValidationPopup("Username already exists or Database error");
+                    Debug.Log("FAILED: " + message);
+                    ShowValidationPopup(message);
                 }
             }
         );
     }
 
 
-    private string GetUsernameError(string username)
-    {
-        if (username.Length < 3)
-            return "Username must be at least 3 characters";
-
-        if (username.Length > 20)
-            return "Username must be less than 20 characters";
-
-        
-        foreach (char c in username)
-        {
-            if (!char.IsLetterOrDigit(c) && c != '_' && c != '-' && c != '.')
-            {
-                return "Username can only contain letters, numbers, _ , - , .";
-            }
-        }
-
-        return "";
-    }
-
-    
-    private string GetPasswordError(string password)
-    {
-        if (password.Length < 4)
-            return "Password must be at least 4 characters";
-
-        return "";
-    }
+    // Validation is now handled by the shared SignUpValidator class.
+    // See Assets/Scripts/Utils/SignUpValidator.cs
 
     void OnBackClicked()
     {
