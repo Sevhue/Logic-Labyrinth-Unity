@@ -1,6 +1,11 @@
 fileFormatVersion: 2
-guid: 06dd558ce56b5ae4fbad35e8b90c9151
+<<<<<<<< Updated upstream:LogicLabyrinth/LogicLabyrinth/Assets/Firebase/m2repository/com/google/firebase/firebase-app-unity/13.7.0/firebase-app-unity-13.7.0.pom.private.0.meta
+guid: 489b1f841260af84a8d180866dd75df6
 DefaultImporter:
+========
+guid: ba680f53ad17255459fd275884659743
+PrefabImporter:
+>>>>>>>> Stashed changes:LogicLabyrinth/LogicLabyrinth/Assets/Firebase/m2repository/com/google/firebase/firebase-auth-unity/13.7.0/ForgotPasswoord/ForgotPasswordPanel.prefab.meta
   externalObjects: {}
   userData: 
   assetBundleName: 
