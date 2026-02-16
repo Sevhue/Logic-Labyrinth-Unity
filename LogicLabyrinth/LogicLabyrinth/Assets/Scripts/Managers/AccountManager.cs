@@ -41,6 +41,9 @@ public class AccountManager : MonoBehaviour
         // Format: "AND,OR,NOT,OR,NOT" — one entry per spawn point in order.
         public string savedGateLayout = "";
 
+        // Profile picture name (matches a file in Resources/ProfilePictures/)
+        public string profilePicture = "image-removebg-preview";
+
         public PlayerData(string user, string pass)
         {
             this.username = user;
@@ -408,7 +411,8 @@ public class AccountManager : MonoBehaviour
         {
             { "username", currentPlayer.username ?? "Unknown" },
             { "lastCompletedLevel", currentPlayer.lastCompletedLevel },
-            { "puzzlesCompleted", currentPlayer.completedPuzzles != null ? currentPlayer.completedPuzzles.Count : 0 }
+            { "puzzlesCompleted", currentPlayer.completedPuzzles != null ? currentPlayer.completedPuzzles.Count : 0 },
+            { "profilePicture", currentPlayer.profilePicture ?? "image-removebg-preview" }
         };
 
         dbRef.Child("leaderboard").Child(userId).UpdateChildrenAsync(leaderboardData).ContinueWithOnMainThread(task => {

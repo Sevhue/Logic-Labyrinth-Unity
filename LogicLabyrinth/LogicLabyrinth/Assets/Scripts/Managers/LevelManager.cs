@@ -489,17 +489,9 @@ public class LevelManager : MonoBehaviour
 
     public bool CanAccessLevel(int level)
     {
-        var player = AccountManager.Instance?.GetCurrentPlayer();
-
-        
-        if (level == 2)
-        {
-            Debug.Log("PRESENTATION MODE: Level 2 unlocked!");
-            return true;
-        }
-
-       
-        return player != null && level <= player.unlockedLevels;
+        // DEV MODE: All levels unlocked for testing
+        Debug.Log($"DEV MODE: Level {level} unlocked!");
+        return true;
     }
 
 

@@ -49,6 +49,7 @@ public class UIManager : MonoBehaviour
 
     [Header("Level Selection")]
     public GameObject levelSelectionPanel;
+    public GameObject levelSelectionPanel2; // New LevelSelection2.0 panel with chapter sub-panels
 
     [Header("StoryBoard")]
     public GameObject storyBoardPanel;
@@ -70,6 +71,9 @@ public class UIManager : MonoBehaviour
     [Header("Validation Popup")]
     public GameObject validationPopup; 
     public TMP_Text validationMessageText;
+
+    [Header("Profile Selection")]
+    public GameObject profileSelectionPanel;
 
     private GameObject playerObject;
     private bool isInitialized = false;
@@ -126,6 +130,7 @@ public class UIManager : MonoBehaviour
         FindPlayerObject();
         AutoFindInteractPrompt();
         WireLogoutButtonToPopup();
+        WireLoggedInPanelButtons();
 
         if (AccountManager.Instance != null && AccountManager.Instance.GetCurrentPlayer() != null)
         {
@@ -237,6 +242,7 @@ public class UIManager : MonoBehaviour
 
         // Level Selection
         if (source.levelSelectionPanel != null) levelSelectionPanel = source.levelSelectionPanel;
+        if (source.levelSelectionPanel2 != null) levelSelectionPanel2 = source.levelSelectionPanel2;
 
         // StoryBoard
         if (source.storyBoardPanel != null) storyBoardPanel = source.storyBoardPanel;
@@ -258,6 +264,9 @@ public class UIManager : MonoBehaviour
         // Validation Popup
         if (source.validationPopup != null) validationPopup = source.validationPopup;
         if (source.validationMessageText != null) validationMessageText = source.validationMessageText;
+
+        // Profile Selection
+        if (source.profileSelectionPanel != null) profileSelectionPanel = source.profileSelectionPanel;
 
         Debug.Log($"[UIManager] Scene references transferred. loggedInPanel={loggedInPanel != null}, menuCamera={menuCamera != null}, mainLoginPanel={mainLoginPanel != null}");
     }
@@ -437,8 +446,150 @@ public class UIManager : MonoBehaviour
     public void ShowAccountProfilePanel()
     {
         HideAllPanels();
-        if (accountProfilePanel != null) accountProfilePanel.SetActive(true);
+        if (accountProfilePanel != null)
+        {
+            accountProfilePanel.SetActive(true);
+            WireAccountProfilePanelButtons();
+        }
         SetCursorState(false);
+
+        // Refresh the profile picture display
+        if (ProfileManager.Instance != null)
+        {
+            ProfileManager.Instance.LoadCurrentProfileFromPlayer();
+            ProfileManager.Instance.RefreshProfileDisplay();
+        }
+    }
+
+    /// <summary>
+    /// Wires the BackButton (and other buttons) in AccountProfilePanel at runtime.
+    /// </summary>
+    private void WireAccountProfilePanelButtons()
+    {
+        if (accountProfilePanel == null) return;
+
+        // Wire the Back button — revert pending changes and go back
+        // The prefab uses "back" as the name, but some scenes may use "BackButton"
+        Button backBtn = FindButtonRecursive(accountProfilePanel.transform, "back");
+        if (backBtn == null)
+            backBtn = FindButtonRecursive(accountProfilePanel.transform, "BackButton");
+        if (backBtn != null)
+        {
+            backBtn.onClick.RemoveAllListeners();
+            backBtn.onClick.AddListener(() =>
+            {
+                // Revert any unsaved profile picture change before leaving
+                if (ProfileManager.Instance != null)
+                    ProfileManager.Instance.RevertPendingChanges();
+
+                ShowMainMenu();
+            });
+            Debug.Log("[UIManager] Wired AccountProfilePanel BackButton (revert + ShowMainMenu).");
+        }
+        else
+        {
+            Debug.LogWarning("[UIManager] BackButton not found in AccountProfilePanel hierarchy!");
+        }
+
+        // Wire the Save button — it's "Gender (1)" in the prefab hierarchy
+        WireSaveButton();
+    }
+
+    /// <summary>
+    /// Finds the Save button in the AccountProfilePanel (named "Gender (1)" in the prefab)
+    /// and wires it to commit pending profile changes.
+    /// </summary>
+    private void WireSaveButton()
+    {
+        if (accountProfilePanel == null) return;
+
+        // The save button is "Gender (1)" inside Profile — find it recursively
+        Transform saveTransform = FindChildRecursive(accountProfilePanel.transform, "Gender (1)");
+        if (saveTransform == null)
+        {
+            Debug.LogWarning("[UIManager] Save button ('Gender (1)') not found in AccountProfilePanel!");
+            return;
+        }
+
+        // Add Button component if missing
+        Button saveBtn = saveTransform.GetComponent<Button>();
+        if (saveBtn == null)
+        {
+            saveBtn = saveTransform.gameObject.AddComponent<Button>();
+            // Set the target graphic so we get visual feedback
+            Image img = saveTransform.GetComponent<Image>();
+            if (img != null) saveBtn.targetGraphic = img;
+        }
+
+        saveBtn.onClick.RemoveAllListeners();
+        saveBtn.onClick.AddListener(() =>
+        {
+            // Save the pending profile picture change
+            if (ProfileManager.Instance != null)
+                ProfileManager.Instance.SavePendingChanges();
+
+            Debug.Log("[UIManager] Save button clicked — profile changes committed.");
+        });
+
+        // Give it a nice color tint transition
+        saveBtn.transition = Selectable.Transition.ColorTint;
+        ColorBlock colors = saveBtn.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(0.9f, 0.9f, 0.7f, 1f);
+        colors.pressedColor = new Color(0.7f, 0.7f, 0.5f, 1f);
+        saveBtn.colors = colors;
+
+        Debug.Log("[UIManager] Wired Save button in AccountProfilePanel.");
+    }
+
+    /// <summary>
+    /// Recursively searches for a child transform by name.
+    /// </summary>
+    private Transform FindChildRecursive(Transform parent, string childName)
+    {
+        foreach (Transform child in parent)
+        {
+            if (child.name == childName) return child;
+            Transform found = FindChildRecursive(child, childName);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Recursively searches for a Button component on a child with the given name.
+    /// </summary>
+    private Button FindButtonRecursive(Transform parent, string childName)
+    {
+        foreach (Transform child in parent)
+        {
+            if (child.name == childName)
+            {
+                Button btn = child.GetComponent<Button>();
+                if (btn != null) return btn;
+            }
+            Button found = FindButtonRecursive(child, childName);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    public void ShowProfileSelectionPanel()
+    {
+        if (profileSelectionPanel != null)
+            profileSelectionPanel.SetActive(true);
+
+        if (ProfileManager.Instance != null)
+            ProfileManager.Instance.OpenSelectionPanel();
+    }
+
+    public void HideProfileSelectionPanel()
+    {
+        if (profileSelectionPanel != null)
+            profileSelectionPanel.SetActive(false);
+
+        if (ProfileManager.Instance != null)
+            ProfileManager.Instance.CloseSelectionPanel();
     }
 
     public void ShowLeaderboardsPanel()
@@ -505,6 +656,52 @@ public class UIManager : MonoBehaviour
             logoutBtn.onClick.RemoveAllListeners();
             logoutBtn.onClick.AddListener(OnLogoutButton);
             Debug.Log("[UIManager] Wired LogoutButton to show confirmation popup.");
+        }
+    }
+
+    /// <summary>
+    /// Wires all buttons in LoggedInPanel that have no persistent onClick listeners.
+    /// </summary>
+    private void WireLoggedInPanelButtons()
+    {
+        if (loggedInPanel == null) return;
+
+        // Wire AccountsProfileButton → ShowAccountProfilePanel
+        WireButtonByName(loggedInPanel, "AccountsProfileButton", ShowAccountProfilePanel, "ShowAccountProfilePanel");
+
+        // Wire NewGameButton → ShowStoryBoardPanel (new game starts with the story)
+        WireButtonByName(loggedInPanel, "NewGameButton", ShowStoryBoardPanel, "ShowStoryBoardPanel");
+
+        // Wire ContinueButton → ShowLevelSelection (continue from where they left off)
+        WireButtonByName(loggedInPanel, "ContinueButton", ShowLevelSelection, "ShowLevelSelection");
+
+        // Wire LeaderboardsButton → ShowLeaderboardsPanel
+        WireButtonByName(loggedInPanel, "LeaderboardsButton", ShowLeaderboardsPanel, "ShowLeaderboardsPanel");
+    }
+
+    /// <summary>
+    /// Helper to wire a button by its GameObject name inside a parent panel.
+    /// Only wires if the button has no existing persistent listeners.
+    /// </summary>
+    private void WireButtonByName(GameObject parent, string buttonName, UnityEngine.Events.UnityAction action, string actionName)
+    {
+        Transform btnTransform = parent.transform.Find(buttonName);
+        if (btnTransform == null)
+        {
+            Debug.LogWarning($"[UIManager] {buttonName} not found in {parent.name}.");
+            return;
+        }
+
+        Button btn = btnTransform.GetComponent<Button>();
+        if (btn != null)
+        {
+            // Only wire if there are no persistent listeners
+            if (btn.onClick.GetPersistentEventCount() == 0)
+            {
+                btn.onClick.RemoveAllListeners();
+                btn.onClick.AddListener(action);
+                Debug.Log($"[UIManager] Wired {buttonName} → {actionName}");
+            }
         }
     }
 
@@ -576,10 +773,48 @@ public class UIManager : MonoBehaviour
 
     public void ShowLevelSelection()
     {
+        // Now redirects to StoryBoardPanel (chapter selection) so users pick a chapter first
         HideAllPanels();
-        if (levelSelectionPanel != null) levelSelectionPanel.SetActive(true);
+        if (storyBoardPanel != null)
+        {
+            storyBoardPanel.SetActive(true);
+            Debug.Log("Showing StoryBoardPanel (chapter selection) for level selection");
+        }
+        else if (levelSelectionPanel != null)
+        {
+            levelSelectionPanel.SetActive(true);
+            Debug.Log("Fallback: Showing old LevelSelectionPanel");
+        }
         SetCursorState(false);
-        Debug.Log("Showing LevelSelectionPanel");
+    }
+
+    /// <summary>
+    /// Shows the level selection panel for a specific chapter.
+    /// Called by StoryBoardManager when a chapter button is clicked.
+    /// </summary>
+    public void ShowLevelSelectionForChapter(int chapterNumber)
+    {
+        HideAllPanels();
+
+        if (LevelSelectionController.Instance != null)
+        {
+            LevelSelectionController.Instance.ShowChapter(chapterNumber);
+        }
+        else if (levelSelectionPanel2 != null)
+        {
+            // Fallback: activate the panel and let the controller auto-find chapters
+            levelSelectionPanel2.SetActive(true);
+            var controller = levelSelectionPanel2.GetComponent<LevelSelectionController>();
+            if (controller != null)
+                controller.ShowChapter(chapterNumber);
+        }
+        else
+        {
+            Debug.LogWarning("[UIManager] LevelSelectionPanel2 not found! Cannot show chapter levels.");
+        }
+
+        SetCursorState(false);
+        Debug.Log($"Showing Level Selection for Chapter {chapterNumber}");
     }
 
     public void ShowStoryBoardPanel()
@@ -745,6 +980,7 @@ public class UIManager : MonoBehaviour
         if (createAccountPanel != null) createAccountPanel.SetActive(false);
         if (optionsPanel != null) optionsPanel.SetActive(false);
         if (levelSelectionPanel != null) levelSelectionPanel.SetActive(false);
+        if (levelSelectionPanel2 != null) levelSelectionPanel2.SetActive(false);
         if (storyBoardPanel != null) storyBoardPanel.SetActive(false);
 
         if (mainLoginPanel != null) mainLoginPanel.SetActive(false);
@@ -756,6 +992,8 @@ public class UIManager : MonoBehaviour
         // Sign-up sub-panels
         if (credentialsPanel != null) credentialsPanel.SetActive(false);
         if (detailsPanel != null) detailsPanel.SetActive(false);
+
+        if (profileSelectionPanel != null) profileSelectionPanel.SetActive(false);
 
         if (gameUI != null) gameUI.SetActive(false);
         if (puzzleUI != null) puzzleUI.SetActive(false);

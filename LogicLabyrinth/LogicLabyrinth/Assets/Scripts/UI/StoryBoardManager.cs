@@ -22,8 +22,12 @@ public class StoryBoardManager : MonoBehaviour
     [Header("Back Button")]
     public Button backButton;
 
-    // Levels per chapter: Chapter 1 = Levels 1-5, Chapter 2 = 6-10, etc.
-    private const int LEVELS_PER_CHAPTER = 5;
+    // Updated chapter → level mapping:
+    // Chapter 1 = Levels 1-4, Chapter 2 = Levels 5-8,
+    // Chapter 3 = Levels 9-12, Chapter 4 = Levels 13-15
+    private static readonly int[] chapterStartLevel = { 1, 5, 9, 13 };
+    private static readonly int[] chapterLevelCount = { 4, 4, 4, 3 };
+
     private Coroutine hideWarningCoroutine;
 
     void OnEnable()
@@ -54,7 +58,7 @@ public class StoryBoardManager : MonoBehaviour
     {
         int unlockedChapter = GetUnlockedChapter();
 
-        // Chapter 1 is always unlocked for a new game
+        // Chapter 1 is always unlocked
         SetChapterLocked(2, unlockedChapter < 2);
         SetChapterLocked(3, unlockedChapter < 3);
         SetChapterLocked(4, unlockedChapter < 4);
@@ -62,18 +66,8 @@ public class StoryBoardManager : MonoBehaviour
 
     private int GetUnlockedChapter()
     {
-        var player = AccountManager.Instance?.GetCurrentPlayer();
-        if (player == null)
-            return 1; // Default: only chapter 1
-
-        // Determine which chapter the player has unlocked based on their progress
-        // Chapter 1 = Levels 1-5, Chapter 2 = Levels 6-10, etc.
-        int unlockedLevels = player.unlockedLevels;
-
-        if (unlockedLevels > LEVELS_PER_CHAPTER * 3) return 4;
-        if (unlockedLevels > LEVELS_PER_CHAPTER * 2) return 3;
-        if (unlockedLevels > LEVELS_PER_CHAPTER * 1) return 2;
-        return 1;
+        // DEV MODE: All chapters unlocked for testing
+        return 4;
     }
 
     private void SetChapterLocked(int chapter, bool locked)
@@ -98,32 +92,20 @@ public class StoryBoardManager : MonoBehaviour
     }
 
     // --- Button Handlers ---
+    // Now opens the level selection panel for the chapter instead of directly loading a level.
 
     public void OnChapter1Clicked()
     {
-        Debug.Log("Chapter 1 selected - Loading Level 1");
-
-        // Reset progress for new game
-        if (LevelManager.Instance != null)
-        {
-            LevelManager.Instance.StartNewGame();
-        }
-        else
-        {
-            Debug.LogWarning("LevelManager not found! Loading Level1 scene directly.");
-            UnityEngine.SceneManagement.SceneManager.LoadScene("Level1");
-        }
+        Debug.Log("Chapter 1 selected — showing level selection");
+        OpenChapterLevelSelection(1);
     }
 
     public void OnChapter2Clicked()
     {
         if (IsChapterUnlocked(2))
         {
-            Debug.Log("Chapter 2 selected - Loading Level 6");
-            if (LevelManager.Instance != null)
-            {
-                LevelManager.Instance.LoadLevelFromSelection(LEVELS_PER_CHAPTER + 1);
-            }
+            Debug.Log("Chapter 2 selected — showing level selection");
+            OpenChapterLevelSelection(2);
         }
         else
         {
@@ -135,11 +117,8 @@ public class StoryBoardManager : MonoBehaviour
     {
         if (IsChapterUnlocked(3))
         {
-            Debug.Log("Chapter 3 selected - Loading Level 11");
-            if (LevelManager.Instance != null)
-            {
-                LevelManager.Instance.LoadLevelFromSelection(LEVELS_PER_CHAPTER * 2 + 1);
-            }
+            Debug.Log("Chapter 3 selected — showing level selection");
+            OpenChapterLevelSelection(3);
         }
         else
         {
@@ -151,15 +130,27 @@ public class StoryBoardManager : MonoBehaviour
     {
         if (IsChapterUnlocked(4))
         {
-            Debug.Log("Chapter 4 selected - Loading Level 16");
-            if (LevelManager.Instance != null)
-            {
-                LevelManager.Instance.LoadLevelFromSelection(LEVELS_PER_CHAPTER * 3 + 1);
-            }
+            Debug.Log("Chapter 4 selected — showing level selection");
+            OpenChapterLevelSelection(4);
         }
         else
         {
             ShowLockedMessage("Finish Chapter 3 first!");
+        }
+    }
+
+    /// <summary>
+    /// Opens the LevelSelection2.0 panel for a specific chapter.
+    /// </summary>
+    private void OpenChapterLevelSelection(int chapterNumber)
+    {
+        if (UIManager.Instance != null)
+        {
+            UIManager.Instance.ShowLevelSelectionForChapter(chapterNumber);
+        }
+        else
+        {
+            Debug.LogWarning("[StoryBoard] UIManager not found!");
         }
     }
 
