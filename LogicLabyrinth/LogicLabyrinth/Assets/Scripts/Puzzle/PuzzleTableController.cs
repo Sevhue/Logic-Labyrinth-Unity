@@ -87,10 +87,11 @@ public class PuzzleTableController : MonoBehaviour
 
     void Update()
     {
-        // ESC to close puzzle
+        // ESC to close puzzle (blocked while tutorial dialogue is playing)
         if (Input.GetKeyDown(KeyCode.Escape))
         {
-            ClosePuzzle();
+            if (!CutsceneController.IsTableDialogueActive)
+                ClosePuzzle();
         }
     }
 
@@ -126,6 +127,13 @@ public class PuzzleTableController : MonoBehaviour
 
     public void ClosePuzzle()
     {
+        // Block closing while first-time tutorial dialogue is playing
+        if (CutsceneController.IsTableDialogueActive)
+        {
+            Debug.Log("[PuzzleTable] Cannot close — tutorial dialogue still playing.");
+            return;
+        }
+
         // Return any placed gates to inventory (don't actually consume them)
         foreach (var slot in dropSlots)
         {

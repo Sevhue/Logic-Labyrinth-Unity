@@ -18,9 +18,9 @@ public class LevelSelectionController : MonoBehaviour
     public GameObject chapter4Panel;
 
     // Chapter → Level mapping
-    // Chapter 1: Levels 1-4, Chapter 2: Levels 5-7, Chapter 3: Levels 9-12, Chapter 4: Levels 13-15
+    // Chapter 1: Levels 1-4, Chapter 2: Levels 5-8, Chapter 3: Levels 9-12, Chapter 4: Levels 13-16
     private static readonly int[] chapterStartLevel = { 1, 5, 9, 13 };
-    private static readonly int[] chapterLevelCount = { 4, 3, 4, 3 };
+    private static readonly int[] chapterLevelCount = { 4, 4, 4, 4 };
 
     // Colors
     private readonly Color unlockedColor = new Color(0.85f, 0.75f, 0.55f, 1f); // Gold/parchment

@@ -41,8 +41,40 @@ public class InteractiveTable : MonoBehaviour
             originalMaterial = tableRenderer.material;
     }
 
+    /// <summary>
+    /// Max distance from the camera to the table for mouse interaction.
+    /// Matches SimpleGateCollector.interactDistance.
+    /// </summary>
+    private const float MAX_INTERACT_DISTANCE = 5f;
+
+    /// <summary>
+    /// Returns true if interaction is blocked (cutscene, too far, paused, etc.)
+    /// </summary>
+    private bool IsInteractionBlocked()
+    {
+        // Block during cutscenes
+        if (CutsceneController.IsPlaying || CutsceneController.CameraOnlyMode)
+            return true;
+
+        // Block while paused
+        if (PauseMenuController.IsPaused)
+            return true;
+
+        // Block if too far from the camera
+        Camera cam = Camera.main;
+        if (cam != null)
+        {
+            float dist = Vector3.Distance(cam.transform.position, transform.position);
+            if (dist > MAX_INTERACT_DISTANCE)
+                return true;
+        }
+
+        return false;
+    }
+
     void OnMouseEnter()
     {
+        if (IsInteractionBlocked()) return;
         if (tableRenderer != null && highlightMaterial != null && !isPuzzleOpen)
             tableRenderer.material = highlightMaterial;
     }
@@ -55,7 +87,13 @@ public class InteractiveTable : MonoBehaviour
 
     void OnMouseDown()
     {
-        OpenPuzzleInterface();
+        // Block if cutscene active, too far, paused, etc.
+        if (IsInteractionBlocked()) return;
+
+        // Only allow mouse-click opening if puzzle isn't already open
+        // and PuzzleTableController isn't already active
+        if (!isPuzzleOpen && !PuzzleTableController.IsOpen)
+            OpenPuzzleInterface();
     }
 
     /// <summary>
@@ -71,6 +109,17 @@ public class InteractiveTable : MonoBehaviour
             return;
         }
 
+        // Hide the "Press E" interact prompt immediately
+        var levelUI = FindAnyObjectByType<LevelUIManager>();
+        if (levelUI != null)
+            levelUI.HideInteractPrompt();
+        if (UIManager.Instance != null)
+            UIManager.Instance.ShowInteractPrompt(false);
+
+        // Hide the game inventory bar entirely while puzzle is open
+        if (GameInventoryUI.Instance != null)
+            GameInventoryUI.Instance.gameObject.SetActive(false);
+
         // Ensure an EventSystem exists (required for UI interactions)
         EnsureEventSystem();
 
@@ -80,6 +129,16 @@ public class InteractiveTable : MonoBehaviour
         // Instantiate the puzzle UI
         puzzleUIInstance = Instantiate(puzzleUIPrefab);
         puzzleUIInstance.name = "PuzzleUI_Active";
+
+        // Ensure the UI is active (the prefab may be saved as inactive)
+        puzzleUIInstance.SetActive(true);
+
+        // Ensure puzzle UI Canvas renders above everything (inventory, level UI, etc.)
+        Canvas puzzleCanvas = puzzleUIInstance.GetComponent<Canvas>();
+        if (puzzleCanvas != null)
+        {
+            puzzleCanvas.sortingOrder = 500;
+        }
 
         // Get the PuzzleTableController (should already be on the prefab)
         PuzzleTableController controller = puzzleUIInstance.GetComponent<PuzzleTableController>();
@@ -113,6 +172,9 @@ public class InteractiveTable : MonoBehaviour
 
     private System.Collections.IEnumerator WatchForPuzzleClose()
     {
+        // Wait at least one frame before checking (prevents synchronous completion)
+        yield return null;
+
         // Wait until the puzzle instance is disabled/destroyed
         while (puzzleUIInstance != null && puzzleUIInstance.activeSelf)
         {
@@ -121,6 +183,10 @@ public class InteractiveTable : MonoBehaviour
 
         isPuzzleOpen = false;
         Debug.Log("[InteractiveTable] Puzzle closed!");
+
+        // Restore the game inventory bar
+        if (GameInventoryUI.Instance != null)
+            GameInventoryUI.Instance.gameObject.SetActive(true);
 
         // Clean up
         if (puzzleUIInstance != null)

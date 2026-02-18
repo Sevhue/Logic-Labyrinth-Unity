@@ -5,8 +5,8 @@ public class SimpleGateCollector : MonoBehaviour
 {
     [Header("Interaction")]
     public Camera playerCamera;
-    public float interactDistance = 5f;
-    public float sphereCastRadius = 0.25f;
+    public float interactDistance = 4.5f;
+    public float sphereCastRadius = 0.35f;
 
     [Header("Gate Prefabs (for dropping)")]
     [Tooltip("Assign the same prefabs as the spawner — used when player drops/swaps a gate")]
@@ -14,19 +14,37 @@ public class SimpleGateCollector : MonoBehaviour
     public GameObject orGatePrefab;
     public GameObject notGatePrefab;
 
-    // Current targets
+    // Current targets — only ONE can be active at a time
     private Interactable currentInteractable;
     private InteractiveTable currentTable;
+    private CollectibleKey currentKey;
+    private TutorialDoor currentDoor;
+    private CollectibleCandle currentCandle;
 
     // Cache UI references
     private LevelUIManager _levelUI;
     private UIManager _mainUI;
     private float _uiCacheTimer;
+    private float _debugTableTimer;
 
     void Update()
     {
-        // Skip everything while SwapGateUI or PuzzleTableController is open
-        if (SwapGateUI.IsOpen || PuzzleTableController.IsOpen) return;
+        // Skip everything while SwapGateUI, PuzzleTableController, or Cutscene is active
+        if (SwapGateUI.IsOpen || PuzzleTableController.IsOpen)
+        {
+            HidePrompt();
+            ClearTargets();
+            return;
+        }
+        if (CutsceneController.IsPlaying || CutsceneController.CameraOnlyMode)
+        {
+            HidePrompt();
+            ClearTargets();
+            return;
+        }
+
+        // Tick debug timer
+        if (_debugTableTimer > 0f) _debugTableTimer -= Time.deltaTime;
 
         // Re-cache UI references periodically
         _uiCacheTimer -= Time.deltaTime;
@@ -46,13 +64,80 @@ public class SimpleGateCollector : MonoBehaviour
 
         if (ePressed)
         {
+            Debug.Log($"[SGC] E pressed! gate={currentInteractable != null} table={currentTable != null} key={currentKey != null} door={currentDoor != null} candle={currentCandle != null}");
+
             if (currentInteractable != null)
             {
                 TryCollectGate();
             }
             else if (currentTable != null)
             {
+                Debug.Log($"[SGC] Opening puzzle table: {currentTable.gameObject.name}");
                 currentTable.OpenPuzzleInterface();
+            }
+            else if (currentKey != null)
+            {
+                Debug.Log("[SGC] Collecting key.");
+                currentKey.CollectKey();
+                currentKey = null;
+            }
+            else if (currentCandle != null)
+            {
+                Debug.Log("[SGC] Collecting candle.");
+                currentCandle.CollectCandle();
+                currentCandle = null;
+            }
+            else if (currentDoor != null)
+            {
+                Debug.Log("[SGC] Interacting with door.");
+                currentDoor.TryInteract();
+            }
+            else
+            {
+                // Fallback: Try a direct raycast for tables when SphereCast misses
+                if (playerCamera != null)
+                {
+                    Ray directRay = playerCamera.ScreenPointToRay(new Vector3(Screen.width / 2, Screen.height / 2, 0));
+                    RaycastHit directHit;
+                    if (Physics.Raycast(directRay, out directHit, interactDistance))
+                    {
+                        InteractiveTable directTable = directHit.collider.GetComponent<InteractiveTable>();
+                        if (directTable == null)
+                            directTable = directHit.collider.GetComponentInParent<InteractiveTable>();
+                        if (directTable != null)
+                        {
+                            directTable.OpenPuzzleInterface();
+                        }
+                        else
+                        {
+                            // Also try key, candle, and door via direct raycast
+                            CollectibleKey directKey = directHit.collider.GetComponent<CollectibleKey>();
+                            if (directKey == null) directKey = directHit.collider.GetComponentInParent<CollectibleKey>();
+                            if (directKey != null && !directKey.IsCollected)
+                            {
+                                directKey.CollectKey();
+                            }
+                            else
+                            {
+                                CollectibleCandle directCandle = directHit.collider.GetComponent<CollectibleCandle>();
+                                if (directCandle == null) directCandle = directHit.collider.GetComponentInParent<CollectibleCandle>();
+                                if (directCandle != null && !directCandle.IsCollected)
+                                {
+                                    directCandle.CollectCandle();
+                                }
+                                else
+                                {
+                                    TutorialDoor directDoor = directHit.collider.GetComponent<TutorialDoor>();
+                                    if (directDoor == null) directDoor = directHit.collider.GetComponentInParent<TutorialDoor>();
+                                    if (directDoor != null && !directDoor.IsDoorOpen)
+                                    {
+                                        directDoor.TryInteract();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -67,31 +152,41 @@ public class SimpleGateCollector : MonoBehaviour
         }
     }
 
+    private void ClearTargets()
+    {
+        currentInteractable = null;
+        currentTable = null;
+        currentKey = null;
+        currentDoor = null;
+        currentCandle = null;
+    }
+
     /// <summary>
-    /// Returns true if there is a clear line of sight from the camera to the target
-    /// (no walls/environment blocking). Ignores the target's own colliders.
+    /// Returns true if there is a clear line of sight from the camera to the target.
     /// </summary>
     private bool HasLineOfSight(Vector3 origin, Transform target)
     {
         Vector3 targetPos = target.position;
+        Collider targetCol = target.GetComponent<Collider>();
+        if (targetCol != null)
+            targetPos = targetCol.bounds.center;
+
         Vector3 dir = targetPos - origin;
         float dist = dir.magnitude;
-        if (dist < 0.01f) return true; // Essentially on top of it
+        if (dist < 0.01f) return true;
 
         RaycastHit hit;
-        // Cast a ray toward the target; if the first thing we hit is NOT the target → wall is blocking
         if (Physics.Raycast(origin, dir.normalized, out hit, dist))
         {
-            // Check if we hit the target itself or one of its children
             if (hit.collider.transform == target ||
                 hit.collider.transform.IsChildOf(target) ||
                 target.IsChildOf(hit.collider.transform))
             {
-                return true; // Line of sight is clear
+                return true;
             }
-            return false; // Something else (a wall) is in the way
+            return false;
         }
-        return true; // Nothing blocking
+        return true;
     }
 
     void HandleInteraction()
@@ -102,88 +197,127 @@ public class SimpleGateCollector : MonoBehaviour
 
         Interactable bestInteractable = null;
         InteractiveTable bestTable = null;
+        CollectibleKey bestKey = null;
+        CollectibleCandle bestCandle = null;
+        TutorialDoor bestDoor = null;
+
         float bestDistance = float.MaxValue;
         float bestTableDistance = float.MaxValue;
+        float bestKeyDistance = float.MaxValue;
+        float bestCandleDistance = float.MaxValue;
+        float bestDoorDistance = float.MaxValue;
 
         RaycastHit[] sphereHits = Physics.SphereCastAll(ray, sphereCastRadius, interactDistance);
         for (int i = 0; i < sphereHits.Length; i++)
         {
-            // Overlap case (sphere starts inside collider)
-            if (sphereHits[i].distance == 0f && sphereHits[i].point == Vector3.zero)
+            Transform hitTransform = sphereHits[i].collider.transform;
+            float hitDist = sphereHits[i].distance;
+
+            // ── Check Interactable (gates) ──
+            Interactable interactable = sphereHits[i].collider.GetComponent<Interactable>();
+            if (interactable == null) interactable = sphereHits[i].collider.GetComponentInParent<Interactable>();
+
+            if (interactable != null)
             {
-                // Check for Interactable
-                Interactable overlapInteractable = sphereHits[i].collider.GetComponent<Interactable>();
-                if (overlapInteractable == null)
-                    overlapInteractable = sphereHits[i].collider.GetComponentInParent<Interactable>();
-
-                if (overlapInteractable != null)
+                if (hitDist == 0f)
                 {
-                    Vector3 toGate = (overlapInteractable.transform.position - ray.origin).normalized;
+                    // Overlap: use dot product and actual distance
+                    Vector3 toGate = (interactable.transform.position - ray.origin).normalized;
                     float dot = Vector3.Dot(ray.direction, toGate);
-                    float dist = Vector3.Distance(ray.origin, overlapInteractable.transform.position);
-
-                    // Must be in front, close, AND have line of sight (no walls)
+                    float dist = Vector3.Distance(ray.origin, interactable.transform.position);
                     if (dot > 0.75f && dist < 2f && dist < bestDistance
-                        && HasLineOfSight(ray.origin, overlapInteractable.transform))
+                        && HasLineOfSight(ray.origin, interactable.transform))
                     {
                         bestDistance = dist;
-                        bestInteractable = overlapInteractable;
+                        bestInteractable = interactable;
                     }
                 }
-
-                // Check for InteractiveTable
-                InteractiveTable overlapTable = sphereHits[i].collider.GetComponent<InteractiveTable>();
-                if (overlapTable == null)
-                    overlapTable = sphereHits[i].collider.GetComponentInParent<InteractiveTable>();
-
-                if (overlapTable != null)
+                else if (hitDist < bestDistance && HasLineOfSight(ray.origin, interactable.transform))
                 {
-                    Vector3 toTable = (overlapTable.transform.position - ray.origin).normalized;
-                    float dot = Vector3.Dot(ray.direction, toTable);
-                    float dist = Vector3.Distance(ray.origin, overlapTable.transform.position);
+                    bestDistance = hitDist;
+                    bestInteractable = interactable;
+                }
+            }
 
-                    if (dot > 0.5f && dist < 3f && dist < bestTableDistance
-                        && HasLineOfSight(ray.origin, overlapTable.transform))
+            // ── Check InteractiveTable ──
+            InteractiveTable table = sphereHits[i].collider.GetComponent<InteractiveTable>();
+            if (table == null) table = sphereHits[i].collider.GetComponentInParent<InteractiveTable>();
+
+            if (table != null)
+            {
+                if (hitDist == 0f)
+                {
+                    Vector3 toTable = (table.transform.position - ray.origin).normalized;
+                    float dot = Vector3.Dot(ray.direction, toTable);
+                    float dist = Vector3.Distance(ray.origin, table.transform.position);
+                    if (dot > 0.3f && dist < interactDistance && dist < bestTableDistance
+                        && HasLineOfSight(ray.origin, table.transform))
                     {
                         bestTableDistance = dist;
-                        bestTable = overlapTable;
+                        bestTable = table;
                     }
                 }
-
-                continue;
+                else if (hitDist < bestTableDistance && HasLineOfSight(ray.origin, table.transform))
+                {
+                    bestTableDistance = hitDist;
+                    bestTable = table;
+                }
             }
 
-            // Normal hit — also needs line-of-sight check
-            Interactable interactable = sphereHits[i].collider.GetComponent<Interactable>();
-            if (interactable == null)
-                interactable = sphereHits[i].collider.GetComponentInParent<Interactable>();
+            // ── Check CollectibleKey ──
+            CollectibleKey keyComp = sphereHits[i].collider.GetComponent<CollectibleKey>();
+            if (keyComp == null) keyComp = sphereHits[i].collider.GetComponentInParent<CollectibleKey>();
 
-            if (interactable != null && sphereHits[i].distance < bestDistance
-                && HasLineOfSight(ray.origin, interactable.transform))
+            if (keyComp != null && !keyComp.IsCollected)
             {
-                bestDistance = sphereHits[i].distance;
-                bestInteractable = interactable;
+                float dist = hitDist == 0f ? Vector3.Distance(ray.origin, keyComp.transform.position) : hitDist;
+                if (dist < bestKeyDistance)
+                {
+                    bestKeyDistance = dist;
+                    bestKey = keyComp;
+                }
             }
 
-            InteractiveTable table = sphereHits[i].collider.GetComponent<InteractiveTable>();
-            if (table == null)
-                table = sphereHits[i].collider.GetComponentInParent<InteractiveTable>();
+            // ── Check CollectibleCandle ──
+            CollectibleCandle candleComp = sphereHits[i].collider.GetComponent<CollectibleCandle>();
+            if (candleComp == null) candleComp = sphereHits[i].collider.GetComponentInParent<CollectibleCandle>();
 
-            if (table != null && sphereHits[i].distance < bestTableDistance
-                && HasLineOfSight(ray.origin, table.transform))
+            if (candleComp != null && !candleComp.IsCollected)
             {
-                bestTableDistance = sphereHits[i].distance;
-                bestTable = table;
+                float dist = hitDist == 0f ? Vector3.Distance(ray.origin, candleComp.transform.position) : hitDist;
+                if (dist < bestCandleDistance)
+                {
+                    bestCandleDistance = dist;
+                    bestCandle = candleComp;
+                }
+            }
+
+            // ── Check TutorialDoor ──
+            TutorialDoor doorComp = sphereHits[i].collider.GetComponent<TutorialDoor>();
+            if (doorComp == null) doorComp = sphereHits[i].collider.GetComponentInParent<TutorialDoor>();
+
+            if (doorComp != null && !doorComp.IsDoorOpen)
+            {
+                float dist = hitDist == 0f ? Vector3.Distance(ray.origin, doorComp.transform.position) : hitDist;
+                if (dist < bestDoorDistance)
+                {
+                    bestDoorDistance = dist;
+                    bestDoor = doorComp;
+                }
             }
         }
 
-        // Update prompts
+        // ═══════════════════════════════════════════════
+        //  Update prompts — priority: gate > table > key > door
+        // ═══════════════════════════════════════════════
         if (bestInteractable != null)
         {
             currentInteractable = bestInteractable;
             currentTable = null;
+            currentKey = null;
+            currentCandle = null;
+            currentDoor = null;
 
-            // Show different prompt based on inventory state
             string promptText;
             if (InventoryManager.Instance != null && InventoryManager.Instance.IsInventoryFull())
             {
@@ -194,48 +328,79 @@ public class SimpleGateCollector : MonoBehaviour
             {
                 promptText = bestInteractable.GetInteractionText();
             }
-
-            if (_levelUI != null)
-                _levelUI.ShowInteractPrompt(promptText);
-            else if (_mainUI != null)
-                _mainUI.ShowInteractPrompt(true, promptText);
+            ShowPrompt(promptText);
         }
         else if (bestTable != null)
         {
             currentInteractable = null;
             currentTable = bestTable;
-
-            if (_levelUI != null)
-                _levelUI.ShowInteractPrompt("Press E to open Puzzle Table");
-            else if (_mainUI != null)
-                _mainUI.ShowInteractPrompt(true, "Press E to open Puzzle Table");
+            currentKey = null;
+            currentCandle = null;
+            currentDoor = null;
+            ShowPrompt("Press E to open Puzzle Table");
         }
-        else
+        else if (bestKey != null)
         {
             currentInteractable = null;
             currentTable = null;
-
-            if (_levelUI != null)
-                _levelUI.HideInteractPrompt();
-            else if (_mainUI != null)
-                _mainUI.ShowInteractPrompt(false);
+            currentKey = bestKey;
+            currentCandle = null;
+            currentDoor = null;
+            ShowPrompt("Press E to pick up key");
         }
+        else if (bestCandle != null)
+        {
+            currentInteractable = null;
+            currentTable = null;
+            currentKey = null;
+            currentCandle = bestCandle;
+            currentDoor = null;
+            ShowPrompt("Press E to pick up candle");
+        }
+        else if (bestDoor != null)
+        {
+            currentInteractable = null;
+            currentTable = null;
+            currentKey = null;
+            currentCandle = null;
+            currentDoor = bestDoor;
+            ShowPrompt("Press E to open");
+        }
+        else
+        {
+            ClearTargets();
+            HidePrompt();
+        }
+    }
+
+    private void ShowPrompt(string text)
+    {
+        if (_levelUI != null)
+            _levelUI.ShowInteractPrompt(text);
+        else if (_mainUI != null)
+            _mainUI.ShowInteractPrompt(true, text);
+    }
+
+    private void HidePrompt()
+    {
+        if (_levelUI != null)
+            _levelUI.HideInteractPrompt();
+        else if (_mainUI != null)
+            _mainUI.ShowInteractPrompt(false);
     }
 
     void TryCollectGate()
     {
         if (currentInteractable == null) return;
 
-        // Check if inventory is full → show swap UI
         if (InventoryManager.Instance != null && InventoryManager.Instance.IsInventoryFull())
         {
             Debug.Log("[SimpleGateCollector] Inventory full — showing swap UI.");
             SwapGateUI.ShowSwap(currentInteractable, andGatePrefab, orGatePrefab, notGatePrefab, transform);
-            currentInteractable = null; // Clear so we don't re-trigger
+            currentInteractable = null;
             return;
         }
 
-        // Normal collection
         if (FirstPersonArmAnimator.Instance != null)
             FirstPersonArmAnimator.Instance.PlayCollectAnimation();
 
@@ -245,12 +410,8 @@ public class SimpleGateCollector : MonoBehaviour
 
     void TryDiscardGate()
     {
-        // Can't discard if no gates
         if (InventoryManager.Instance == null || InventoryManager.Instance.GetTotalGateCount() == 0)
-        {
-            Debug.Log("[SimpleGateCollector] No gates to discard.");
             return;
-        }
 
         Debug.Log("[SimpleGateCollector] Opening discard UI.");
         SwapGateUI.ShowDiscard(andGatePrefab, orGatePrefab, notGatePrefab, transform);

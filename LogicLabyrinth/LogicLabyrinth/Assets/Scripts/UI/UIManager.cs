@@ -576,20 +576,27 @@ public class UIManager : MonoBehaviour
 
     public void ShowProfileSelectionPanel()
     {
-        if (profileSelectionPanel != null)
-            profileSelectionPanel.SetActive(true);
-
+        // ProfileManager now handles showing the ProfilePicture prefab directly
         if (ProfileManager.Instance != null)
+        {
             ProfileManager.Instance.OpenSelectionPanel();
+        }
+        else if (profileSelectionPanel != null)
+        {
+            profileSelectionPanel.SetActive(true);
+        }
     }
 
     public void HideProfileSelectionPanel()
     {
-        if (profileSelectionPanel != null)
-            profileSelectionPanel.SetActive(false);
-
         if (ProfileManager.Instance != null)
+        {
             ProfileManager.Instance.CloseSelectionPanel();
+        }
+        else if (profileSelectionPanel != null)
+        {
+            profileSelectionPanel.SetActive(false);
+        }
     }
 
     public void ShowLeaderboardsPanel()
@@ -994,6 +1001,10 @@ public class UIManager : MonoBehaviour
         if (detailsPanel != null) detailsPanel.SetActive(false);
 
         if (profileSelectionPanel != null) profileSelectionPanel.SetActive(false);
+
+        // Also hide the ProfilePicture selector panel
+        if (ProfileManager.Instance != null)
+            ProfileManager.Instance.CloseSelectionPanel();
 
         if (gameUI != null) gameUI.SetActive(false);
         if (puzzleUI != null) puzzleUI.SetActive(false);

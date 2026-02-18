@@ -2,75 +2,86 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections;
+using System.Collections.Generic;
 using StarterAssets;
 
+/// <summary>
+/// Hotbar-style inventory UI with 8 individually selectable slots.
+/// Items (AND/OR/NOT gates, Keys) appear as icons in the slots.
+/// Press 1-8 to select a slot. Selected slot is highlighted with a brighter border.
+/// </summary>
 public class GameInventoryUI : MonoBehaviour
 {
     public static GameInventoryUI Instance { get; private set; }
 
-    // Runtime references (built in code, not serialized)
-    private TextMeshProUGUI andCountText;
-    private TextMeshProUGUI orCountText;
-    private TextMeshProUGUI notCountText;
-    private TextMeshProUGUI andLabelText;
-    private TextMeshProUGUI orLabelText;
-    private TextMeshProUGUI notLabelText;
-    private TextMeshProUGUI totalCountText; // "X/5" display
+    // ═══════════════════════════════════
+    // SLOT DATA
+    // ═══════════════════════════════════
+    public const int SLOT_COUNT = 8;
 
-    private Image andSlotBG;
-    private Image orSlotBG;
-    private Image notSlotBG;
+    /// <summary>Type of item that can occupy a hotbar slot.</summary>
+    public enum ItemType { None, AND, OR, NOT, Key, Candle }
 
+    private ItemType[] slotItems = new ItemType[SLOT_COUNT];
+    private int selectedSlot = 0; // 0-based index of the currently selected slot
+
+    // UI references per slot
+    private GameObject[] slotRoots = new GameObject[SLOT_COUNT];
+    private Image[] slotBorders = new Image[SLOT_COUNT];
+    private Image[] slotBackgrounds = new Image[SLOT_COUNT];
+    private Image[] slotIcons = new Image[SLOT_COUNT];
+    private TextMeshProUGUI[] slotLabels = new TextMeshProUGUI[SLOT_COUNT];
+    private TextMeshProUGUI[] slotNumbers = new TextMeshProUGUI[SLOT_COUNT];
+
+    // Other UI
     private Transform notificationParent;
     private GameObject inventoryBarGO;
+    private GameObject hotbarRoot; // The outer frame
 
-    // ==============================
+    // ═══════════════════════════════════
     // MEDIEVAL COLOR PALETTE
-    // ==============================
-    // Dark brown backgrounds (matching your Container/BG textures)
-    private Color barBGColor       = new Color(0.12f, 0.09f, 0.05f, 0.92f);  // Very dark brown
-    private Color slotBGColor      = new Color(0.16f, 0.12f, 0.07f, 0.90f);  // Dark brown slot
-    private Color slotBorderColor  = new Color(0.65f, 0.52f, 0.28f, 0.80f);  // Gold border
+    // ═══════════════════════════════════
+    private Color barBGColor         = new Color(0.10f, 0.07f, 0.03f, 0.92f);
+    private Color slotBGColor        = new Color(0.14f, 0.10f, 0.05f, 0.92f);
+    private Color slotBorderNormal   = new Color(0.45f, 0.35f, 0.18f, 0.85f);
+    private Color slotBorderSelected = new Color(0.95f, 0.78f, 0.35f, 1f);
+    private Color slotBGSelected     = new Color(0.20f, 0.15f, 0.08f, 0.95f);
+    private Color goldText           = new Color(0.84f, 0.75f, 0.50f, 1f);
+    private Color creamText          = new Color(0.95f, 0.90f, 0.75f, 1f);
+    private Color dimText            = new Color(0.45f, 0.38f, 0.25f, 0.6f);
 
-    // Gold / amber text & accent colors (matching your Cinzel gold text)
-    private Color goldText         = new Color(0.84f, 0.75f, 0.50f, 1f);     // Gold for labels
-    private Color creamText        = new Color(0.95f, 0.90f, 0.75f, 1f);     // Cream for counts
-    private Color goldBorder       = new Color(0.72f, 0.58f, 0.30f, 1f);     // Gold border outline
-    private Color goldBorderDim    = new Color(0.50f, 0.40f, 0.22f, 0.6f);   // Dimmer gold for subtle borders
+    // Gate accent colors
+    private Color andColor    = new Color(0.35f, 0.55f, 0.80f, 1f);
+    private Color orColor     = new Color(0.85f, 0.65f, 0.25f, 1f);
+    private Color notColor    = new Color(0.78f, 0.22f, 0.22f, 1f);
+    private Color keyColor    = new Color(0.95f, 0.82f, 0.30f, 1f);
+    private Color candleColor = new Color(1f, 0.85f, 0.55f, 1f);
 
-    // Gate accent colors (muted medieval tones)
-    private Color andColor  = new Color(0.35f, 0.55f, 0.80f, 1f);   // Royal blue
-    private Color orColor   = new Color(0.85f, 0.65f, 0.25f, 1f);   // Amber/gold
-    private Color notColor  = new Color(0.78f, 0.22f, 0.22f, 1f);   // Crimson/burgundy
-
-    // Notification background
+    // Notification
     private Color notifBGColor = new Color(0.14f, 0.11f, 0.06f, 0.93f);
+    private Color flashColor   = new Color(0.90f, 0.78f, 0.40f, 0.7f);
+    private Color goldBorderDim = new Color(0.50f, 0.40f, 0.22f, 0.6f);
 
-    // Flash color (golden glow instead of white)
-    private Color flashColor = new Color(0.90f, 0.78f, 0.40f, 0.7f);
+    // Stamina
+    private Color staminaBarColor     = new Color(0.90f, 0.55f, 0.10f, 1f);
+    private Color staminaBarLowColor  = new Color(0.90f, 0.25f, 0.10f, 1f);
+    private Color staminaBarBGColor   = new Color(0.10f, 0.08f, 0.04f, 0.85f);
 
-    // Stamina bar colors
-    private Color staminaBarColor     = new Color(0.90f, 0.55f, 0.10f, 1f);   // Orange
-    private Color staminaBarLowColor  = new Color(0.90f, 0.25f, 0.10f, 1f);   // Red-orange when low
-    private Color staminaBarBGColor   = new Color(0.10f, 0.08f, 0.04f, 0.85f); // Very dark brown
-
-    // Stamina UI references
     private Image staminaFillImage;
     private GameObject staminaBarRoot;
     private FirstPersonController fpsController;
     private CanvasGroup staminaCanvasGroup;
-    private float staminaBarAlpha = 0f; // For fade in/out
+    private float staminaBarAlpha = 0f;
 
-    // Cached font
     private TMP_FontAsset medievalFont;
+
+    // ═══════════════════════════════════
+    // LIFECYCLE
+    // ═══════════════════════════════════
 
     void Awake()
     {
-        if (Instance != null && Instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
     }
 
@@ -83,124 +94,252 @@ public class GameInventoryUI : MonoBehaviour
 
     void Update()
     {
+        HandleNumberKeyInput();
         UpdateStaminaBar();
     }
 
     void OnDestroy()
     {
-        if (Instance == this)
-            Instance = null;
+        if (Instance == this) Instance = null;
+    }
+
+    // ═══════════════════════════════════
+    // NUMBER KEY INPUT (1-8)
+    // ═══════════════════════════════════
+
+    private void HandleNumberKeyInput()
+    {
+        // Block input during UI/cutscene
+        if (PuzzleTableController.IsOpen || PauseMenuController.IsPaused ||
+            CutsceneController.IsPlaying || CutsceneController.CameraOnlyMode)
+            return;
+
+        for (int i = 0; i < SLOT_COUNT; i++)
+        {
+            if (Input.GetKeyDown(KeyCode.Alpha1 + i))
+            {
+                SelectSlot(i);
+                break;
+            }
+        }
+    }
+
+    public void SelectSlot(int index)
+    {
+        if (index < 0 || index >= SLOT_COUNT) return;
+
+        // Check if we're de-selecting a candle slot (unequip)
+        if (selectedSlot >= 0 && selectedSlot < SLOT_COUNT && slotItems[selectedSlot] == ItemType.Candle)
+        {
+            if (index != selectedSlot)
+                CollectibleCandle.Unequip();
+        }
+
+        selectedSlot = index;
+        UpdateSlotVisuals();
+
+        // If new selection is a candle, equip it
+        if (slotItems[index] == ItemType.Candle)
+        {
+            CollectibleCandle.Equip();
+        }
+
+        Debug.Log($"[Hotbar] Selected slot {index + 1}: {slotItems[index]}");
+    }
+
+    public ItemType GetSelectedItem()
+    {
+        return slotItems[selectedSlot];
+    }
+
+    public int GetSelectedSlotIndex() => selectedSlot;
+
+    // ═══════════════════════════════════
+    // PUBLIC API (InventoryManager calls these)
+    // ═══════════════════════════════════
+
+    /// <summary>
+    /// Rebuild slot contents from InventoryManager gate counts + key state.
+    /// Called when gate counts change.
+    /// </summary>
+    public void UpdateCounts(int andCount, int orCount, int notCount)
+    {
+        RebuildSlots(andCount, orCount, notCount);
+    }
+
+    public void RefreshFromInventory()
+    {
+        if (InventoryManager.Instance != null)
+        {
+            UpdateCounts(
+                InventoryManager.Instance.GetGateCount("AND"),
+                InventoryManager.Instance.GetGateCount("OR"),
+                InventoryManager.Instance.GetGateCount("NOT")
+            );
+        }
+    }
+
+    public void OnGateCollected(string gateType)
+    {
+        RefreshFromInventory();
+
+        // Flash the slot that just received this gate
+        int slotIndex = FindLastSlotOf(StringToItemType(gateType));
+        if (slotIndex >= 0) FlashSlot(slotIndex);
+
+        ShowNotification(gateType);
     }
 
     /// <summary>
-    /// Loads the Cinzel TMP font from Resources to match the medieval theme.
+    /// Call when a key is picked up to add it to the hotbar.
     /// </summary>
+    public void OnKeyCollected()
+    {
+        RefreshFromInventory(); // Will include key in rebuild
+        int slotIndex = FindLastSlotOf(ItemType.Key);
+        if (slotIndex >= 0) FlashSlot(slotIndex);
+        ShowNotification("KEY");
+    }
+
+    /// <summary>
+    /// Call when a candle is picked up to add it to the hotbar.
+    /// </summary>
+    public void OnCandleCollected()
+    {
+        RefreshFromInventory();
+        int slotIndex = FindLastSlotOf(ItemType.Candle);
+        if (slotIndex >= 0) FlashSlot(slotIndex);
+        ShowNotification("CANDLE");
+    }
+
+    // ═══════════════════════════════════
+    // SLOT MANAGEMENT
+    // ═══════════════════════════════════
+
+    /// <summary>
+    /// Rebuild all 8 slot items from current inventory state.
+    /// Order: AND gates, OR gates, NOT gates, Key (if held), then empty.
+    /// </summary>
+    private void RebuildSlots(int andCount, int orCount, int notCount)
+    {
+        // Clear
+        for (int i = 0; i < SLOT_COUNT; i++)
+            slotItems[i] = ItemType.None;
+
+        int slot = 0;
+
+        // Fill AND gates
+        for (int i = 0; i < andCount && slot < SLOT_COUNT; i++, slot++)
+            slotItems[slot] = ItemType.AND;
+
+        // Fill OR gates
+        for (int i = 0; i < orCount && slot < SLOT_COUNT; i++, slot++)
+            slotItems[slot] = ItemType.OR;
+
+        // Fill NOT gates
+        for (int i = 0; i < notCount && slot < SLOT_COUNT; i++, slot++)
+            slotItems[slot] = ItemType.NOT;
+
+        // Fill Key if player has one
+        bool hasKey = TutorialDoor.PlayerHasKey;
+        if (hasKey && slot < SLOT_COUNT)
+        {
+            slotItems[slot] = ItemType.Key;
+            slot++;
+        }
+
+        // Fill Candle if player has one
+        bool hasCandle = (InventoryManager.Instance != null && InventoryManager.Instance.HasCandle);
+        if (hasCandle && slot < SLOT_COUNT)
+        {
+            slotItems[slot] = ItemType.Candle;
+            slot++;
+        }
+
+        UpdateSlotVisuals();
+    }
+
+    private int FindLastSlotOf(ItemType type)
+    {
+        int last = -1;
+        for (int i = 0; i < SLOT_COUNT; i++)
+            if (slotItems[i] == type) last = i;
+        return last;
+    }
+
+    private ItemType StringToItemType(string gateType)
+    {
+        switch (gateType.ToUpper())
+        {
+            case "AND":    return ItemType.AND;
+            case "OR":     return ItemType.OR;
+            case "NOT":    return ItemType.NOT;
+            case "KEY":    return ItemType.Key;
+            case "CANDLE": return ItemType.Candle;
+            default:       return ItemType.None;
+        }
+    }
+
+    // ═══════════════════════════════════
+    // BUILD UI
+    // ═══════════════════════════════════
+
     private void LoadMedievalFont()
     {
-        // Try to load Cinzel font first (your medieval font)
         medievalFont = Resources.Load<TMP_FontAsset>("Fonts & Materials/Cinzel-VariableFont_wght SDF");
-
-        if (medievalFont == null)
-        {
-            // Fallback: try loading from other common paths
-            medievalFont = Resources.Load<TMP_FontAsset>("Cinzel-VariableFont_wght SDF");
-        }
-
-        if (medievalFont == null)
-        {
-            // Final fallback: use the default TMP font
-            medievalFont = TMP_Settings.defaultFontAsset;
-            Debug.Log("GameInventoryUI: Cinzel font not found in Resources, using default TMP font.");
-        }
-        else
-        {
-            Debug.Log("GameInventoryUI: Cinzel medieval font loaded successfully.");
-        }
+        if (medievalFont == null) medievalFont = Resources.Load<TMP_FontAsset>("Cinzel-VariableFont_wght SDF");
+        if (medievalFont == null) medievalFont = TMP_Settings.defaultFontAsset;
     }
 
-    /// <summary>
-    /// Builds the entire inventory UI hierarchy in code with medieval styling.
-    /// </summary>
     private void BuildUI()
     {
         Canvas targetCanvas = FindLevelCanvas();
         if (targetCanvas == null)
         {
-            Debug.LogWarning("GameInventoryUI: No LevelCanvas found — cannot build UI.");
+            Debug.LogWarning("[Hotbar] No LevelCanvas found — cannot build UI.");
             return;
         }
 
         RectTransform canvasRT = targetCanvas.GetComponent<RectTransform>();
 
-        // ===== INVENTORY BAR (bottom-center, same width as stamina bar) =====
-        // Outer gold border frame
-        GameObject barBorderGO = CreateUIObject("InventoryBarBorder", canvasRT);
-        RectTransform borderRT = barBorderGO.GetComponent<RectTransform>();
-        borderRT.anchorMin = new Vector2(0.3f, 0f);
-        borderRT.anchorMax = new Vector2(0.7f, 0f);
-        borderRT.pivot = new Vector2(0.5f, 0f);
-        borderRT.anchoredPosition = new Vector2(0f, 6f);
-        borderRT.sizeDelta = new Vector2(0f, 62f);
+        // ═══ OUTER FRAME ═══
+        hotbarRoot = CreateUIObject("HotbarFrame", canvasRT);
+        RectTransform frameRT = hotbarRoot.GetComponent<RectTransform>();
+        frameRT.anchorMin = new Vector2(0.5f, 0f);
+        frameRT.anchorMax = new Vector2(0.5f, 0f);
+        frameRT.pivot = new Vector2(0.5f, 0f);
+        frameRT.anchoredPosition = new Vector2(0f, 8f);
+        // Width = 8 slots * 64px + 7 gaps * 4px + 16px padding = 556px
+        frameRT.sizeDelta = new Vector2(556f, 68f);
 
-        Image borderBG = barBorderGO.AddComponent<Image>();
-        borderBG.color = goldBorder;
+        Image frameBG = hotbarRoot.AddComponent<Image>();
+        frameBG.color = new Color(barBGColor.r, barBGColor.g, barBGColor.b, 0.75f);
 
-        // Inner dark brown bar (the actual inventory content area)
-        inventoryBarGO = CreateUIObject("InventoryBar", barBorderGO.transform);
-        RectTransform barRT = inventoryBarGO.GetComponent<RectTransform>();
-        barRT.anchorMin = Vector2.zero;
-        barRT.anchorMax = Vector2.one;
-        barRT.offsetMin = new Vector2(2f, 2f);   // 2px gold border on all sides
-        barRT.offsetMax = new Vector2(-2f, -2f);
-
-        Image barBG = inventoryBarGO.AddComponent<Image>();
-        barBG.color = barBGColor;
+        // Subtle outer border
+        Outline frameOutline = hotbarRoot.AddComponent<Outline>();
+        frameOutline.effectColor = new Color(0.40f, 0.32f, 0.16f, 0.6f);
+        frameOutline.effectDistance = new Vector2(1.5f, 1.5f);
 
         // Horizontal layout
-        HorizontalLayoutGroup hlg = inventoryBarGO.AddComponent<HorizontalLayoutGroup>();
-        hlg.padding = new RectOffset(6, 6, 3, 3);
-        hlg.spacing = 5f;
+        HorizontalLayoutGroup hlg = hotbarRoot.AddComponent<HorizontalLayoutGroup>();
+        hlg.padding = new RectOffset(6, 6, 5, 5);
+        hlg.spacing = 4f;
         hlg.childAlignment = TextAnchor.MiddleCenter;
-        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandWidth = false;
         hlg.childForceExpandHeight = true;
-        hlg.childControlWidth = true;
+        hlg.childControlWidth = false;
         hlg.childControlHeight = true;
 
-        // Add a subtle top decorative line (gold separator at top of bar)
-        GameObject topLine = CreateUIObject("TopDecor", barBorderGO.transform);
-        RectTransform topLineRT = topLine.GetComponent<RectTransform>();
-        topLineRT.anchorMin = new Vector2(0.1f, 1f);
-        topLineRT.anchorMax = new Vector2(0.9f, 1f);
-        topLineRT.pivot = new Vector2(0.5f, 1f);
-        topLineRT.anchoredPosition = new Vector2(0f, 1f);
-        topLineRT.sizeDelta = new Vector2(0f, 1f);
-        Image topLineImg = topLine.AddComponent<Image>();
-        topLineImg.color = new Color(goldBorder.r, goldBorder.g, goldBorder.b, 0.5f);
+        // ═══ CREATE 8 SLOTS ═══
+        for (int i = 0; i < SLOT_COUNT; i++)
+        {
+            CreateSlot(hotbarRoot.transform, i);
+        }
 
-        // Create 3 gate slots with medieval styling
-        CreateMedievalSlot(inventoryBarGO.transform, "AND", andColor, out andSlotBG, out andLabelText, out andCountText);
-        CreateMedievalSlot(inventoryBarGO.transform, "OR", orColor, out orSlotBG, out orLabelText, out orCountText);
-        CreateMedievalSlot(inventoryBarGO.transform, "NOT", notColor, out notSlotBG, out notLabelText, out notCountText);
-
-        // ── Total counter (X/5) ──
-        GameObject totalGO = CreateUIObject("TotalCount", inventoryBarGO.transform);
-        totalGO.AddComponent<CanvasRenderer>();
-        LayoutElement totalLE = totalGO.AddComponent<LayoutElement>();
-        totalLE.preferredWidth = 45f;
-        totalLE.flexibleWidth = 0f;
-
-        totalCountText = totalGO.AddComponent<TextMeshProUGUI>();
-        totalCountText.text = "0/5";
-        totalCountText.fontSize = 14;
-        totalCountText.fontStyle = FontStyles.Bold;
-        totalCountText.color = goldBorderDim;
-        totalCountText.alignment = TextAlignmentOptions.Center;
-        if (medievalFont != null) totalCountText.font = medievalFont;
-
-        // ===== SETTINGS ICON (top-right corner, gear icon) =====
+        // ═══ SETTINGS ICON (top-right) ═══
         BuildSettingsIcon(canvasRT);
 
-        // ===== NOTIFICATION AREA (right side) =====
+        // ═══ NOTIFICATION AREA (right side) ═══
         GameObject notifArea = CreateUIObject("NotificationArea", canvasRT);
         RectTransform notifRT = notifArea.GetComponent<RectTransform>();
         notifRT.anchorMin = new Vector2(1f, 0.3f);
@@ -222,270 +361,234 @@ public class GameInventoryUI : MonoBehaviour
 
         notificationParent = notifArea.transform;
 
-        // ===== STAMINA BAR (below inventory bar, or above it) =====
+        // ═══ STAMINA BAR ═══
         BuildStaminaBar(canvasRT);
 
-        Debug.Log("GameInventoryUI: Medieval-themed UI built successfully.");
+        Debug.Log("[Hotbar] Hotbar inventory UI built successfully.");
     }
 
-    /// <summary>
-    /// Builds a medieval-styled stamina bar above the inventory bar.
-    /// It fades in when sprinting/stamina is not full and fades out when full.
-    /// </summary>
-    private void BuildStaminaBar(RectTransform canvasRT)
+    /// <summary>Creates a single hotbar slot.</summary>
+    private void CreateSlot(Transform parent, int index)
     {
-        // Root container (positioned just above the inventory bar)
-        staminaBarRoot = CreateUIObject("StaminaBar", canvasRT);
-        RectTransform rootRT = staminaBarRoot.GetComponent<RectTransform>();
-        rootRT.anchorMin = new Vector2(0.3f, 0f);
-        rootRT.anchorMax = new Vector2(0.7f, 0f);
-        rootRT.pivot = new Vector2(0.5f, 0f);
-        rootRT.anchoredPosition = new Vector2(0f, 72f); // Just above the smaller inventory bar
-        rootRT.sizeDelta = new Vector2(0f, 12f);
+        // ── Border (outer) ──
+        GameObject borderGO = CreateUIObject($"Slot{index + 1}_Border", parent);
+        RectTransform borderRT = borderGO.GetComponent<RectTransform>();
+        borderRT.sizeDelta = new Vector2(62f, 58f);
 
-        // Canvas group for fading
-        staminaCanvasGroup = staminaBarRoot.AddComponent<CanvasGroup>();
-        staminaCanvasGroup.alpha = 0f;
+        LayoutElement le = borderGO.AddComponent<LayoutElement>();
+        le.preferredWidth = 62f;
+        le.preferredHeight = 58f;
 
-        // Gold border frame
-        Image borderImg = staminaBarRoot.AddComponent<Image>();
-        borderImg.color = goldBorderDim;
+        Image borderImg = borderGO.AddComponent<Image>();
+        borderImg.color = slotBorderNormal;
+        slotBorders[index] = borderImg;
 
-        // Dark background (inside the border)
-        GameObject bgGO = CreateUIObject("BG", staminaBarRoot.transform);
+        slotRoots[index] = borderGO;
+
+        // ── Inner background ──
+        GameObject bgGO = CreateUIObject("BG", borderGO.transform);
         RectTransform bgRT = bgGO.GetComponent<RectTransform>();
         bgRT.anchorMin = Vector2.zero;
         bgRT.anchorMax = Vector2.one;
-        bgRT.offsetMin = new Vector2(1.5f, 1.5f);
-        bgRT.offsetMax = new Vector2(-1.5f, -1.5f);
+        bgRT.offsetMin = new Vector2(2f, 2f);
+        bgRT.offsetMax = new Vector2(-2f, -2f);
+
         Image bgImg = bgGO.AddComponent<Image>();
-        bgImg.color = staminaBarBGColor;
+        bgImg.color = slotBGColor;
+        slotBackgrounds[index] = bgImg;
 
-        // Orange fill bar (anchored left, stretches by width)
-        GameObject fillGO = CreateUIObject("Fill", bgGO.transform);
-        RectTransform fillRT = fillGO.GetComponent<RectTransform>();
-        fillRT.anchorMin = Vector2.zero;
-        fillRT.anchorMax = new Vector2(1f, 1f); // Will be controlled by code
-        fillRT.offsetMin = new Vector2(1f, 1f);
-        fillRT.offsetMax = new Vector2(-1f, -1f);
-        fillRT.pivot = new Vector2(0f, 0.5f);
-        staminaFillImage = fillGO.AddComponent<Image>();
-        staminaFillImage.color = staminaBarColor;
+        // ── Item icon (colored square representing the item) ──
+        GameObject iconGO = CreateUIObject("Icon", bgGO.transform);
+        RectTransform iconRT = iconGO.GetComponent<RectTransform>();
+        iconRT.anchorMin = new Vector2(0.15f, 0.22f);
+        iconRT.anchorMax = new Vector2(0.85f, 0.88f);
+        iconRT.offsetMin = Vector2.zero;
+        iconRT.offsetMax = Vector2.zero;
 
-        // Small "STAMINA" label (optional, subtle)
-        GameObject labelGO = CreateUIObject("Label", staminaBarRoot.transform);
+        Image iconImg = iconGO.AddComponent<Image>();
+        iconImg.color = Color.clear; // Hidden until item placed
+        iconImg.raycastTarget = false;
+        slotIcons[index] = iconImg;
+
+        // ── Item label text (AND/OR/NOT/KEY) ──
+        GameObject labelGO = CreateUIObject("Label", bgGO.transform);
         labelGO.AddComponent<CanvasRenderer>();
         RectTransform labelRT = labelGO.GetComponent<RectTransform>();
-        labelRT.anchorMin = new Vector2(0f, 0f);
-        labelRT.anchorMax = new Vector2(1f, 1f);
+        labelRT.anchorMin = new Vector2(0f, 0.15f);
+        labelRT.anchorMax = new Vector2(1f, 0.90f);
         labelRT.offsetMin = Vector2.zero;
         labelRT.offsetMax = Vector2.zero;
+
         TextMeshProUGUI labelTMP = labelGO.AddComponent<TextMeshProUGUI>();
-        labelTMP.text = "STAMINA";
-        labelTMP.fontSize = 8;
-        labelTMP.fontStyle = FontStyles.Bold | FontStyles.SmallCaps;
-        labelTMP.color = new Color(1f, 1f, 1f, 0.4f);
+        labelTMP.text = "";
+        labelTMP.fontSize = 14;
+        labelTMP.fontStyle = FontStyles.Bold;
         labelTMP.alignment = TextAlignmentOptions.Center;
-        labelTMP.characterSpacing = 8f;
+        labelTMP.color = creamText;
+        labelTMP.enableWordWrapping = false;
+        labelTMP.raycastTarget = false;
         if (medievalFont != null) labelTMP.font = medievalFont;
+        slotLabels[index] = labelTMP;
+
+        // ── Slot number (small, bottom-right corner) ──
+        GameObject numGO = CreateUIObject("Number", bgGO.transform);
+        numGO.AddComponent<CanvasRenderer>();
+        RectTransform numRT = numGO.GetComponent<RectTransform>();
+        numRT.anchorMin = new Vector2(0.65f, 0f);
+        numRT.anchorMax = new Vector2(1f, 0.30f);
+        numRT.offsetMin = Vector2.zero;
+        numRT.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI numTMP = numGO.AddComponent<TextMeshProUGUI>();
+        numTMP.text = (index + 1).ToString();
+        numTMP.fontSize = 10;
+        numTMP.fontStyle = FontStyles.Bold;
+        numTMP.alignment = TextAlignmentOptions.BottomRight;
+        numTMP.color = dimText;
+        numTMP.raycastTarget = false;
+        if (medievalFont != null) numTMP.font = medievalFont;
+        slotNumbers[index] = numTMP;
     }
 
-    private Canvas FindLevelCanvas()
+    // ═══════════════════════════════════
+    // UPDATE SLOT VISUALS
+    // ═══════════════════════════════════
+
+    private void UpdateSlotVisuals()
     {
-        Canvas[] canvases = FindObjectsByType<Canvas>(FindObjectsSortMode.None);
-        foreach (var c in canvases)
+        for (int i = 0; i < SLOT_COUNT; i++)
         {
-            if (c.gameObject.name == "LevelCanvas" && c.renderMode == RenderMode.ScreenSpaceOverlay)
-                return c;
-        }
-        foreach (var c in canvases)
-        {
-            if (c.renderMode == RenderMode.ScreenSpaceOverlay && c.isRootCanvas)
-                return c;
-        }
-        return null;
-    }
+            bool isSelected = (i == selectedSlot);
+            ItemType item = slotItems[i];
 
-    private GameObject CreateUIObject(string name, Transform parent)
-    {
-        GameObject go = new GameObject(name, typeof(RectTransform));
-        go.layer = LayerMask.NameToLayer("UI");
-        go.transform.SetParent(parent, false);
-        return go;
-    }
+            // Border color
+            if (slotBorders[i] != null)
+                slotBorders[i].color = isSelected ? slotBorderSelected : slotBorderNormal;
 
-    /// <summary>
-    /// Creates a single gate slot with medieval styling: gold-bordered dark panel,
-    /// colored accent stripe, gate label in gold, count in cream.
-    /// </summary>
-    private void CreateMedievalSlot(Transform parent, string gateType, Color accentColor,
-        out Image slotBG, out TextMeshProUGUI labelText, out TextMeshProUGUI countText)
-    {
-        // Outer border (gold frame per slot)
-        GameObject slotBorderGO = CreateUIObject($"{gateType}_SlotBorder", parent);
-        RectTransform slotBorderRT = slotBorderGO.GetComponent<RectTransform>();
-        slotBorderRT.sizeDelta = new Vector2(100f, 50f);
+            // Background color
+            if (slotBackgrounds[i] != null)
+                slotBackgrounds[i].color = isSelected ? slotBGSelected : slotBGColor;
 
-        Image borderImg = slotBorderGO.AddComponent<Image>();
-        borderImg.color = goldBorderDim;
+            // Number text brightness
+            if (slotNumbers[i] != null)
+                slotNumbers[i].color = isSelected ? goldText : dimText;
 
-        // Add layout element so the HLG knows how to size it
-        LayoutElement slotLE = slotBorderGO.AddComponent<LayoutElement>();
-        slotLE.flexibleWidth = 1f;
-
-        // Inner dark background
-        GameObject slotGO = CreateUIObject($"{gateType}_Slot", slotBorderGO.transform);
-        RectTransform slotRT = slotGO.GetComponent<RectTransform>();
-        slotRT.anchorMin = Vector2.zero;
-        slotRT.anchorMax = Vector2.one;
-        slotRT.offsetMin = new Vector2(1.5f, 1.5f);   // 1.5px gold border
-        slotRT.offsetMax = new Vector2(-1.5f, -1.5f);
-
-        slotBG = slotGO.AddComponent<Image>();
-        slotBG.color = slotBGColor;
-
-        // Colored accent stripe at the top of the slot
-        GameObject stripeGO = CreateUIObject("AccentStripe", slotGO.transform);
-        RectTransform stripeRT = stripeGO.GetComponent<RectTransform>();
-        stripeRT.anchorMin = new Vector2(0f, 1f);
-        stripeRT.anchorMax = new Vector2(1f, 1f);
-        stripeRT.pivot = new Vector2(0.5f, 1f);
-        stripeRT.anchoredPosition = Vector2.zero;
-        stripeRT.sizeDelta = new Vector2(0f, 3f);
-        Image stripeImg = stripeGO.AddComponent<Image>();
-        Color stripeColor = accentColor;
-        stripeColor.a = 0.8f;
-        stripeImg.color = stripeColor;
-
-        // Vertical layout for label + count
-        VerticalLayoutGroup vlg = slotGO.AddComponent<VerticalLayoutGroup>();
-        vlg.padding = new RectOffset(3, 3, 2, 2);
-        vlg.spacing = 0f;
-        vlg.childAlignment = TextAnchor.MiddleCenter;
-        vlg.childForceExpandWidth = true;
-        vlg.childForceExpandHeight = true;
-        vlg.childControlWidth = true;
-        vlg.childControlHeight = true;
-
-        // Gate label (gold medieval text)
-        GameObject labelGO = CreateUIObject("Label", slotGO.transform);
-        labelGO.AddComponent<CanvasRenderer>();
-        labelText = labelGO.AddComponent<TextMeshProUGUI>();
-        labelText.text = gateType;
-        labelText.fontSize = 11;
-        labelText.fontStyle = FontStyles.Bold | FontStyles.SmallCaps;
-        labelText.color = goldText;
-        labelText.alignment = TextAlignmentOptions.Center;
-        labelText.characterSpacing = 4f;
-        if (medievalFont != null) labelText.font = medievalFont;
-        RectTransform labelRT = labelGO.GetComponent<RectTransform>();
-        labelRT.sizeDelta = new Vector2(80f, 16f);
-
-        // Count text (cream/white, larger)
-        GameObject countGO = CreateUIObject("Count", slotGO.transform);
-        countGO.AddComponent<CanvasRenderer>();
-        countText = countGO.AddComponent<TextMeshProUGUI>();
-        countText.text = "0";
-        countText.fontSize = 18;
-        countText.fontStyle = FontStyles.Bold;
-        countText.color = creamText;
-        countText.alignment = TextAlignmentOptions.Center;
-        if (medievalFont != null) countText.font = medievalFont;
-        RectTransform countRT = countGO.GetComponent<RectTransform>();
-        countRT.sizeDelta = new Vector2(80f, 26f);
-
-        // Add subtle outline on count text for readability
-        countText.outlineWidth = 0.15f;
-        countText.outlineColor = new Color32(0, 0, 0, 128);
-    }
-
-    // ============================
-    // PUBLIC API
-    // ============================
-
-    public void UpdateCounts(int andCount, int orCount, int notCount)
-    {
-        if (andCountText != null) andCountText.text = andCount.ToString();
-        if (orCountText != null) orCountText.text = orCount.ToString();
-        if (notCountText != null) notCountText.text = notCount.ToString();
-
-        // Update total counter
-        if (totalCountText != null)
-        {
-            int total = andCount + orCount + notCount;
-            totalCountText.text = $"{total}/{InventoryManager.MAX_GATES}";
-
-            // Change color when full
-            if (total >= InventoryManager.MAX_GATES)
-                totalCountText.color = new Color(0.9f, 0.3f, 0.2f, 1f); // Red when full
+            // Icon + Label
+            if (item == ItemType.None)
+            {
+                // Empty slot
+                if (slotIcons[i] != null) slotIcons[i].color = Color.clear;
+                if (slotLabels[i] != null) slotLabels[i].text = "";
+            }
             else
-                totalCountText.color = goldBorderDim;
+            {
+                Color itemColor = GetItemColor(item);
+                string itemLabel = GetItemLabel(item);
+                string itemSymbol = GetItemSymbol(item);
+
+                // Show colored icon square
+                if (slotIcons[i] != null)
+                {
+                    slotIcons[i].color = new Color(itemColor.r, itemColor.g, itemColor.b, 0.25f);
+                }
+
+                // Show label
+                if (slotLabels[i] != null)
+                {
+                    slotLabels[i].text = itemLabel;
+                    slotLabels[i].color = itemColor;
+                }
+            }
         }
     }
 
-    public void RefreshFromInventory()
+    private Color GetItemColor(ItemType type)
     {
-        if (InventoryManager.Instance != null)
+        switch (type)
         {
-            UpdateCounts(
-                InventoryManager.Instance.GetGateCount("AND"),
-                InventoryManager.Instance.GetGateCount("OR"),
-                InventoryManager.Instance.GetGateCount("NOT")
-            );
+            case ItemType.AND:    return andColor;
+            case ItemType.OR:     return orColor;
+            case ItemType.NOT:    return notColor;
+            case ItemType.Key:    return keyColor;
+            case ItemType.Candle: return candleColor;
+            default:              return creamText;
         }
     }
 
-    public void OnGateCollected(string gateType)
+    private string GetItemLabel(ItemType type)
     {
-        RefreshFromInventory();
-        FlashSlot(gateType);
-        ShowNotification(gateType);
+        switch (type)
+        {
+            case ItemType.AND:    return "AND";
+            case ItemType.OR:     return "OR";
+            case ItemType.NOT:    return "NOT";
+            case ItemType.Key:    return "KEY";
+            case ItemType.Candle: return "CDL";
+            default:              return "";
+        }
     }
 
-    // ============================
+    private string GetItemSymbol(ItemType type)
+    {
+        switch (type)
+        {
+            case ItemType.AND:    return "&";
+            case ItemType.OR:     return "|";
+            case ItemType.NOT:    return "!";
+            case ItemType.Key:    return "\u26BF"; // key symbol
+            case ItemType.Candle: return "\u2602"; // candle/umbrella symbol as fallback
+            default:              return "";
+        }
+    }
+
+    // ═══════════════════════════════════
     // VISUAL EFFECTS
-    // ============================
+    // ═══════════════════════════════════
 
-    private void FlashSlot(string gateType)
+    private void FlashSlot(int index)
     {
-        Image slotBG = null;
-        switch (gateType.ToUpper())
+        if (index < 0 || index >= SLOT_COUNT) return;
+        if (slotBorders[index] != null)
+            StartCoroutine(FlashSlotCoroutine(index));
+    }
+
+    private IEnumerator FlashSlotCoroutine(int index)
+    {
+        Image border = slotBorders[index];
+        if (border == null) yield break;
+
+        Color original = border.color;
+
+        for (int flash = 0; flash < 3; flash++)
         {
-            case "AND": slotBG = andSlotBG; break;
-            case "OR":  slotBG = orSlotBG;  break;
-            case "NOT": slotBG = notSlotBG; break;
+            border.color = flashColor;
+            yield return new WaitForSeconds(0.08f);
+            border.color = original;
+            yield return new WaitForSeconds(0.06f);
         }
 
-        if (slotBG != null)
-            StartCoroutine(FlashSlotCoroutine(slotBG));
+        // Restore correct color
+        border.color = (index == selectedSlot) ? slotBorderSelected : slotBorderNormal;
     }
 
-    private IEnumerator FlashSlotCoroutine(Image slotBG)
-    {
-        Color originalColor = slotBG.color;
-
-        // Flash with golden glow (medieval feel)
-        slotBG.color = flashColor;
-        yield return new WaitForSeconds(0.12f);
-        slotBG.color = originalColor;
-        yield return new WaitForSeconds(0.08f);
-        slotBG.color = flashColor;
-        yield return new WaitForSeconds(0.08f);
-        slotBG.color = originalColor;
-    }
-
-    /// <summary>
-    /// Shows a medieval-styled notification when a gate is collected.
-    /// Dark brown panel with gold border and parchment-style text.
-    /// </summary>
-    private void ShowNotification(string gateType)
+    private void ShowNotification(string itemType)
     {
         if (notificationParent == null) return;
 
-        Color accentColor = GetGateColor(gateType);
+        Color accentColor;
+        string label;
+        switch (itemType.ToUpper())
+        {
+            case "AND":    accentColor = andColor;    label = "+ AND Gate Collected!"; break;
+            case "OR":     accentColor = orColor;     label = "+ OR Gate Collected!";  break;
+            case "NOT":    accentColor = notColor;    label = "+ NOT Gate Collected!"; break;
+            case "KEY":    accentColor = keyColor;    label = "+ Key Collected!";      break;
+            case "CANDLE": accentColor = candleColor; label = "+ Candle Collected!";   break;
+            default:       accentColor = goldText;    label = $"+ {itemType} Collected!"; break;
+        }
 
         // Outer gold border
-        GameObject notifBorderGO = CreateUIObject($"Notif_{gateType}_Border", notificationParent);
+        GameObject notifBorderGO = CreateUIObject($"Notif_{itemType}_Border", notificationParent);
         RectTransform borderRT = notifBorderGO.GetComponent<RectTransform>();
         borderRT.sizeDelta = new Vector2(260f, 48f);
 
@@ -493,7 +596,7 @@ public class GameInventoryUI : MonoBehaviour
         borderBG.color = goldBorderDim;
 
         // Inner dark panel
-        GameObject notifGO = CreateUIObject($"Notif_{gateType}", notifBorderGO.transform);
+        GameObject notifGO = CreateUIObject($"Notif_{itemType}", notifBorderGO.transform);
         RectTransform notifInnerRT = notifGO.GetComponent<RectTransform>();
         notifInnerRT.anchorMin = Vector2.zero;
         notifInnerRT.anchorMax = Vector2.one;
@@ -514,7 +617,7 @@ public class GameInventoryUI : MonoBehaviour
         Image stripeImg = leftStripeGO.AddComponent<Image>();
         stripeImg.color = accentColor;
 
-        // Notification text
+        // Text
         GameObject textGO = CreateUIObject("Text", notifGO.transform);
         textGO.AddComponent<CanvasRenderer>();
         RectTransform textRT = textGO.GetComponent<RectTransform>();
@@ -524,14 +627,14 @@ public class GameInventoryUI : MonoBehaviour
         textRT.offsetMax = new Vector2(-10, -5);
 
         TextMeshProUGUI tmp = textGO.AddComponent<TextMeshProUGUI>();
-        tmp.text = $"+ {gateType} Gate Collected!";
+        tmp.text = label;
         tmp.fontSize = 18;
         tmp.color = goldText;
         tmp.fontStyle = FontStyles.Bold;
         tmp.alignment = TextAlignmentOptions.MidlineLeft;
         if (medievalFont != null) tmp.font = medievalFont;
 
-        // Small icon/symbol indicator using the accent color
+        // Small colored dot
         GameObject symbolGO = CreateUIObject("Symbol", notifGO.transform);
         RectTransform symbolRT = symbolGO.GetComponent<RectTransform>();
         symbolRT.anchorMin = new Vector2(1f, 0.5f);
@@ -560,12 +663,11 @@ public class GameInventoryUI : MonoBehaviour
         rt.anchoredPosition = new Vector2(startX, rt.anchoredPosition.y);
         cg.alpha = 0f;
 
-        // Slide in with fade
         while (elapsed < slideDuration)
         {
             elapsed += Time.deltaTime;
             float t = elapsed / slideDuration;
-            float smoothT = t * t * (3f - 2f * t);  // Smoothstep
+            float smoothT = t * t * (3f - 2f * t);
             rt.anchoredPosition = new Vector2(Mathf.Lerp(startX, targetX, smoothT), rt.anchoredPosition.y);
             cg.alpha = Mathf.Lerp(0f, 1f, smoothT);
             yield return null;
@@ -573,45 +675,27 @@ public class GameInventoryUI : MonoBehaviour
         rt.anchoredPosition = new Vector2(targetX, rt.anchoredPosition.y);
         cg.alpha = 1f;
 
-        // Stay visible
         yield return new WaitForSeconds(2.5f);
 
-        // Fade out elegantly
         float fadeDuration = 0.6f;
         elapsed = 0f;
         while (elapsed < fadeDuration)
         {
             elapsed += Time.deltaTime;
             float t = elapsed / fadeDuration;
-            cg.alpha = 1f - (t * t);  // Ease-out fade
+            cg.alpha = 1f - (t * t);
             yield return null;
         }
 
         Destroy(notifGO);
     }
 
-    private Color GetGateColor(string gateType)
-    {
-        switch (gateType.ToUpper())
-        {
-            case "AND": return andColor;
-            case "OR":  return orColor;
-            case "NOT": return notColor;
-            default:    return goldText;
-        }
-    }
+    // ═══════════════════════════════════
+    // SETTINGS ICON
+    // ═══════════════════════════════════
 
-    // ============================
-    // SETTINGS ICON (GEAR)
-    // ============================
-
-    /// <summary>
-    /// Builds a small gear/settings icon button in the top-right corner of the screen.
-    /// Clicking it opens the pause menu.
-    /// </summary>
     private void BuildSettingsIcon(RectTransform canvasRT)
     {
-        // Outer border (gold frame)
         GameObject iconBorderGO = CreateUIObject("SettingsIconBorder", canvasRT);
         RectTransform borderRT = iconBorderGO.GetComponent<RectTransform>();
         borderRT.anchorMin = new Vector2(1f, 1f);
@@ -623,7 +707,6 @@ public class GameInventoryUI : MonoBehaviour
         Image borderImg = iconBorderGO.AddComponent<Image>();
         borderImg.color = goldBorderDim;
 
-        // Inner dark background
         GameObject iconBGGO = CreateUIObject("SettingsIconBG", iconBorderGO.transform);
         RectTransform bgRT = iconBGGO.GetComponent<RectTransform>();
         bgRT.anchorMin = Vector2.zero;
@@ -634,10 +717,8 @@ public class GameInventoryUI : MonoBehaviour
         Image bgImg = iconBGGO.AddComponent<Image>();
         bgImg.color = new Color(barBGColor.r, barBGColor.g, barBGColor.b, 0.85f);
 
-        // Gear icon built from UI primitives (avoids font/Unicode issues)
-        BuildGearGraphic(iconBGGO.transform, goldText);
+        BuildMenuIcon(iconBGGO.transform, goldText);
 
-        // Button component on the border
         Button settingsBtn = iconBorderGO.AddComponent<Button>();
         settingsBtn.targetGraphic = bgImg;
 
@@ -652,17 +733,12 @@ public class GameInventoryUI : MonoBehaviour
             if (PauseMenuController.Instance != null)
                 PauseMenuController.Instance.Pause();
             else
-                Debug.LogWarning("[GameInventoryUI] PauseMenuController not found!");
+                Debug.LogWarning("[Hotbar] PauseMenuController not found!");
         });
     }
 
-    /// <summary>
-    /// Draws a simple hamburger menu icon (three horizontal bars).
-    /// Uses only basic UI Image components — no fonts, no sprites, no external resources.
-    /// </summary>
-    private void BuildGearGraphic(Transform parent, Color color)
+    private void BuildMenuIcon(Transform parent, Color color)
     {
-        // Container for the three bars
         GameObject iconRoot = CreateUIObject("MenuIcon", parent);
         RectTransform rootRT = iconRoot.GetComponent<RectTransform>();
         rootRT.anchorMin = new Vector2(0.2f, 0.2f);
@@ -670,8 +746,7 @@ public class GameInventoryUI : MonoBehaviour
         rootRT.offsetMin = Vector2.zero;
         rootRT.offsetMax = Vector2.zero;
 
-        // Three horizontal bars evenly spaced
-        float[] barYPositions = { 0.78f, 0.45f, 0.12f }; // top, middle, bottom
+        float[] barYPositions = { 0.78f, 0.45f, 0.12f };
         float barHeight = 0.18f;
 
         for (int i = 0; i < 3; i++)
@@ -689,15 +764,66 @@ public class GameInventoryUI : MonoBehaviour
         }
     }
 
-    // ============================
-    // STAMINA BAR UPDATE
-    // ============================
+    // ═══════════════════════════════════
+    // STAMINA BAR
+    // ═══════════════════════════════════
+
+    private void BuildStaminaBar(RectTransform canvasRT)
+    {
+        staminaBarRoot = CreateUIObject("StaminaBar", canvasRT);
+        RectTransform rootRT = staminaBarRoot.GetComponent<RectTransform>();
+        rootRT.anchorMin = new Vector2(0.5f, 0f);
+        rootRT.anchorMax = new Vector2(0.5f, 0f);
+        rootRT.pivot = new Vector2(0.5f, 0f);
+        rootRT.anchoredPosition = new Vector2(0f, 80f); // Just above the hotbar
+        rootRT.sizeDelta = new Vector2(556f, 12f);       // Same width as hotbar
+
+        staminaCanvasGroup = staminaBarRoot.AddComponent<CanvasGroup>();
+        staminaCanvasGroup.alpha = 0f;
+
+        Image borderImg = staminaBarRoot.AddComponent<Image>();
+        borderImg.color = goldBorderDim;
+
+        GameObject bgGO = CreateUIObject("BG", staminaBarRoot.transform);
+        RectTransform bgRT = bgGO.GetComponent<RectTransform>();
+        bgRT.anchorMin = Vector2.zero;
+        bgRT.anchorMax = Vector2.one;
+        bgRT.offsetMin = new Vector2(1.5f, 1.5f);
+        bgRT.offsetMax = new Vector2(-1.5f, -1.5f);
+        Image bgImg = bgGO.AddComponent<Image>();
+        bgImg.color = staminaBarBGColor;
+
+        GameObject fillGO = CreateUIObject("Fill", bgGO.transform);
+        RectTransform fillRT = fillGO.GetComponent<RectTransform>();
+        fillRT.anchorMin = Vector2.zero;
+        fillRT.anchorMax = new Vector2(1f, 1f);
+        fillRT.offsetMin = new Vector2(1f, 1f);
+        fillRT.offsetMax = new Vector2(-1f, -1f);
+        fillRT.pivot = new Vector2(0f, 0.5f);
+        staminaFillImage = fillGO.AddComponent<Image>();
+        staminaFillImage.color = staminaBarColor;
+
+        GameObject labelGO = CreateUIObject("Label", staminaBarRoot.transform);
+        labelGO.AddComponent<CanvasRenderer>();
+        RectTransform labelRT = labelGO.GetComponent<RectTransform>();
+        labelRT.anchorMin = Vector2.zero;
+        labelRT.anchorMax = Vector2.one;
+        labelRT.offsetMin = Vector2.zero;
+        labelRT.offsetMax = Vector2.zero;
+        TextMeshProUGUI labelTMP = labelGO.AddComponent<TextMeshProUGUI>();
+        labelTMP.text = "STAMINA";
+        labelTMP.fontSize = 8;
+        labelTMP.fontStyle = FontStyles.Bold | FontStyles.SmallCaps;
+        labelTMP.color = new Color(1f, 1f, 1f, 0.4f);
+        labelTMP.alignment = TextAlignmentOptions.Center;
+        labelTMP.characterSpacing = 8f;
+        if (medievalFont != null) labelTMP.font = medievalFont;
+    }
 
     private void UpdateStaminaBar()
     {
         if (staminaFillImage == null || staminaCanvasGroup == null) return;
 
-        // Find the controller if we don't have it yet
         if (fpsController == null)
         {
             fpsController = FindFirstObjectByType<FirstPersonController>();
@@ -706,18 +832,43 @@ public class GameInventoryUI : MonoBehaviour
 
         float pct = fpsController.StaminaPercent;
 
-        // Update fill bar width (anchorMax.x = percentage)
         RectTransform fillRT = staminaFillImage.GetComponent<RectTransform>();
         fillRT.anchorMax = new Vector2(pct, 1f);
 
-        // Color: orange normally, red-orange when below 25%
         staminaFillImage.color = pct < 0.25f
             ? Color.Lerp(staminaBarLowColor, staminaBarColor, pct / 0.25f)
             : staminaBarColor;
 
-        // Fade in/out: show when stamina is not full, hide when full
         float targetAlpha = pct < 0.99f ? 1f : 0f;
         staminaBarAlpha = Mathf.MoveTowards(staminaBarAlpha, targetAlpha, Time.deltaTime * 3f);
         staminaCanvasGroup.alpha = staminaBarAlpha;
+    }
+
+    // ═══════════════════════════════════
+    // UTILITIES
+    // ═══════════════════════════════════
+
+    private Canvas FindLevelCanvas()
+    {
+        Canvas[] canvases = FindObjectsByType<Canvas>(FindObjectsSortMode.None);
+        foreach (var c in canvases)
+        {
+            if (c.gameObject.name == "LevelCanvas" && c.renderMode == RenderMode.ScreenSpaceOverlay)
+                return c;
+        }
+        foreach (var c in canvases)
+        {
+            if (c.renderMode == RenderMode.ScreenSpaceOverlay && c.isRootCanvas)
+                return c;
+        }
+        return null;
+    }
+
+    private GameObject CreateUIObject(string name, Transform parent)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.layer = LayerMask.NameToLayer("UI");
+        go.transform.SetParent(parent, false);
+        return go;
     }
 }

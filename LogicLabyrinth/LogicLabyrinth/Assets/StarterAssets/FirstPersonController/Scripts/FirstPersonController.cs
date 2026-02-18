@@ -138,6 +138,19 @@ namespace StarterAssets
 			// Don't process input while game is paused
 			if (PauseMenuController.IsPaused) return;
 
+			// Full cutscene block (Cutscene1/2: black screens) — freeze everything
+			if (CutsceneController.IsPlaying) return;
+
+			// Camera-only cutscene (Cutscene3/4): allow gravity but block movement
+			if (CutsceneController.CameraOnlyMode)
+			{
+				GroundedCheck();
+				JumpAndGravity();
+				// Apply only gravity, no lateral movement
+				_controller.Move(new Vector3(0f, _verticalVelocity, 0f) * Time.deltaTime);
+				return;
+			}
+
 			JumpAndGravity();
 			GroundedCheck();
 			Move();
@@ -148,6 +161,10 @@ namespace StarterAssets
 			// Don't rotate camera while paused
 			if (PauseMenuController.IsPaused) return;
 
+			// Full cutscene block — no camera rotation
+			if (CutsceneController.IsPlaying) return;
+
+			// Camera-only mode — camera look IS allowed
 			CameraRotation();
 		}
 

@@ -13,6 +13,15 @@ public class InventoryManager : MonoBehaviour
 
     private Dictionary<string, int> gateCounts = new Dictionary<string, int> { { "AND", 0 }, { "OR", 0 }, { "NOT", 0 } };
 
+    /// <summary>Whether the player has collected a candle.</summary>
+    public bool HasCandle { get; private set; } = false;
+
+    public void SetHasCandle(bool value)
+    {
+        HasCandle = value;
+        Debug.Log($"[InventoryManager] HasCandle = {value}");
+    }
+
     void Awake()
     {
         if (Instance == null) { Instance = this; DontDestroyOnLoad(gameObject); }

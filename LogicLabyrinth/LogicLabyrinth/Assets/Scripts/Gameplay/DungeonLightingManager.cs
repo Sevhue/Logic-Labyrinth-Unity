@@ -28,22 +28,31 @@ public class DungeonLightingManager : MonoBehaviour
 
     [Header("Ambient & Fog")]
     [Tooltip("The ambient color of the dungeon (should be very dark)")]
-    public Color ambientColor = new Color(0.02f, 0.02f, 0.04f, 1f); // Near black with slight blue
+    public Color ambientColor = new Color(0.03f, 0.03f, 0.05f, 1f); // Near black with slight blue
 
     [Tooltip("Enable fog for distance-based darkness")]
     public bool enableFog = true;
 
     [Tooltip("Fog color (should match the darkness)")]
-    public Color fogColor = new Color(0.01f, 0.01f, 0.02f, 1f);
+    public Color fogColor = new Color(0.02f, 0.02f, 0.03f, 1f);
 
     [Tooltip("Fog density — higher = shorter visibility")]
     [Range(0.01f, 0.5f)]
-    public float fogDensity = 0.12f;
+    public float fogDensity = 0.06f;
 
     [Header("Directional Light")]
     [Tooltip("How much to reduce the directional light (0 = fully off)")]
     [Range(0f, 0.1f)]
     public float directionalLightIntensity = 0.02f;
+
+    [Header("Torch Lights")]
+    [Tooltip("Boost multiplier for existing torch/point lights in the scene")]
+    [Range(1f, 5f)]
+    public float torchLightBoost = 1.5f;
+
+    [Tooltip("Extra range added to torch lights so they punch through fog")]
+    [Range(0f, 15f)]
+    public float torchExtraRange = 5f;
 
     // Internal references
     private Light playerLight;
@@ -59,6 +68,7 @@ public class DungeonLightingManager : MonoBehaviour
         SetupCamera();
         SetupAmbientAndFog();
         DimDirectionalLights();
+        BoostTorchLights();
         StartCoroutine(AttachPlayerLightDelayed());
     }
 
@@ -136,6 +146,43 @@ public class DungeonLightingManager : MonoBehaviour
         originalIntensities = origIntensities.ToArray();
     }
 
+    /// <summary>
+    /// Finds all existing Point/Spot lights in the scene (torch lights from the FBX)
+    /// and boosts their intensity and range so they're visible through the fog.
+    /// </summary>
+    private void BoostTorchLights()
+    {
+        Light[] allLights = FindObjectsOfType<Light>();
+        int boosted = 0;
+
+        foreach (Light light in allLights)
+        {
+            // Only boost Point and Spot lights (torch-type lights), skip Directional
+            if (light.type == LightType.Point || light.type == LightType.Spot)
+            {
+                // Skip the player light we just created
+                if (light.gameObject.name == "PlayerDungeonLight") continue;
+
+                float origIntensity = light.intensity;
+                float origRange = light.range;
+
+                light.intensity *= torchLightBoost;
+                light.range += torchExtraRange;
+
+                // Make sure shadows are enabled for atmosphere
+                if (light.shadows == LightShadows.None)
+                    light.shadows = LightShadows.Soft;
+
+                boosted++;
+                Debug.Log($"[DungeonLighting] Boosted torch '{light.gameObject.name}': " +
+                          $"intensity {origIntensity:F1}→{light.intensity:F1}, " +
+                          $"range {origRange:F1}→{light.range:F1}");
+            }
+        }
+
+        Debug.Log($"[DungeonLighting] Boosted {boosted} torch lights.");
+    }
+
     private void AttachPlayerLight()
     {
         // Find the actual player object (the one with CharacterController that moves)
@@ -163,8 +210,7 @@ public class DungeonLightingManager : MonoBehaviour
         playerLight.range = playerLightRange;
         playerLight.intensity = playerLightIntensity;
         playerLight.color = playerLightColor;
-        playerLight.shadows = LightShadows.Soft;
-        playerLight.shadowStrength = 0.8f;
+        playerLight.shadows = LightShadows.None; // No shadows — player IS the light source; also avoids hitting shadow-casting light limit
         playerLight.renderMode = LightRenderMode.ForcePixel;
 
         Debug.Log($"[DungeonLighting] Player light attached! Range={playerLightRange}m, Intensity={playerLightIntensity}");
@@ -236,6 +282,47 @@ public class DungeonLightingManager : MonoBehaviour
         {
             playerLight.range = newRange;
             Debug.Log($"[DungeonLighting] Player light range set to {newRange}m");
+        }
+    }
+
+    // ═══════════════════════════════════════════════
+    //  CANDLE EQUIP — doubles player light
+    // ═══════════════════════════════════════════════
+
+    private bool candleEquipped = false;
+    private float preCandleRange;
+    private float preCandleIntensity;
+
+    /// <summary>
+    /// Called by CollectibleCandle to toggle 2× player light when candle is equipped/unequipped.
+    /// </summary>
+    public void SetCandleEquipped(bool equipped)
+    {
+        if (playerLight == null)
+        {
+            Debug.LogWarning("[DungeonLighting] Player light not found for candle toggle.");
+            return;
+        }
+
+        if (equipped && !candleEquipped)
+        {
+            candleEquipped = true;
+            preCandleRange = playerLight.range;
+            preCandleIntensity = playerLight.intensity;
+
+            playerLight.range = preCandleRange * 2f;
+            playerLight.intensity = preCandleIntensity * 2f;
+
+            Debug.Log($"[DungeonLighting] Candle equipped! Light: range {preCandleRange:F1}→{playerLight.range:F1}, " +
+                      $"intensity {preCandleIntensity:F1}→{playerLight.intensity:F1}");
+        }
+        else if (!equipped && candleEquipped)
+        {
+            candleEquipped = false;
+            playerLight.range = preCandleRange;
+            playerLight.intensity = preCandleIntensity;
+
+            Debug.Log($"[DungeonLighting] Candle unequipped! Light restored: range {playerLight.range:F1}, intensity {playerLight.intensity:F1}");
         }
     }
 

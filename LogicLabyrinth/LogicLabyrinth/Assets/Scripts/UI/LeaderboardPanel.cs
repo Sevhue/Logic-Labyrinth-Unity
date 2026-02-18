@@ -37,7 +37,7 @@ public class LeaderboardPanel : MonoBehaviour
 
     // Profile picture cache
     private Dictionary<string, Sprite> profileSpriteCache = new Dictionary<string, Sprite>();
-    private const string DEFAULT_PROFILE_PIC = "image-removebg-preview";
+    private const string DEFAULT_PROFILE_PIC = "default";
 
     // Data
     private class LeaderboardEntry
@@ -170,7 +170,7 @@ public class LeaderboardPanel : MonoBehaviour
 
         // Mask
         Image scrollBG = scrollArea.AddComponent<Image>();
-        scrollBG.color = new Color(0, 0, 0, 0.01f); // Nearly invisible for masking
+        scrollBG.color = Color.white; // alpha must be 1 for Mask to work
         Mask mask = scrollArea.AddComponent<Mask>();
         mask.showMaskGraphic = false;
 
@@ -544,13 +544,14 @@ public class LeaderboardPanel : MonoBehaviour
 
     private Sprite GetProfileSprite(string pictureName)
     {
-        if (string.IsNullOrEmpty(pictureName))
+        // Treat empty, null, or old default name as the current default
+        if (string.IsNullOrEmpty(pictureName) || pictureName == "image-removebg-preview")
             pictureName = DEFAULT_PROFILE_PIC;
 
         if (profileSpriteCache.ContainsKey(pictureName))
             return profileSpriteCache[pictureName];
 
-        // Fallback to default
+        // Fallback to default silhouette
         if (profileSpriteCache.ContainsKey(DEFAULT_PROFILE_PIC))
             return profileSpriteCache[DEFAULT_PROFILE_PIC];
 

@@ -56,9 +56,13 @@ public class PlayerController : MonoBehaviour
         // Don't do anything while a puzzle UI, swap UI, or pause menu is open
         if (PuzzleTableController.IsOpen || SwapGateUI.IsOpen || PauseMenuController.IsPaused) return;
 
-        // Auto-lock cursor in level scenes
+        // Block ALL input during full-screen cutscenes (Cutscene1/2)
+        if (CutsceneController.IsPlaying) return;
+
+        // Auto-lock cursor in level scenes (but not during camera-only cutscene phase)
         string currentScene = SceneManager.GetActiveScene().name;
-        if (currentScene.StartsWith("Level") && Cursor.lockState != CursorLockMode.Locked)
+        if (currentScene.StartsWith("Level") && !CutsceneController.CameraOnlyMode
+            && Cursor.lockState != CursorLockMode.Locked)
         {
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
@@ -68,9 +72,14 @@ public class PlayerController : MonoBehaviour
         // Only handle movement if cursor is locked (in gameplay)
         if (Cursor.lockState == CursorLockMode.Locked)
         {
-            HandleMovement();
+            // During camera-only cutscene (Cutscene3/4): allow look but block movement/interaction
+            if (!CutsceneController.CameraOnlyMode)
+                HandleMovement();
+
             HandleLook();
-            HandleInteraction();
+
+            if (!CutsceneController.CameraOnlyMode)
+                HandleInteraction();
         }
     }
 
