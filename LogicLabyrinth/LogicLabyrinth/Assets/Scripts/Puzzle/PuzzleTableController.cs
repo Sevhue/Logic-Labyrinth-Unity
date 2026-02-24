@@ -3,6 +3,7 @@ using UnityEngine.UI;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine.SceneManagement;
 using StarterAssets;
 
 /// <summary>
@@ -17,6 +18,9 @@ public class PuzzleTableController : MonoBehaviour
     /// <summary>True while the puzzle UI is visible and active.</summary>
     public static bool IsOpen { get; private set; }
 
+    /// <summary>True if the puzzle was solved in this session (read by InteractiveTable).</summary>
+    public bool WasPuzzleSolved => puzzleSolved;
+
     [Header("Puzzle Answer Key")]
     [Tooltip("The correct gate for each box slot, in order (Box1, Box2, Box3, ...)")]
     public GateType[] answerKey = new GateType[] {
@@ -30,14 +34,37 @@ public class PuzzleTableController : MonoBehaviour
     [Header("Attempt Settings")]
     public int maxAttempts = 3;
 
+    /// <summary>
+    /// Set by InteractiveTable before OpenPuzzle().
+    /// -1 = single-question mode (find Q1 or Background).
+    /// 0..N = multi-question mode (activate Q{index+1}, deactivate others).
+    /// </summary>
+    [HideInInspector]
+    public int selectedQuestionIndex = -1;
+    [HideInInspector]
+    public int currentLevelNumber = 1;
+    [HideInInspector]
+    public string selectedQuestionExpression = "";
+    [HideInInspector]
+    public int requiredAnd;
+    [HideInInspector]
+    public int requiredOr;
+    [HideInInspector]
+    public int requiredNot;
+
     [Header("References (auto-found if empty)")]
     public Transform puzzleContent;   // The Q1 parent that holds the boxes
+
+    [Header("Question Number Display")]
+    public TextMeshProUGUI questionNumberText;
 
     // Runtime state
     private List<GateDropSlot> dropSlots = new List<GateDropSlot>();
     private int attemptsUsed = 0;
     private bool puzzleSolved = false;
     private bool isGameOver = false;
+    private int currentQuestion = 0;   // 1-based question number
+    private int totalQuestions = 0;    // total question count
 
     // Temporary inventory for this puzzle session (copied from player inventory)
     private Dictionary<GateType, int> sessionInventory = new Dictionary<GateType, int>();
@@ -49,6 +76,9 @@ public class PuzzleTableController : MonoBehaviour
     private GameObject feedbackPanel;
     private TextMeshProUGUI feedbackText;
     private TextMeshProUGUI attemptsText;
+    private TextMeshProUGUI expressionText;
+    private TextMeshProUGUI requirementText;
+    private GameObject freeFormGuideRoot;
     private Dictionary<GateType, TextMeshProUGUI> paletteCountLabels = new Dictionary<GateType, TextMeshProUGUI>();
     private Dictionary<GateType, CanvasGroup> paletteItemGroups = new Dictionary<GateType, CanvasGroup>();
 
@@ -60,6 +90,26 @@ public class PuzzleTableController : MonoBehaviour
     private SimpleGateCollector cachedCollector;
     private MonoBehaviour cachedCinemachineBrain; // Cinemachine brain if present
     private List<MonoBehaviour> disabledScripts = new List<MonoBehaviour>();
+
+    private bool IsFreeFormCanvasMode()
+    {
+        return currentLevelNumber >= 6;
+    }
+
+    private void ResolveCurrentLevelNumber()
+    {
+        if (currentLevelNumber > 1)
+            return;
+
+        string sceneName = SceneManager.GetActiveScene().name;
+        if (!string.IsNullOrEmpty(sceneName) &&
+            sceneName.StartsWith("Level") &&
+            int.TryParse(sceneName.Substring(5), out int parsed) &&
+            parsed > 1)
+        {
+            currentLevelNumber = parsed;
+        }
+    }
 
     void Awake()
     {
@@ -97,21 +147,45 @@ public class PuzzleTableController : MonoBehaviour
 
     // ===================== OPEN / CLOSE =====================
 
+    /// <summary>
+    /// Sets the question number display (called by InteractiveTable for multi-question levels).
+    /// </summary>
+    public void SetQuestionNumber(int current, int total)
+    {
+        currentQuestion = current;
+        totalQuestions = total;
+    }
+
     public void OpenPuzzle()
     {
+        ResolveCurrentLevelNumber();
+
         puzzleSolved = false;
         isGameOver = false;
         attemptsUsed = 0;
         IsOpen = true;
 
+        // Reset puzzleContent so FindPuzzleContent picks the correct Q panel
+        puzzleContent = null;
+
         // Copy player inventory into session
         LoadSessionInventory();
 
-        // Find the Q1 content area with the boxes
+        // Find the Q content area with the boxes (uses selectedQuestionIndex for multi-Q levels)
         FindPuzzleContent();
 
-        // Set up drop slots on all Box children
-        SetupDropSlots();
+        if (IsFreeFormCanvasMode())
+        {
+            // Level 6+ uses free-form canvas, so hide legacy pre-drawn scaffold.
+            HideLegacyTemplateVisuals();
+            BuildFreeFormInputGuide();
+            dropSlots.Clear();
+        }
+        else
+        {
+            // Set up drop slots on all Box children
+            SetupDropSlots();
+        }
 
         // Build the gate palette UI (BOTTOM — horizontal)
         BuildPaletteUI();
@@ -204,8 +278,64 @@ public class PuzzleTableController : MonoBehaviour
     {
         if (puzzleContent != null) return;
 
-        // Auto-find Q1 (or any child named Q1, Q2, etc.)
-        puzzleContent = FindDeepChild(transform, "Q1");
+        // First, ensure all intermediate parents (Level2, Level3, etc.) are active
+        // Prefabs may have them saved as inactive
+        ActivateAllChildren(transform);
+
+        // ── Multi-question mode: activate the selected Q panel, deactivate others ──
+        if (selectedQuestionIndex >= 0)
+        {
+            string targetQName = $"Q{selectedQuestionIndex + 1}";
+            Debug.Log($"[PuzzleTable] Multi-question mode: looking for '{targetQName}'");
+
+            // Find Background parent (contains Q1..Q5)
+            Transform background = FindDeepChild(transform, "Background");
+            if (background != null)
+            {
+                // Deactivate ALL Q panels, then activate the selected one
+                for (int i = 0; i < background.childCount; i++)
+                {
+                    Transform child = background.GetChild(i);
+                    if (child.name.Trim().StartsWith("Q"))
+                    {
+                        child.gameObject.SetActive(child.name.Trim() == targetQName);
+                    }
+                }
+
+                // Now find the activated Q panel
+                puzzleContent = FindActiveDeepChild(background, targetQName);
+                if (puzzleContent == null)
+                {
+                    // Fallback: find even if inactive
+                    puzzleContent = FindDeepChild(background, targetQName);
+                    if (puzzleContent != null)
+                        puzzleContent.gameObject.SetActive(true);
+                }
+            }
+
+            if (puzzleContent != null)
+            {
+                Debug.Log($"[PuzzleTable] Selected question panel: '{targetQName}' (path: {GetTransformPath(puzzleContent)})");
+                return;
+            }
+            else
+            {
+                Debug.LogWarning($"[PuzzleTable] Could not find '{targetQName}' — falling back to default search.");
+            }
+        }
+
+        // ── Single-question mode (original logic) ──
+        // Search only ACTIVE children to avoid picking up inactive levels
+        puzzleContent = FindActiveDeepChild(transform, "Q1");
+        if (puzzleContent == null)
+        {
+            puzzleContent = FindActiveDeepChild(transform, "Background");
+        }
+        // Fallback: search all children (including inactive) if nothing active found
+        if (puzzleContent == null)
+        {
+            puzzleContent = FindDeepChild(transform, "Q1");
+        }
         if (puzzleContent == null)
         {
             puzzleContent = FindDeepChild(transform, "Background");
@@ -213,6 +343,43 @@ public class PuzzleTableController : MonoBehaviour
         if (puzzleContent == null)
         {
             puzzleContent = transform;
+        }
+
+        Debug.Log($"[PuzzleTable] puzzleContent resolved to: \"{puzzleContent.name}\" (path: {GetTransformPath(puzzleContent)})");
+    }
+
+    /// <summary>
+    /// Activates all children in the hierarchy (non-recursive for the top 2 levels).
+    /// This ensures intermediate panels like "Level2", "Level3" etc. are active
+    /// even if the prefab saved them as inactive.
+    /// Does NOT activate Q panels (those are managed by multi-question logic).
+    /// </summary>
+    private void ActivateAllChildren(Transform root)
+    {
+        foreach (Transform child in root)
+        {
+            // Don't auto-activate Q panels — those are managed by multi-question logic
+            if (child.name.Trim().StartsWith("Q") && char.IsDigit(child.name.Trim().Length > 1 ? child.name.Trim()[1] : ' '))
+                continue;
+
+            if (!child.gameObject.activeSelf)
+            {
+                child.gameObject.SetActive(true);
+                Debug.Log($"[PuzzleTable] Activated inactive child: '{child.name}'");
+            }
+
+            // Also activate grandchildren (Background, etc.)
+            foreach (Transform grandchild in child)
+            {
+                if (grandchild.name.Trim().StartsWith("Q") && grandchild.name.Trim().Length > 1 && char.IsDigit(grandchild.name.Trim()[1]))
+                    continue;
+
+                if (!grandchild.gameObject.activeSelf)
+                {
+                    grandchild.gameObject.SetActive(true);
+                    Debug.Log($"[PuzzleTable] Activated inactive grandchild: '{grandchild.name}'");
+                }
+            }
         }
     }
 
@@ -223,6 +390,13 @@ public class PuzzleTableController : MonoBehaviour
         // Find all children named "Box1", "Box2", etc. (with or without leading space)
         List<Transform> boxTransforms = new List<Transform>();
         FindAllBoxChildren(puzzleContent, boxTransforms);
+
+        // Fallback: if no boxes found in puzzleContent, search the ENTIRE hierarchy
+        if (boxTransforms.Count == 0)
+        {
+            Debug.LogWarning($"[PuzzleTable] No Box children found in puzzleContent \"{puzzleContent.name}\". Searching entire hierarchy...");
+            FindAllBoxChildren(transform, boxTransforms);
+        }
 
         // Sort by trimmed name to ensure correct order (Box1, Box2, ...)
         boxTransforms.Sort((a, b) => a.name.Trim().CompareTo(b.name.Trim()));
@@ -242,6 +416,11 @@ public class PuzzleTableController : MonoBehaviour
 
             dropSlots.Add(slot);
             Debug.Log($"[PuzzleTable] Slot {i}: \"{boxTrans.name}\" (trimmed=\"{boxTrans.name.Trim()}\") → Expected answer: {answer} (int={(int)answer})");
+        }
+
+        if (dropSlots.Count == 0)
+        {
+            Debug.LogError("[PuzzleTable] ERROR: No drop slots found! Make sure the puzzle UI has children named Box1, Box2, etc.");
         }
 
         Debug.Log($"[PuzzleTable] Total drop slots found: {dropSlots.Count}, Answer key length: {answerKey.Length}");
@@ -273,13 +452,24 @@ public class PuzzleTableController : MonoBehaviour
         paletteCountLabels.Clear();
         paletteItemGroups.Clear();
 
-        // ── Bottom bar palette ──
+        bool freeFormMode = IsFreeFormCanvasMode();
+
+        // ── Palette container ──
         palettePanel = new GameObject("GatePalette");
         palettePanel.transform.SetParent(transform, false);
 
         RectTransform palRect = palettePanel.AddComponent<RectTransform>();
-        palRect.anchorMin = new Vector2(0.15f, 0.02f);
-        palRect.anchorMax = new Vector2(0.85f, 0.12f);
+        if (freeFormMode)
+        {
+            // Not at the bottom: compact toolbar near top for blank-canvas mode.
+            palRect.anchorMin = new Vector2(0.24f, 0.87f);
+            palRect.anchorMax = new Vector2(0.76f, 0.93f);
+        }
+        else
+        {
+            palRect.anchorMin = new Vector2(0.15f, 0.02f);
+            palRect.anchorMax = new Vector2(0.85f, 0.12f);
+        }
         palRect.offsetMin = Vector2.zero;
         palRect.offsetMax = Vector2.zero;
 
@@ -290,7 +480,7 @@ public class PuzzleTableController : MonoBehaviour
         palOutline.effectColor = new Color(0.6f, 0.5f, 0.2f, 0.8f);
         palOutline.effectDistance = new Vector2(2, -2);
 
-        // Horizontal layout for the bottom palette
+        // Horizontal layout for palette items
         HorizontalLayoutGroup hlg = palettePanel.AddComponent<HorizontalLayoutGroup>();
         hlg.padding = new RectOffset(12, 12, 6, 6);
         hlg.spacing = 12f;
@@ -300,13 +490,16 @@ public class PuzzleTableController : MonoBehaviour
         hlg.childControlWidth = true;
         hlg.childControlHeight = true;
 
-        // Title on the left
-        CreatePaletteTitle(palettePanel.transform);
+        // Legacy mode keeps the "YOUR GATES" label; free-form mode omits it.
+        if (!freeFormMode)
+            CreatePaletteTitle(palettePanel.transform);
 
         // Gate items side by side
         CreatePaletteItem(palettePanel.transform, GateType.AND);
         CreatePaletteItem(palettePanel.transform, GateType.OR);
         CreatePaletteItem(palettePanel.transform, GateType.NOT);
+        if (freeFormMode)
+            CreatePaletteItem(palettePanel.transform, GateType.WIRE);
     }
 
     private void CreatePaletteTitle(Transform parent)
@@ -376,8 +569,15 @@ public class PuzzleTableController : MonoBehaviour
         countGO.transform.SetParent(itemGO.transform, false);
         countGO.AddComponent<RectTransform>();
         TextMeshProUGUI countText = countGO.AddComponent<TextMeshProUGUI>();
-        int count = sessionInventory.ContainsKey(type) ? sessionInventory[type] : 0;
-        countText.text = $"x{count}";
+        if (type == GateType.WIRE)
+        {
+            countText.text = "x∞";
+        }
+        else
+        {
+            int count = sessionInventory.ContainsKey(type) ? sessionInventory[type] : 0;
+            countText.text = $"x{count}";
+        }
         countText.fontSize = 16;
         countText.alignment = TextAlignmentOptions.Center;
         countText.color = Color.white;
@@ -520,6 +720,88 @@ public class PuzzleTableController : MonoBehaviour
         feedbackText.alignment = TextAlignmentOptions.Center;
 
         feedbackPanel.SetActive(false);
+
+        // ═══════════════════════════════
+        // QUESTION NUMBER (top-left, only for multi-question levels)
+        // ═══════════════════════════════
+        if (totalQuestions > 1)
+        {
+            if (questionNumberText == null)
+            {
+                GameObject qNumGO = new GameObject("QuestionNumberText");
+                qNumGO.transform.SetParent(transform, false);
+                RectTransform qNumRect = qNumGO.AddComponent<RectTransform>();
+                qNumRect.anchorMin = new Vector2(0.01f, 0.91f);
+                qNumRect.anchorMax = new Vector2(0.25f, 0.98f);
+                qNumRect.offsetMin = Vector2.zero;
+                qNumRect.offsetMax = Vector2.zero;
+                questionNumberText = qNumGO.AddComponent<TextMeshProUGUI>();
+                questionNumberText.fontSize = 16;
+                questionNumberText.fontStyle = FontStyles.Bold;
+                questionNumberText.alignment = TextAlignmentOptions.Center;
+                questionNumberText.color = new Color(0.84f, 0.75f, 0.5f, 1f); // Gold
+            }
+            questionNumberText.text = $"Question {currentQuestion}/{totalQuestions}";
+            questionNumberText.gameObject.SetActive(true);
+        }
+
+        BuildQuestionInfoUI();
+    }
+
+    private void BuildQuestionInfoUI()
+    {
+        if (expressionText == null)
+        {
+            GameObject exprGO = new GameObject("ExpressionText");
+            exprGO.transform.SetParent(transform, false);
+            RectTransform exprRect = exprGO.AddComponent<RectTransform>();
+            exprRect.anchorMin = new Vector2(0.02f, 0.82f);
+            exprRect.anchorMax = new Vector2(0.70f, 0.90f);
+            exprRect.offsetMin = Vector2.zero;
+            exprRect.offsetMax = Vector2.zero;
+
+            expressionText = exprGO.AddComponent<TextMeshProUGUI>();
+            expressionText.fontSize = 20;
+            expressionText.fontStyle = FontStyles.Bold;
+            expressionText.alignment = TextAlignmentOptions.Left;
+            expressionText.color = new Color(0.12f, 0.12f, 0.12f, 1f);
+        }
+
+        if (requirementText == null)
+        {
+            GameObject reqGO = new GameObject("GateRequirementText");
+            reqGO.transform.SetParent(transform, false);
+            RectTransform reqRect = reqGO.AddComponent<RectTransform>();
+            reqRect.anchorMin = new Vector2(0.02f, 0.76f);
+            reqRect.anchorMax = new Vector2(0.70f, 0.82f);
+            reqRect.offsetMin = Vector2.zero;
+            reqRect.offsetMax = Vector2.zero;
+
+            requirementText = reqGO.AddComponent<TextMeshProUGUI>();
+            requirementText.fontSize = 15;
+            requirementText.alignment = TextAlignmentOptions.Left;
+            requirementText.color = new Color(0.22f, 0.22f, 0.22f, 1f);
+        }
+
+        if (!string.IsNullOrEmpty(selectedQuestionExpression))
+        {
+            expressionText.text = $"F = {selectedQuestionExpression}";
+            expressionText.gameObject.SetActive(true);
+        }
+        else
+        {
+            expressionText.gameObject.SetActive(false);
+        }
+
+        if (requiredAnd > 0 || requiredOr > 0 || requiredNot > 0)
+        {
+            requirementText.text = $"Required: AND x{requiredAnd}, OR x{requiredOr}, NOT x{requiredNot}";
+            requirementText.gameObject.SetActive(true);
+        }
+        else
+        {
+            requirementText.gameObject.SetActive(false);
+        }
     }
 
     // ===================== SUBMIT / CHECK =====================
@@ -527,6 +809,12 @@ public class PuzzleTableController : MonoBehaviour
     private void OnSubmit()
     {
         if (puzzleSolved || isGameOver) return;
+
+        if (IsFreeFormCanvasMode() && dropSlots.Count == 0)
+        {
+            ShowFeedback("Blank canvas mode active. Place gates and wire connections; graph validation is the next step.", new Color(0.95f, 0.85f, 0.3f), 2.5f);
+            return;
+        }
 
         // Check if all slots are filled
         bool allFilled = true;
@@ -542,6 +830,60 @@ public class PuzzleTableController : MonoBehaviour
         if (!allFilled)
         {
             ShowFeedback("Place a gate in every slot!", new Color(1f, 0.8f, 0.2f), 2f);
+            return;
+        }
+
+        // Level 6+ expression mode: validate by required gate composition instead of fixed slot order.
+        if (!string.IsNullOrEmpty(selectedQuestionExpression) &&
+            (requiredAnd > 0 || requiredOr > 0 || requiredNot > 0))
+        {
+            int andCount = 0;
+            int orCount = 0;
+            int notCount = 0;
+
+            foreach (var slot in dropSlots)
+            {
+                if (!slot.PlacedGate.HasValue) continue;
+                switch (slot.PlacedGate.Value)
+                {
+                    case GateType.AND: andCount++; break;
+                    case GateType.OR: orCount++; break;
+                    case GateType.NOT: notCount++; break;
+                }
+            }
+
+            bool compositionMatch =
+                andCount == requiredAnd &&
+                orCount == requiredOr &&
+                notCount == requiredNot;
+
+            Debug.Log($"[PuzzleTable] Expression mode check => AND {andCount}/{requiredAnd}, OR {orCount}/{requiredOr}, NOT {notCount}/{requiredNot}");
+
+            if (compositionMatch)
+            {
+                puzzleSolved = true;
+                ShowFeedback("CORRECT! Composition matches expression requirements.", new Color(0.2f, 1f, 0.3f), 0f);
+                OnPuzzleComplete();
+            }
+            else
+            {
+                attemptsUsed++;
+                UpdateAttemptsDisplay();
+
+                if (attemptsUsed >= maxAttempts)
+                {
+                    isGameOver = true;
+                    ShowFeedback("GAME OVER!\nNo attempts remaining.", new Color(1f, 0.2f, 0.2f), 0f);
+                    OnGameOver();
+                }
+                else
+                {
+                    int remaining = maxAttempts - attemptsUsed;
+                    ShowFeedback(
+                        $"Wrong gate composition.\nNeed AND x{requiredAnd}, OR x{requiredOr}, NOT x{requiredNot}\n{remaining} attempt{(remaining == 1 ? "" : "s")} left.",
+                        new Color(1f, 0.4f, 0.3f), 3f);
+                }
+            }
             return;
         }
 
@@ -618,12 +960,27 @@ public class PuzzleTableController : MonoBehaviour
     {
         foreach (var kvp in paletteCountLabels)
         {
-            int count = sessionInventory.ContainsKey(kvp.Key) ? sessionInventory[kvp.Key] : 0;
-            kvp.Value.text = $"x{count}";
+            if (kvp.Key == GateType.WIRE)
+            {
+                kvp.Value.text = "x∞";
+            }
+            else
+            {
+                int count = sessionInventory.ContainsKey(kvp.Key) ? sessionInventory[kvp.Key] : 0;
+                kvp.Value.text = $"x{count}";
+            }
 
             if (paletteItemGroups.ContainsKey(kvp.Key))
             {
-                paletteItemGroups[kvp.Key].alpha = count > 0 ? 1f : 0.4f;
+                if (kvp.Key == GateType.WIRE)
+                {
+                    paletteItemGroups[kvp.Key].alpha = 1f;
+                }
+                else
+                {
+                    int count = sessionInventory.ContainsKey(kvp.Key) ? sessionInventory[kvp.Key] : 0;
+                    paletteItemGroups[kvp.Key].alpha = count > 0 ? 1f : 0.4f;
+                }
             }
         }
     }
@@ -674,31 +1031,28 @@ public class PuzzleTableController : MonoBehaviour
                 puzzleId = LevelManager.Instance.currentLevelPuzzle.variantId;
             }
 
-            // Fallback: use current level name as puzzle ID
+            // Fallback: use current level name + question number as puzzle ID
             if (string.IsNullOrEmpty(puzzleId))
             {
-                int currentLevel = LevelManager.Instance != null ? LevelManager.Instance.GetCurrentLevel() : 1;
-                puzzleId = $"Level{currentLevel}_Puzzle";
+                int currentLevel = currentLevelNumber;
+                if (LevelManager.Instance != null)
+                    currentLevel = LevelManager.Instance.GetCurrentLevel();
+                if (totalQuestions > 1)
+                    puzzleId = $"Level{currentLevel}_Puzzle_Q{currentQuestion}";
+                else
+                    puzzleId = $"Level{currentLevel}_Puzzle";
             }
 
             PuzzleManager.Instance.CompletePuzzle(puzzleId);
             Debug.Log($"[PuzzleTable] Puzzle '{puzzleId}' marked as completed in Firebase");
         }
 
-        // 2. Unlock next level + save progress to Firebase
-        if (LevelManager.Instance != null)
+        // 2. Save progress to Firebase (unlock next level data) but do NOT auto-transition.
+        //    The level transition is triggered when the player opens Door_Success with the success key.
+        if (AccountManager.Instance != null)
         {
-            LevelManager.Instance.PuzzleCompleted();
-            Debug.Log("[PuzzleTable] Called LevelManager.PuzzleCompleted() — level progress saved to Firebase");
-        }
-        else
-        {
-            // Fallback: save directly through AccountManager
-            if (AccountManager.Instance != null)
-            {
-                AccountManager.Instance.UnlockNextLevel();
-                Debug.Log("[PuzzleTable] Fallback: Called AccountManager.UnlockNextLevel() directly");
-            }
+            AccountManager.Instance.UnlockNextLevel();
+            Debug.Log("[PuzzleTable] Progress saved — next level unlocked in Firebase.");
         }
 
         StartCoroutine(DelayedPuzzleComplete());
@@ -711,13 +1065,8 @@ public class PuzzleTableController : MonoBehaviour
         SetUIMode(false);
         IsOpen = false;
 
-        // Note: LevelManager.PuzzleCompleted() already calls ShowPuzzleComplete() 
-        // and handles level transitions, so we only show it here as a fallback
-        // if LevelManager didn't handle it.
-        if (LevelManager.Instance == null && UIManager.Instance != null)
-        {
-            UIManager.Instance.ShowPuzzleComplete();
-        }
+        // Close the puzzle UI — the success key will spawn via InteractiveTable.
+        // The player must collect it and open Door_Success to proceed to the next level.
 
         gameObject.SetActive(false);
     }
@@ -840,6 +1189,26 @@ public class PuzzleTableController : MonoBehaviour
 
     // ===================== UTILITIES =====================
 
+    /// <summary>
+    /// Find a child by name, only traversing ACTIVE GameObjects.
+    /// This prevents finding elements inside inactive level panels.
+    /// </summary>
+    private Transform FindActiveDeepChild(Transform parent, string name)
+    {
+        foreach (Transform child in parent)
+        {
+            // Skip inactive children entirely
+            if (!child.gameObject.activeSelf) continue;
+
+            if (child.name.Trim() == name)
+                return child;
+
+            Transform found = FindActiveDeepChild(child, name);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
     private Transform FindDeepChild(Transform parent, string name)
     {
         foreach (Transform child in parent)
@@ -853,6 +1222,18 @@ public class PuzzleTableController : MonoBehaviour
         return null;
     }
 
+    private string GetTransformPath(Transform t)
+    {
+        string path = t.name;
+        Transform current = t.parent;
+        while (current != null)
+        {
+            path = current.name + "/" + path;
+            current = current.parent;
+        }
+        return path;
+    }
+
     private Color GetGateColor(GateType type)
     {
         switch (type)
@@ -860,7 +1241,125 @@ public class PuzzleTableController : MonoBehaviour
             case GateType.AND: return new Color(0.3f, 0.7f, 1f, 1f);
             case GateType.OR:  return new Color(1f, 0.7f, 0.2f, 1f);
             case GateType.NOT: return new Color(1f, 0.3f, 0.4f, 1f);
+            case GateType.WIRE: return new Color(0.7f, 1f, 1f, 1f);
             default:           return Color.white;
         }
+    }
+
+    private void HideLegacyTemplateVisuals()
+    {
+        if (puzzleContent == null) return;
+        
+        // In free-form mode, keep the paper/background root itself,
+        // but disable ALL legacy template children (boxes, old lines, old labels, etc.).
+        int hiddenCount = 0;
+        foreach (Transform child in puzzleContent)
+        {
+            if (child != null && child.gameObject.activeSelf)
+            {
+                child.gameObject.SetActive(false);
+                hiddenCount++;
+            }
+        }
+
+        // Some legacy prefabs put labels directly on the root.
+        TextMeshProUGUI[] legacyTexts = puzzleContent.GetComponentsInChildren<TextMeshProUGUI>(true);
+        for (int i = 0; i < legacyTexts.Length; i++)
+        {
+            if (legacyTexts[i] != null)
+                legacyTexts[i].gameObject.SetActive(false);
+        }
+
+        Debug.Log($"[PuzzleTable] Free-form cleanup: hid {hiddenCount} direct legacy child object(s) under '{puzzleContent.name}'.");
+    }
+
+    private void HideLegacyTemplateVisualsRecursive(Transform root)
+    {
+        foreach (Transform child in root)
+        {
+            string n = child.name.Trim().ToLowerInvariant();
+            if (n.StartsWith("box") || n.Contains("line"))
+            {
+                child.gameObject.SetActive(false);
+            }
+            HideLegacyTemplateVisualsRecursive(child);
+        }
+    }
+
+    private void BuildFreeFormInputGuide()
+    {
+        if (!IsFreeFormCanvasMode()) return;
+
+        if (freeFormGuideRoot != null)
+            Destroy(freeFormGuideRoot);
+
+        freeFormGuideRoot = new GameObject("FreeFormInputGuide");
+        freeFormGuideRoot.transform.SetParent(transform, false);
+
+        RectTransform rootRect = freeFormGuideRoot.AddComponent<RectTransform>();
+        rootRect.anchorMin = Vector2.zero;
+        rootRect.anchorMax = Vector2.one;
+        rootRect.offsetMin = Vector2.zero;
+        rootRect.offsetMax = Vector2.zero;
+
+        CanvasGroup cg = freeFormGuideRoot.AddComponent<CanvasGroup>();
+        cg.blocksRaycasts = false;
+        cg.interactable = false;
+
+        CreateInputLine("A", 0.10f);
+        CreateInputLine("B", 0.18f);
+        CreateInputLine("C", 0.26f);
+        CreateOutputMarker();
+    }
+
+    private void CreateInputLine(string label, float x)
+    {
+        GameObject labelGO = new GameObject($"InputLabel_{label}");
+        labelGO.transform.SetParent(freeFormGuideRoot.transform, false);
+        RectTransform labelRect = labelGO.AddComponent<RectTransform>();
+        labelRect.anchorMin = new Vector2(x - 0.02f, 0.73f);
+        labelRect.anchorMax = new Vector2(x + 0.02f, 0.78f);
+        labelRect.offsetMin = Vector2.zero;
+        labelRect.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI t = labelGO.AddComponent<TextMeshProUGUI>();
+        t.text = label;
+        t.fontSize = 34;
+        t.fontStyle = FontStyles.Bold;
+        t.alignment = TextAlignmentOptions.Center;
+        t.color = new Color(0.12f, 0.12f, 0.12f, 1f);
+        t.raycastTarget = false;
+
+        GameObject lineGO = new GameObject($"InputLine_{label}");
+        lineGO.transform.SetParent(freeFormGuideRoot.transform, false);
+        RectTransform lineRect = lineGO.AddComponent<RectTransform>();
+        lineRect.anchorMin = new Vector2(x - 0.001f, 0.20f);
+        lineRect.anchorMax = new Vector2(x + 0.001f, 0.68f);
+        lineRect.offsetMin = Vector2.zero;
+        lineRect.offsetMax = Vector2.zero;
+
+        Image lineImg = lineGO.AddComponent<Image>();
+        lineImg.color = new Color(0.15f, 0.15f, 0.15f, 0.9f);
+        lineImg.raycastTarget = false;
+    }
+
+    private void CreateOutputMarker()
+    {
+        GameObject outGO = new GameObject("OutputLabel");
+        outGO.transform.SetParent(freeFormGuideRoot.transform, false);
+        RectTransform outRect = outGO.AddComponent<RectTransform>();
+        outRect.anchorMin = new Vector2(0.78f, 0.43f);
+        outRect.anchorMax = new Vector2(0.97f, 0.49f);
+        outRect.offsetMin = Vector2.zero;
+        outRect.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI outText = outGO.AddComponent<TextMeshProUGUI>();
+        outText.text = "OUTPUT";
+        outText.fontSize = 22;
+        outText.fontStyle = FontStyles.Bold;
+        outText.alignment = TextAlignmentOptions.Right;
+        outText.textWrappingMode = TextWrappingModes.NoWrap;
+        outText.color = new Color(0.12f, 0.12f, 0.12f, 1f);
+        outText.raycastTarget = false;
     }
 }

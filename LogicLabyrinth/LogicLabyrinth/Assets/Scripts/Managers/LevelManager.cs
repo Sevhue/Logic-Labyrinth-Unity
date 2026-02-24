@@ -13,6 +13,17 @@ public class LevelManager : MonoBehaviour
     private bool isPuzzleCompleted = false;
     private bool isLoadingGame = false;
     private bool shouldRestorePosition = false;
+    private Coroutine outOfBoundsWatchdogRoutine;
+    private Vector3 lastSafePlayerPosition = Vector3.zero;
+    private float lastSafePlayerYaw = 0f;
+
+    [Header("Player Safety")]
+    [Tooltip("If player Y drops below this, auto-rescue to the last safe position.")]
+    public float voidYThreshold = -8f;
+    [Tooltip("If player drifts too far from origin, auto-rescue.")]
+    public float maxAbsWorldCoordinate = 300f;
+    [Tooltip("How often to check for out-of-bounds/fall events.")]
+    public float safetyCheckInterval = 0.25f;
 
 
     public PuzzleVariant currentLevelPuzzle;
@@ -37,16 +48,36 @@ public class LevelManager : MonoBehaviour
     {
 
         SceneManager.sceneLoaded -= OnSceneLoaded;
+        StopOutOfBoundsWatchdog();
     }
 
     void Start()
     {
         isPuzzleCompleted = false;
+
+        // Bootstrap the LevelTimer singleton if not already present
+        if (LevelTimer.Instance == null)
+        {
+            GameObject timerGO = new GameObject("LevelTimer");
+            timerGO.AddComponent<LevelTimer>();
+            Debug.Log("[LevelManager] Created LevelTimer singleton.");
+        }
     }
 
     void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
         Debug.Log("Scene loaded: " + scene.name + ", isLoadingGame: " + isLoadingGame);
+
+        // ── Reset static key/candle flags on every level load ──
+        // These statics can persist across scenes and even editor play sessions.
+        if (scene.name.StartsWith("Level"))
+        {
+            TutorialDoor.PlayerHasKey = false;
+            SuccessDoor.PlayerHasSuccessKey = false;
+            if (InventoryManager.Instance != null)
+                InventoryManager.Instance.SetHasCandle(false);
+            Debug.Log("[LevelManager] Reset key/candle flags for fresh level load.");
+        }
 
 
         if (UIManager.Instance == null)
@@ -132,6 +163,11 @@ public class LevelManager : MonoBehaviour
             // Individual Interactable.Start() checks may miss gates if data arrives late.
             StartCoroutine(SweepDestroyedGatesAfterDelay());
         }
+
+        if (scene.name.StartsWith("Level"))
+            StartOutOfBoundsWatchdog();
+        else
+            StopOutOfBoundsWatchdog();
 
     }
 
@@ -239,6 +275,10 @@ public class LevelManager : MonoBehaviour
             isPuzzleCompleted = true;
             Debug.Log($"Level {currentLevel} puzzle completed!");
 
+            // Stop the level timer and record the best time
+            if (LevelTimer.Instance != null)
+                LevelTimer.Instance.StopAndRecordTime();
+
             if (AccountManager.Instance != null)
                 AccountManager.Instance.UnlockNextLevel();
 
@@ -288,6 +328,7 @@ public class LevelManager : MonoBehaviour
             player.unlockedLevels = 1;
             player.lastCompletedLevel = 0;
             player.collectedGates.Clear();
+            player.completedPuzzles.Clear(); // Reset puzzle completion so success keys don't show on new game
             player.andGatesCollected = 0;
             player.orGatesCollected = 0;
             player.notGatesCollected = 0;
@@ -303,7 +344,7 @@ public class LevelManager : MonoBehaviour
             player.savedGateLayout = ""; // Force fresh random gate placement
 
             AccountManager.Instance.SavePlayerProgress();
-            Debug.Log("New Game: Player data reset (including saved position & gate layout) and saved to Firebase");
+            Debug.Log("New Game: Player data reset (including saved position, gate layout, completed puzzles) and saved to Firebase");
         }
 
 
@@ -484,6 +525,106 @@ public class LevelManager : MonoBehaviour
         if (cc != null) cc.enabled = true;
 
         Debug.Log($"[LevelManager] TeleportPlayer: Actual position after set = ({playerGO.transform.position.x:F2},{playerGO.transform.position.y:F2},{playerGO.transform.position.z:F2})");
+        return true;
+    }
+
+    private void StartOutOfBoundsWatchdog()
+    {
+        StopOutOfBoundsWatchdog();
+        outOfBoundsWatchdogRoutine = StartCoroutine(OutOfBoundsWatchdog());
+    }
+
+    private void StopOutOfBoundsWatchdog()
+    {
+        if (outOfBoundsWatchdogRoutine != null)
+        {
+            StopCoroutine(outOfBoundsWatchdogRoutine);
+            outOfBoundsWatchdogRoutine = null;
+        }
+    }
+
+    private System.Collections.IEnumerator OutOfBoundsWatchdog()
+    {
+        // Wait a frame for scene/player initialization.
+        yield return null;
+
+        while (true)
+        {
+            Scene active = SceneManager.GetActiveScene();
+            if (!active.name.StartsWith("Level"))
+            {
+                yield return new WaitForSeconds(safetyCheckInterval);
+                continue;
+            }
+
+            GameObject playerGO = PauseMenuController.FindPlayerWithCharacterController();
+            if (playerGO == null)
+            {
+                yield return new WaitForSeconds(safetyCheckInterval);
+                continue;
+            }
+
+            Vector3 pos = playerGO.transform.position;
+            bool invalid =
+                float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z) ||
+                pos.y < voidYThreshold ||
+                Mathf.Abs(pos.x) > maxAbsWorldCoordinate ||
+                Mathf.Abs(pos.z) > maxAbsWorldCoordinate;
+
+            if (invalid)
+            {
+                Vector3 rescuePos = lastSafePlayerPosition;
+                float rescueYaw = lastSafePlayerYaw;
+
+                if (rescuePos == Vector3.zero)
+                {
+                    // Fallback to spawn marker if we have no safe sample yet.
+                    if (!TryGetSpawnFallback(out rescuePos, out rescueYaw))
+                    {
+                        rescuePos = new Vector3(0f, 2f, 0f);
+                        rescueYaw = 0f;
+                    }
+                }
+
+                Debug.LogWarning($"[LevelManager] Out-of-bounds detected at ({pos.x:F2},{pos.y:F2},{pos.z:F2}) — rescuing player.");
+                TeleportPlayer(rescuePos, rescueYaw);
+            }
+            else
+            {
+                // Cache a safe location while the player is in valid space.
+                lastSafePlayerPosition = pos;
+                lastSafePlayerYaw = playerGO.transform.eulerAngles.y;
+            }
+
+            yield return new WaitForSeconds(safetyCheckInterval);
+        }
+    }
+
+    private bool TryGetSpawnFallback(out Vector3 spawnPos, out float spawnYaw)
+    {
+        spawnPos = Vector3.zero;
+        spawnYaw = 0f;
+
+        GameObject spawn = GameObject.Find("SpawnPoint1");
+        if (spawn == null) spawn = GameObject.Find("SpawnPoint");
+        if (spawn == null)
+        {
+            Transform[] all = FindObjectsByType<Transform>(FindObjectsSortMode.None);
+            for (int i = 0; i < all.Length; i++)
+            {
+                Transform t = all[i];
+                if (t != null && t.name.StartsWith("SpawnPoint"))
+                {
+                    spawn = t.gameObject;
+                    break;
+                }
+            }
+        }
+
+        if (spawn == null) return false;
+
+        spawnPos = spawn.transform.position + Vector3.up * 0.2f;
+        spawnYaw = spawn.transform.eulerAngles.y;
         return true;
     }
 

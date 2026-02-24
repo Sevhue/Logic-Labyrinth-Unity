@@ -41,6 +41,10 @@ public class CollectibleCandle : MonoBehaviour
     {
         startLocalPos = transform.localPosition;
 
+        // Fix negative scale BEFORE adding collider to avoid
+        // "BoxCollider does not support negative scale" warnings.
+        FixNegativeScale();
+
         // Ensure a trigger collider exists so SphereCast can hit this object.
         // Size it based on the mesh renderer bounds (world-space), then convert to local space.
         BoxCollider bc = GetComponent<BoxCollider>();
@@ -51,10 +55,11 @@ public class CollectibleCandle : MonoBehaviour
         {
             Bounds wb = rend.bounds;
             Vector3 ls = transform.lossyScale;
+            // Use Mathf.Abs to guarantee positive sizes even if a parent has negative scale
             Vector3 localSize = new Vector3(
-                ls.x != 0 ? wb.size.x / ls.x : 0.1f,
-                ls.y != 0 ? wb.size.y / ls.y : 0.1f,
-                ls.z != 0 ? wb.size.z / ls.z : 0.1f
+                Mathf.Abs(ls.x) > 0.0001f ? wb.size.x / Mathf.Abs(ls.x) : 0.1f,
+                Mathf.Abs(ls.y) > 0.0001f ? wb.size.y / Mathf.Abs(ls.y) : 0.1f,
+                Mathf.Abs(ls.z) > 0.0001f ? wb.size.z / Mathf.Abs(ls.z) : 0.1f
             );
             // Add generous padding so SphereCast can reliably hit it
             localSize *= 3f;
@@ -210,6 +215,24 @@ public class CollectibleCandle : MonoBehaviour
             transform.localPosition = startLocalPos + Vector3.up * yOffset;
             transform.Rotate(Vector3.up, 25f * Time.deltaTime, Space.Self);
             yield return null;
+        }
+    }
+
+    // ═══════════════════════════════════════════════
+    //  NEGATIVE-SCALE FIX
+    // ═══════════════════════════════════════════════
+
+    /// <summary>
+    /// Flips any negative local-scale axes to positive.
+    /// BoxCollider does not support negative scale and will log warnings.
+    /// </summary>
+    private void FixNegativeScale()
+    {
+        Vector3 s = transform.localScale;
+        if (s.x < 0f || s.y < 0f || s.z < 0f)
+        {
+            transform.localScale = new Vector3(Mathf.Abs(s.x), Mathf.Abs(s.y), Mathf.Abs(s.z));
+            Debug.Log($"[CollectibleCandle] Fixed negative scale on '{name}': {s} → {transform.localScale}");
         }
     }
 

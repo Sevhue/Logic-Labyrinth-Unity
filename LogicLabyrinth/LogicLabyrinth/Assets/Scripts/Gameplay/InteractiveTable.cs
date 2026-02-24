@@ -1,10 +1,26 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
+using System.Collections;
+
+/// <summary>
+/// Serializable wrapper for a single question's answer key.
+/// Used by multi-question levels (Level 2, Level 4, etc.).
+/// </summary>
+[System.Serializable]
+public class QuestionAnswerKey
+{
+    [Tooltip("The correct gate for each box slot in this question, in order (Box1, Box2, ...)")]
+    public GateType[] answerKey;
+}
 
 /// <summary>
 /// Attach to the table object in the scene.
 /// When the player interacts (E key via Interactable, or mouse click),
 /// it instantiates the UITable prefab and opens the puzzle.
+///
+/// For multi-question levels (Q1-Q5), ONE random question is picked.
+/// The player only needs to solve that single question for the success key to spawn.
 /// </summary>
 public class InteractiveTable : MonoBehaviour
 {
@@ -12,18 +28,24 @@ public class InteractiveTable : MonoBehaviour
     [Tooltip("Assign the UITable prefab from Assets/Prefabs/Table/Table/UITable.prefab")]
     public GameObject puzzleUIPrefab;
 
-    [Header("Answer Key")]
-    [Tooltip("The correct gate for each box slot, in order (Box1, Box2, Box3, ...)")]
+    [Header("Answer Key (Single Question Levels)")]
+    [Tooltip("The correct gate for each box slot, in order (Box1, Box2, Box3, ...). Used when questionAnswerKeys is empty.")]
     public GateType[] answerKey = new GateType[] {
         GateType.OR,   // Box1
         GateType.OR,   // Box2
-        GateType.OR,   // Box3
-        GateType.AND,  // Box4
-        GateType.AND   // Box5
+        GateType.AND   // Box3
     };
+
+    [Header("Answer Keys (Multi-Question Levels)")]
+    [Tooltip("For levels with Q1-Q5 panels. Each entry is one question's answer key. One is picked at random.")]
+    public QuestionAnswerKey[] questionAnswerKeys;
 
     [Header("Settings")]
     public int maxAttempts = 3;
+
+    [Header("Success Key")]
+    [Tooltip("The success_key GameObject in the scene. Hidden until the puzzle is solved.")]
+    public GameObject successKeyObject;
 
     [Header("Visual Feedback")]
     public Material highlightMaterial;
@@ -33,34 +55,89 @@ public class InteractiveTable : MonoBehaviour
     // Runtime
     private GameObject puzzleUIInstance;
     private bool isPuzzleOpen;
+    private bool puzzleAlreadySolved = false;
+
+    // Runtime answer keys loaded from AnswerKeyConfig
+    private GateType[][] runtimeAnswerKeys;
+    private CircuitQuestionData[] runtimeQuestions;
+    private int currentLevel = 1;
 
     void Start()
     {
         tableRenderer = GetComponent<Renderer>();
         if (tableRenderer != null)
             originalMaterial = tableRenderer.material;
+
+        // Always hide the success key at start
+        if (successKeyObject != null)
+        {
+            successKeyObject.SetActive(false);
+            Debug.Log("[InteractiveTable] Success key hidden until puzzle is solved.");
+        }
+
+        // Auto-configure answer keys from AnswerKeyConfig based on current level
+        AutoConfigureAnswerKeys();
     }
 
-    /// <summary>
-    /// Max distance from the camera to the table for mouse interaction.
-    /// Matches SimpleGateCollector.interactDistance.
-    /// </summary>
+    private void AutoConfigureAnswerKeys()
+    {
+        int level = 1;
+        if (LevelManager.Instance != null)
+            level = LevelManager.Instance.GetCurrentLevel();
+        else
+            level = GetLevelFromSceneName();
+
+        if (level <= 1)
+        {
+            // If LevelManager falls back to 1, trust the loaded scene name when available.
+            int sceneLevel = GetLevelFromSceneName();
+            if (sceneLevel > 1)
+                level = sceneLevel;
+        }
+        currentLevel = level;
+
+        runtimeAnswerKeys = AnswerKeyConfig.GetAnswerKeys(level);
+        runtimeQuestions = LevelExpressionConfig.GetQuestions(level);
+        Debug.Log($"[InteractiveTable] Auto-configured {runtimeAnswerKeys.Length} question(s) for Level {level}");
+
+        // Inspector questionAnswerKeys override runtime config if set
+        if (questionAnswerKeys != null && questionAnswerKeys.Length > 0)
+        {
+            runtimeAnswerKeys = new GateType[questionAnswerKeys.Length][];
+            for (int i = 0; i < questionAnswerKeys.Length; i++)
+                runtimeAnswerKeys[i] = questionAnswerKeys[i].answerKey;
+            Debug.Log($"[InteractiveTable] Inspector override: {runtimeAnswerKeys.Length} question(s).");
+        }
+
+        for (int q = 0; q < runtimeAnswerKeys.Length; q++)
+        {
+            string gates = string.Join(", ", runtimeAnswerKeys[q]);
+            Debug.Log($"[InteractiveTable]   Q{q + 1}: {gates}");
+        }
+    }
+
+    private int GetLevelFromSceneName()
+    {
+        string sceneName = SceneManager.GetActiveScene().name;
+        if (!string.IsNullOrEmpty(sceneName) &&
+            sceneName.StartsWith("Level") &&
+            int.TryParse(sceneName.Substring(5), out int parsed))
+        {
+            return parsed;
+        }
+
+        return 1;
+    }
+
     private const float MAX_INTERACT_DISTANCE = 5f;
 
-    /// <summary>
-    /// Returns true if interaction is blocked (cutscene, too far, paused, etc.)
-    /// </summary>
     private bool IsInteractionBlocked()
     {
-        // Block during cutscenes
         if (CutsceneController.IsPlaying || CutsceneController.CameraOnlyMode)
             return true;
-
-        // Block while paused
         if (PauseMenuController.IsPaused)
             return true;
 
-        // Block if too far from the camera
         Camera cam = Camera.main;
         if (cam != null)
         {
@@ -68,7 +145,6 @@ public class InteractiveTable : MonoBehaviour
             if (dist > MAX_INTERACT_DISTANCE)
                 return true;
         }
-
         return false;
     }
 
@@ -87,75 +163,94 @@ public class InteractiveTable : MonoBehaviour
 
     void OnMouseDown()
     {
-        // Block if cutscene active, too far, paused, etc.
         if (IsInteractionBlocked()) return;
-
-        // Only allow mouse-click opening if puzzle isn't already open
-        // and PuzzleTableController isn't already active
         if (!isPuzzleOpen && !PuzzleTableController.IsOpen)
             OpenPuzzleInterface();
     }
 
-    /// <summary>
-    /// Call this from an Interactable or any other interaction system.
-    /// </summary>
     public void OpenPuzzleInterface()
     {
         if (isPuzzleOpen) return;
 
-        if (puzzleUIPrefab == null)
+        if (puzzleAlreadySolved)
         {
-            Debug.LogError("[InteractiveTable] puzzleUIPrefab is not assigned! Assign the UITable prefab in the Inspector.");
+            Debug.Log("[InteractiveTable] Puzzle already solved.");
             return;
         }
 
-        // Hide the "Press E" interact prompt immediately
+        if (puzzleUIPrefab == null)
+        {
+            Debug.LogError("[InteractiveTable] puzzleUIPrefab is not assigned!");
+            return;
+        }
+
+        // Pick a random question (each has equal probability)
+        int questionIndex = Random.Range(0, runtimeAnswerKeys.Length);
+        GateType[] selectedAnswerKey = runtimeAnswerKeys[questionIndex];
+
+        Debug.Log($"[InteractiveTable] Randomly selected Q{questionIndex + 1}/{runtimeAnswerKeys.Length} " +
+                  $"with {selectedAnswerKey.Length} gate slots");
+
+        // Hide interact prompt
         var levelUI = FindAnyObjectByType<LevelUIManager>();
         if (levelUI != null)
             levelUI.HideInteractPrompt();
         if (UIManager.Instance != null)
             UIManager.Instance.ShowInteractPrompt(false);
 
-        // Hide the game inventory bar entirely while puzzle is open
+        // Hide inventory bar while puzzle is open
         if (GameInventoryUI.Instance != null)
             GameInventoryUI.Instance.gameObject.SetActive(false);
 
-        // Ensure an EventSystem exists (required for UI interactions)
         EnsureEventSystem();
-
-        // Players can always open the table to view the problem.
-        // The Submit button requires all slots filled, so no gates = can't submit anyway.
 
         // Instantiate the puzzle UI
         puzzleUIInstance = Instantiate(puzzleUIPrefab);
-        puzzleUIInstance.name = "PuzzleUI_Active";
-
-        // Ensure the UI is active (the prefab may be saved as inactive)
+        puzzleUIInstance.name = $"PuzzleUI_Active_Q{questionIndex + 1}";
         puzzleUIInstance.SetActive(true);
 
-        // Ensure puzzle UI Canvas renders above everything (inventory, level UI, etc.)
         Canvas puzzleCanvas = puzzleUIInstance.GetComponent<Canvas>();
         if (puzzleCanvas != null)
-        {
             puzzleCanvas.sortingOrder = 500;
-        }
 
-        // Get the PuzzleTableController (should already be on the prefab)
         PuzzleTableController controller = puzzleUIInstance.GetComponent<PuzzleTableController>();
         if (controller == null)
             controller = puzzleUIInstance.AddComponent<PuzzleTableController>();
 
-        // Set the answer key and attempts BEFORE calling OpenPuzzle
-        controller.answerKey = answerKey;
         controller.maxAttempts = maxAttempts;
+        controller.answerKey = selectedAnswerKey;
+        controller.currentLevelNumber = currentLevel;
+        controller.selectedQuestionExpression = string.Empty;
+        controller.requiredAnd = 0;
+        controller.requiredOr = 0;
+        controller.requiredNot = 0;
 
-        // Now explicitly open the puzzle (this sets up slots, palette, controls)
+        if (runtimeAnswerKeys.Length > 1)
+        {
+            // Multi-question: tell controller which Q panel to show
+            controller.selectedQuestionIndex = questionIndex;
+            controller.SetQuestionNumber(questionIndex + 1, runtimeAnswerKeys.Length);
+        }
+        else
+        {
+            controller.selectedQuestionIndex = -1;
+        }
+
+        if (runtimeQuestions != null && questionIndex >= 0 && questionIndex < runtimeQuestions.Length)
+        {
+            CircuitQuestionData questionData = runtimeQuestions[questionIndex];
+            if (questionData != null)
+            {
+                controller.selectedQuestionExpression = questionData.expression;
+                controller.requiredAnd = questionData.requiredAnd;
+                controller.requiredOr = questionData.requiredOr;
+                controller.requiredNot = questionData.requiredNot;
+            }
+        }
+
         controller.OpenPuzzle();
 
         isPuzzleOpen = true;
-        Debug.Log("[InteractiveTable] Puzzle opened!");
-
-        // Watch for when the puzzle closes
         StartCoroutine(WatchForPuzzleClose());
     }
 
@@ -170,21 +265,35 @@ public class InteractiveTable : MonoBehaviour
         }
     }
 
-    private System.Collections.IEnumerator WatchForPuzzleClose()
+    private IEnumerator WatchForPuzzleClose()
     {
-        // Wait at least one frame before checking (prevents synchronous completion)
         yield return null;
 
-        // Wait until the puzzle instance is disabled/destroyed
+        PuzzleTableController controller = puzzleUIInstance != null
+            ? puzzleUIInstance.GetComponent<PuzzleTableController>()
+            : null;
+
         while (puzzleUIInstance != null && puzzleUIInstance.activeSelf)
         {
             yield return null;
         }
 
         isPuzzleOpen = false;
-        Debug.Log("[InteractiveTable] Puzzle closed!");
 
-        // Restore the game inventory bar
+        bool wasSolved = (controller != null && controller.WasPuzzleSolved);
+
+        if (wasSolved)
+        {
+            puzzleAlreadySolved = true;
+
+            if (successKeyObject != null)
+            {
+                successKeyObject.SetActive(true);
+                Debug.Log("[InteractiveTable] Puzzle solved! Success key spawned.");
+            }
+        }
+
+        // Restore inventory bar
         if (GameInventoryUI.Instance != null)
             GameInventoryUI.Instance.gameObject.SetActive(true);
 
@@ -195,7 +304,6 @@ public class InteractiveTable : MonoBehaviour
             puzzleUIInstance = null;
         }
 
-        // Restore table material
         if (tableRenderer != null && originalMaterial != null)
             tableRenderer.material = originalMaterial;
     }

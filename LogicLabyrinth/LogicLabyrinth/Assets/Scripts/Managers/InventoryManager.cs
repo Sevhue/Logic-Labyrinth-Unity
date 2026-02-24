@@ -9,7 +9,9 @@ public class InventoryManager : MonoBehaviour
     public TMPro.TMP_Text orGateText;
     public TMPro.TMP_Text notGateText;
 
+    // Backward-compatible constant for older references.
     public const int MAX_GATES = 5;
+    public const int MIN_GATE_CAPACITY = 5;
 
     private Dictionary<string, int> gateCounts = new Dictionary<string, int> { { "AND", 0 }, { "OR", 0 }, { "NOT", 0 } };
 
@@ -42,7 +44,29 @@ public class InventoryManager : MonoBehaviour
 
     public bool IsInventoryFull()
     {
-        return GetTotalGateCount() >= MAX_GATES;
+        return GetTotalGateCount() >= GetCurrentGateCapacity();
+    }
+
+    public int GetCurrentGateCapacity()
+    {
+        // Default minimum capacity
+        int capacity = MIN_GATE_CAPACITY;
+
+        int level = 1;
+        if (LevelManager.Instance != null)
+            level = LevelManager.Instance.GetCurrentLevel();
+
+        GateType[][] answerSets = AnswerKeyConfig.GetAnswerKeys(level);
+        if (answerSets != null)
+        {
+            for (int i = 0; i < answerSets.Length; i++)
+            {
+                if (answerSets[i] != null && answerSets[i].Length > capacity)
+                    capacity = answerSets[i].Length;
+            }
+        }
+
+        return capacity;
     }
 
     // ============================
@@ -52,6 +76,12 @@ public class InventoryManager : MonoBehaviour
     public void AddGate(string gateType)
     {
         string key = gateType.ToUpper();
+        if (IsInventoryFull())
+        {
+            Debug.LogWarning($"[InventoryManager] Cannot add {key} — inventory is full ({GetTotalGateCount()}/{GetCurrentGateCapacity()}).");
+            return;
+        }
+
         if (gateCounts.ContainsKey(key))
         {
             gateCounts[key]++;
@@ -97,7 +127,7 @@ public class InventoryManager : MonoBehaviour
             if (GameInventoryUI.Instance != null)
                 GameInventoryUI.Instance.RefreshFromInventory();
 
-            Debug.Log($"[InventoryManager] Removed 1 {key} gate. Remaining: {gateCounts[key]}. Total: {GetTotalGateCount()}/{MAX_GATES}");
+            Debug.Log($"[InventoryManager] Removed 1 {key} gate. Remaining: {gateCounts[key]}. Total: {GetTotalGateCount()}/{GetCurrentGateCapacity()}");
             return true;
         }
         Debug.LogWarning($"[InventoryManager] Cannot remove {key} gate — count is 0.");
@@ -140,7 +170,24 @@ public class InventoryManager : MonoBehaviour
         gateCounts["AND"] = 0;
         gateCounts["OR"] = 0;
         gateCounts["NOT"] = 0;
-        Debug.Log("Inventory reset to zero");
+
+        // Clear key flags so they don't carry over to the next level
+        TutorialDoor.PlayerHasKey = false;
+        SuccessDoor.PlayerHasSuccessKey = false;
+
+        // Clear candle
+        HasCandle = false;
+
+        // Sync zeroed counts to player data so a mid-level save won't restore old items
+        if (AccountManager.Instance != null && AccountManager.Instance.GetCurrentPlayer() != null)
+        {
+            var player = AccountManager.Instance.GetCurrentPlayer();
+            player.andGatesCollected = 0;
+            player.orGatesCollected = 0;
+            player.notGatesCollected = 0;
+        }
+
+        Debug.Log("[InventoryManager] Full inventory reset (gates, keys, candle).");
 
         LevelUIManager levelUI = FindAnyObjectByType<LevelUIManager>();
         if (levelUI != null)
@@ -151,6 +198,10 @@ public class InventoryManager : MonoBehaviour
         {
             UIManager.SafeUpdateInventoryDisplay();
         }
+
+        // Refresh the hotbar so key/candle slots also disappear
+        if (GameInventoryUI.Instance != null)
+            GameInventoryUI.Instance.RefreshFromInventory();
     }
 
     private IEnumerator SaveAfterFrame(string gateType)

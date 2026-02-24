@@ -178,10 +178,19 @@ public class CreateAccountPanel : MonoBehaviour
                 {
                     Debug.Log("SUCCESS: Account created!");
 
-                    // Go straight to LoggedIn panel
-                    if (UIManager.Instance != null)
+                    // Check if profile is still missing info (e.g. displayName)
+                    if (NewPlayerSetupUI.IsProfileIncomplete())
                     {
-                        UIManager.Instance.ShowMainMenu();
+                        Debug.Log("[CreateAccountPanel] Profile incomplete — showing setup UI.");
+                        NewPlayerSetupUI.Show(() =>
+                        {
+                            if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                        });
+                    }
+                    else
+                    {
+                        // Go straight to LoggedIn panel
+                        if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
                     }
                 }
                 else

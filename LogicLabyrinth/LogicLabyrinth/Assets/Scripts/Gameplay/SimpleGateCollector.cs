@@ -5,7 +5,7 @@ public class SimpleGateCollector : MonoBehaviour
 {
     [Header("Interaction")]
     public Camera playerCamera;
-    public float interactDistance = 4.5f;
+    public float interactDistance = 6f;
     public float sphereCastRadius = 0.35f;
 
     [Header("Gate Prefabs (for dropping)")]
@@ -19,6 +19,7 @@ public class SimpleGateCollector : MonoBehaviour
     private InteractiveTable currentTable;
     private CollectibleKey currentKey;
     private TutorialDoor currentDoor;
+    private SuccessDoor currentSuccessDoor;
     private CollectibleCandle currentCandle;
 
     // Cache UI references
@@ -92,6 +93,11 @@ public class SimpleGateCollector : MonoBehaviour
                 Debug.Log("[SGC] Interacting with door.");
                 currentDoor.TryInteract();
             }
+            else if (currentSuccessDoor != null)
+            {
+                Debug.Log("[SGC] Interacting with success door.");
+                currentSuccessDoor.TryInteract();
+            }
             else
             {
                 // Fallback: Try a direct raycast for tables when SphereCast misses
@@ -133,9 +139,46 @@ public class SimpleGateCollector : MonoBehaviour
                                     {
                                         directDoor.TryInteract();
                                     }
+                                    else
+                                    {
+                                        SuccessDoor directSuccessDoor = directHit.collider.GetComponent<SuccessDoor>();
+                                        if (directSuccessDoor == null) directSuccessDoor = directHit.collider.GetComponentInParent<SuccessDoor>();
+                                        if (directSuccessDoor != null && !directSuccessDoor.IsDoorOpen)
+                                        {
+                                            directSuccessDoor.TryInteract();
+                                        }
+                                    }
                                 }
                             }
                         }
+                    }
+                    else
+                    {
+                        // Last fallback: nearest table in front of camera.
+                        InteractiveTable[] allTables = FindObjectsByType<InteractiveTable>(FindObjectsSortMode.None);
+                        InteractiveTable nearestTable = null;
+                        float nearestDist = float.MaxValue;
+                        for (int i = 0; i < allTables.Length; i++)
+                        {
+                            InteractiveTable t = allTables[i];
+                            if (t == null || !t.isActiveAndEnabled) continue;
+
+                            float dist = Vector3.Distance(playerCamera.transform.position, t.transform.position);
+                            if (dist > interactDistance) continue;
+
+                            Vector3 toTable = (t.transform.position - playerCamera.transform.position).normalized;
+                            float dot = Vector3.Dot(playerCamera.transform.forward, toTable);
+                            if (dot < 0.2f) continue;
+
+                            if (dist < nearestDist)
+                            {
+                                nearestDist = dist;
+                                nearestTable = t;
+                            }
+                        }
+
+                        if (nearestTable != null)
+                            nearestTable.OpenPuzzleInterface();
                     }
                 }
             }
@@ -158,6 +201,7 @@ public class SimpleGateCollector : MonoBehaviour
         currentTable = null;
         currentKey = null;
         currentDoor = null;
+        currentSuccessDoor = null;
         currentCandle = null;
     }
 
@@ -200,12 +244,14 @@ public class SimpleGateCollector : MonoBehaviour
         CollectibleKey bestKey = null;
         CollectibleCandle bestCandle = null;
         TutorialDoor bestDoor = null;
+        SuccessDoor bestSuccessDoor = null;
 
         float bestDistance = float.MaxValue;
         float bestTableDistance = float.MaxValue;
         float bestKeyDistance = float.MaxValue;
         float bestCandleDistance = float.MaxValue;
         float bestDoorDistance = float.MaxValue;
+        float bestSuccessDoorDistance = float.MaxValue;
 
         RaycastHit[] sphereHits = Physics.SphereCastAll(ray, sphereCastRadius, interactDistance);
         for (int i = 0; i < sphereHits.Length; i++)
@@ -250,14 +296,13 @@ public class SimpleGateCollector : MonoBehaviour
                     Vector3 toTable = (table.transform.position - ray.origin).normalized;
                     float dot = Vector3.Dot(ray.direction, toTable);
                     float dist = Vector3.Distance(ray.origin, table.transform.position);
-                    if (dot > 0.3f && dist < interactDistance && dist < bestTableDistance
-                        && HasLineOfSight(ray.origin, table.transform))
+                    if (dot > 0.2f && dist < interactDistance && dist < bestTableDistance)
                     {
                         bestTableDistance = dist;
                         bestTable = table;
                     }
                 }
-                else if (hitDist < bestTableDistance && HasLineOfSight(ray.origin, table.transform))
+                else if (hitDist < bestTableDistance)
                 {
                     bestTableDistance = hitDist;
                     bestTable = table;
@@ -305,6 +350,46 @@ public class SimpleGateCollector : MonoBehaviour
                     bestDoor = doorComp;
                 }
             }
+
+            // ── Check SuccessDoor ──
+            SuccessDoor successDoorComp = sphereHits[i].collider.GetComponent<SuccessDoor>();
+            if (successDoorComp == null) successDoorComp = sphereHits[i].collider.GetComponentInParent<SuccessDoor>();
+
+            if (successDoorComp != null && !successDoorComp.IsDoorOpen)
+            {
+                float dist = hitDist == 0f ? Vector3.Distance(ray.origin, successDoorComp.transform.position) : hitDist;
+                if (dist < bestSuccessDoorDistance)
+                {
+                    bestSuccessDoorDistance = dist;
+                    bestSuccessDoor = successDoorComp;
+                }
+            }
+        }
+
+        // Fallback: if ray/sphere cast failed to identify a table component,
+        // pick the nearest visible-ish table in front of the camera.
+        if (bestTable == null)
+        {
+            InteractiveTable[] allTables = FindObjectsByType<InteractiveTable>(FindObjectsSortMode.None);
+            float nearest = float.MaxValue;
+            for (int i = 0; i < allTables.Length; i++)
+            {
+                InteractiveTable t = allTables[i];
+                if (t == null || !t.isActiveAndEnabled) continue;
+
+                float dist = Vector3.Distance(ray.origin, t.transform.position);
+                if (dist > interactDistance) continue;
+
+                Vector3 toTable = (t.transform.position - ray.origin).normalized;
+                float dot = Vector3.Dot(ray.direction, toTable);
+                if (dot < 0.2f) continue;
+
+                if (dist < nearest)
+                {
+                    nearest = dist;
+                    bestTable = t;
+                }
+            }
         }
 
         // ═══════════════════════════════════════════════
@@ -317,12 +402,14 @@ public class SimpleGateCollector : MonoBehaviour
             currentKey = null;
             currentCandle = null;
             currentDoor = null;
+            currentSuccessDoor = null;
 
             string promptText;
             if (InventoryManager.Instance != null && InventoryManager.Instance.IsInventoryFull())
             {
                 int total = InventoryManager.Instance.GetTotalGateCount();
-                promptText = $"Press E to swap for {bestInteractable.gateType} Gate ({total}/{InventoryManager.MAX_GATES})";
+                int cap = InventoryManager.Instance.GetCurrentGateCapacity();
+                promptText = $"Press E to swap for {bestInteractable.gateType} Gate ({total}/{cap})";
             }
             else
             {
@@ -337,6 +424,7 @@ public class SimpleGateCollector : MonoBehaviour
             currentKey = null;
             currentCandle = null;
             currentDoor = null;
+            currentSuccessDoor = null;
             ShowPrompt("Press E to open Puzzle Table");
         }
         else if (bestKey != null)
@@ -346,6 +434,7 @@ public class SimpleGateCollector : MonoBehaviour
             currentKey = bestKey;
             currentCandle = null;
             currentDoor = null;
+            currentSuccessDoor = null;
             ShowPrompt("Press E to pick up key");
         }
         else if (bestCandle != null)
@@ -355,6 +444,7 @@ public class SimpleGateCollector : MonoBehaviour
             currentKey = null;
             currentCandle = bestCandle;
             currentDoor = null;
+            currentSuccessDoor = null;
             ShowPrompt("Press E to pick up candle");
         }
         else if (bestDoor != null)
@@ -364,6 +454,17 @@ public class SimpleGateCollector : MonoBehaviour
             currentKey = null;
             currentCandle = null;
             currentDoor = bestDoor;
+            currentSuccessDoor = null;
+            ShowPrompt("Press E to open");
+        }
+        else if (bestSuccessDoor != null)
+        {
+            currentInteractable = null;
+            currentTable = null;
+            currentKey = null;
+            currentCandle = null;
+            currentDoor = null;
+            currentSuccessDoor = bestSuccessDoor;
             ShowPrompt("Press E to open");
         }
         else

@@ -35,6 +35,12 @@ public class PauseMenuController : MonoBehaviour
     private enum SettingsOrigin { Pause, MainMenu }
     private SettingsOrigin settingsOrigin;
 
+    // Quit-confirmation dialog
+    private GameObject quitConfirmInstance;
+    private enum QuitOrigin { PauseMenu, AppClose }
+    private QuitOrigin quitOrigin = QuitOrigin.PauseMenu;
+    private bool allowQuit = false; // set true right before Application.Quit() so OnWantsToQuit lets it through
+
     void Awake()
     {
         if (Instance != null && Instance != this)
@@ -47,6 +53,9 @@ public class PauseMenuController : MonoBehaviour
 
         // Ensure prefab references are valid
         EnsurePrefabs();
+
+        // Hook into application quit so Alt+F4 / window close shows the save dialog
+        Application.wantsToQuit += OnWantsToQuit;
     }
 
     void Update()
@@ -56,6 +65,13 @@ public class PauseMenuController : MonoBehaviour
 
         if (Input.GetKeyDown(KeyCode.Escape))
         {
+            // If quit confirmation dialog is open, close it → back to Pause
+            if (quitConfirmInstance != null)
+            {
+                OnQuitConfirm_Cancel();
+                return;
+            }
+
             // If Options overlay is open, close it → back to Pause
             if (settingsInstance != null)
             {
@@ -84,6 +100,7 @@ public class PauseMenuController : MonoBehaviour
     {
         if (Instance == this)
         {
+            Application.wantsToQuit -= OnWantsToQuit;
             Instance = null;
             IsPaused = false;
         }
@@ -238,7 +255,8 @@ public class PauseMenuController : MonoBehaviour
         IsPaused = false;
         Time.timeScale = 1f;
 
-        // Destroy the Pause UI
+        // Destroy all overlays
+        HideQuitConfirmation();
         HidePauseUI();
 
         // Also close Options if open
@@ -519,7 +537,7 @@ public class PauseMenuController : MonoBehaviour
         WireChildButton(pauseInstance, "Restart", RestartLevel);
         WireChildButton(pauseInstance, "Save", SaveGame);
         WireChildButton(pauseInstance, "OPTIONS", OpenSettingsFromPause);
-        WireChildButton(pauseInstance, "Exit", ExitToMenu);
+        WireChildButton(pauseInstance, "Exit", () => ShowQuitConfirmation(QuitOrigin.PauseMenu));
     }
 
     private void WireChildButton(GameObject root, string childName, UnityEngine.Events.UnityAction action)
@@ -895,6 +913,322 @@ public class PauseMenuController : MonoBehaviour
             Destroy(settingsInstance);
             settingsInstance = null;
         }
+    }
+
+    // ============================
+    // QUIT CONFIRMATION DIALOG
+    // ============================
+
+    /// <summary>
+    /// Shows a medieval-themed "Save before quitting?" dialog with three options.
+    /// Behaviour adapts depending on whether the player clicked Exit in the pause menu
+    /// or tried to close the application (Alt+F4, window X).
+    /// </summary>
+    private void ShowQuitConfirmation(QuitOrigin origin)
+    {
+        if (quitConfirmInstance != null) return; // Already showing
+
+        quitOrigin = origin;
+
+        // Hide the pause panel while the dialog is up
+        if (pauseInstance != null)
+            pauseInstance.SetActive(false);
+
+        quitConfirmInstance = new GameObject("QuitConfirmDialog");
+
+        // ── Canvas ──
+        Canvas canvas = quitConfirmInstance.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 200; // Above pause (100)
+
+        var scaler = quitConfirmInstance.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+
+        quitConfirmInstance.AddComponent<GraphicRaycaster>();
+
+        // ── Dim overlay ──
+        GameObject dimGO = CreateDialogUIObject("Dim", quitConfirmInstance.transform);
+        RectTransform dimRT = dimGO.GetComponent<RectTransform>();
+        dimRT.anchorMin = Vector2.zero;
+        dimRT.anchorMax = Vector2.one;
+        dimRT.offsetMin = Vector2.zero;
+        dimRT.offsetMax = Vector2.zero;
+        Image dimImg = dimGO.AddComponent<Image>();
+        dimImg.color = new Color(0f, 0f, 0f, 0.6f);
+        dimImg.raycastTarget = true;
+
+        // ── Panel ──
+        GameObject panelGO = CreateDialogUIObject("Panel", quitConfirmInstance.transform);
+        RectTransform panelRT = panelGO.GetComponent<RectTransform>();
+        panelRT.anchorMin = new Vector2(0.25f, 0.28f);
+        panelRT.anchorMax = new Vector2(0.75f, 0.72f);
+        panelRT.offsetMin = Vector2.zero;
+        panelRT.offsetMax = Vector2.zero;
+
+        Image panelBG = panelGO.AddComponent<Image>();
+        panelBG.color = new Color(0.08f, 0.06f, 0.03f, 0.96f);
+
+        Outline panelOutline = panelGO.AddComponent<Outline>();
+        panelOutline.effectColor = new Color(0.75f, 0.58f, 0.22f, 0.9f);
+        panelOutline.effectDistance = new Vector2(3f, 3f);
+
+        // Load medieval font
+        TMP_FontAsset font = Resources.Load<TMP_FontAsset>("Fonts & Materials/Cinzel-VariableFont_wght SDF");
+        if (font == null) font = Resources.Load<TMP_FontAsset>("Cinzel-VariableFont_wght SDF");
+        if (font == null) font = TMP_Settings.defaultFontAsset;
+
+        // ── Title ──
+        bool isAppClose = (origin == QuitOrigin.AppClose);
+        string titleText = isAppClose ? "QUIT GAME" : "LEAVING DUNGEON";
+        string messageText = isAppClose
+            ? "Would you like to save your progress\nbefore closing the game?"
+            : "Would you like to save your progress\nbefore returning to the main menu?";
+
+        GameObject titleGO = CreateDialogUIObject("Title", panelGO.transform);
+        RectTransform titleRT = titleGO.GetComponent<RectTransform>();
+        titleRT.anchorMin = new Vector2(0.05f, 0.72f);
+        titleRT.anchorMax = new Vector2(0.95f, 0.95f);
+        titleRT.offsetMin = Vector2.zero;
+        titleRT.offsetMax = Vector2.zero;
+        titleGO.AddComponent<CanvasRenderer>();
+
+        TextMeshProUGUI titleTMP = titleGO.AddComponent<TextMeshProUGUI>();
+        titleTMP.text = titleText;
+        titleTMP.fontSize = 34;
+        titleTMP.fontStyle = FontStyles.Bold;
+        titleTMP.alignment = TextAlignmentOptions.Center;
+        titleTMP.color = new Color(0.95f, 0.82f, 0.35f, 1f);
+        if (font != null) titleTMP.font = font;
+
+        // ── Message ──
+        GameObject msgGO = CreateDialogUIObject("Message", panelGO.transform);
+        RectTransform msgRT = msgGO.GetComponent<RectTransform>();
+        msgRT.anchorMin = new Vector2(0.08f, 0.42f);
+        msgRT.anchorMax = new Vector2(0.92f, 0.72f);
+        msgRT.offsetMin = Vector2.zero;
+        msgRT.offsetMax = Vector2.zero;
+        msgGO.AddComponent<CanvasRenderer>();
+
+        TextMeshProUGUI msgTMP = msgGO.AddComponent<TextMeshProUGUI>();
+        msgTMP.text = messageText;
+        msgTMP.fontSize = 22;
+        msgTMP.alignment = TextAlignmentOptions.Center;
+        msgTMP.color = new Color(0.88f, 0.82f, 0.65f, 1f);
+        msgTMP.enableWordWrapping = true;
+        if (font != null) msgTMP.font = font;
+
+        // ── Buttons row ──
+        float btnY0 = 0.08f, btnY1 = 0.35f;
+
+        // Save & Quit
+        CreateDialogButton(panelGO.transform, "Save & Quit", font,
+            new Vector2(0.05f, btnY0), new Vector2(0.35f, btnY1),
+            new Color(0.22f, 0.55f, 0.28f, 1f), // green
+            () => OnQuitConfirm_SaveAndQuit());
+
+        // Quit Without Saving
+        CreateDialogButton(panelGO.transform, "Don't Save", font,
+            new Vector2(0.37f, btnY0), new Vector2(0.63f, btnY1),
+            new Color(0.65f, 0.22f, 0.18f, 1f), // red
+            () => OnQuitConfirm_QuitNoSave());
+
+        // Cancel
+        CreateDialogButton(panelGO.transform, "Cancel", font,
+            new Vector2(0.65f, btnY0), new Vector2(0.95f, btnY1),
+            new Color(0.35f, 0.30f, 0.18f, 1f), // neutral brown
+            () => OnQuitConfirm_Cancel());
+
+        Debug.Log($"[PauseMenu] Quit confirmation dialog shown (origin={origin}).");
+    }
+
+    private void HideQuitConfirmation()
+    {
+        if (quitConfirmInstance != null)
+        {
+            Destroy(quitConfirmInstance);
+            quitConfirmInstance = null;
+        }
+    }
+
+    private void OnQuitConfirm_SaveAndQuit()
+    {
+        Debug.Log("[PauseMenu] Player chose: Save & Quit");
+        HideQuitConfirmation();
+
+        if (quitOrigin == QuitOrigin.AppClose)
+        {
+            // Save then close the application entirely
+            SaveGameInternal((success) =>
+            {
+                Debug.Log(success
+                    ? "[PauseMenu] Save confirmed — quitting application."
+                    : "[PauseMenu] Save may have failed — quitting anyway.");
+                allowQuit = true;
+                Application.Quit();
+#if UNITY_EDITOR
+                UnityEditor.EditorApplication.isPlaying = false;
+#endif
+            });
+        }
+        else
+        {
+            ExitToMenu(); // Saves then loads main menu
+        }
+    }
+
+    private void OnQuitConfirm_QuitNoSave()
+    {
+        Debug.Log("[PauseMenu] Player chose: Quit Without Saving");
+        HideQuitConfirmation();
+
+        if (quitOrigin == QuitOrigin.AppClose)
+        {
+            // Close the application without saving
+            allowQuit = true;
+            Application.Quit();
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#endif
+        }
+        else
+        {
+            // Return to main menu without saving
+            IsPaused = false;
+            Time.timeScale = 1f;
+            HidePauseUI();
+            CloseSettingsImmediate();
+            EnsureCursorUnlockedForMenu();
+
+            if (InventoryManager.Instance != null)
+                InventoryManager.Instance.ResetInventory();
+
+            SceneManager.LoadScene("Main");
+        }
+    }
+
+    private void OnQuitConfirm_Cancel()
+    {
+        Debug.Log("[PauseMenu] Player chose: Cancel");
+        HideQuitConfirmation();
+
+        if (quitOrigin == QuitOrigin.AppClose)
+        {
+            // They cancelled the app-close — just show the pause menu again
+            if (pauseInstance != null)
+                pauseInstance.SetActive(true);
+        }
+        else
+        {
+            // Show the pause panel again
+            if (pauseInstance != null)
+                pauseInstance.SetActive(true);
+        }
+    }
+
+    // ── Dialog UI helpers ──
+
+    private GameObject CreateDialogUIObject(string name, Transform parent)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.layer = LayerMask.NameToLayer("UI");
+        go.transform.SetParent(parent, false);
+        return go;
+    }
+
+    private void CreateDialogButton(Transform parent, string label, TMP_FontAsset font,
+        Vector2 anchorMin, Vector2 anchorMax, Color bgColor,
+        UnityEngine.Events.UnityAction onClick)
+    {
+        GameObject btnGO = CreateDialogUIObject($"Btn_{label}", parent);
+        RectTransform rt = btnGO.GetComponent<RectTransform>();
+        rt.anchorMin = anchorMin;
+        rt.anchorMax = anchorMax;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+
+        Image btnBG = btnGO.AddComponent<Image>();
+        btnBG.color = bgColor;
+
+        Outline btnOutline = btnGO.AddComponent<Outline>();
+        btnOutline.effectColor = new Color(bgColor.r + 0.15f, bgColor.g + 0.15f, bgColor.b + 0.08f, 0.7f);
+        btnOutline.effectDistance = new Vector2(1.5f, 1.5f);
+
+        Button btn = btnGO.AddComponent<Button>();
+        btn.targetGraphic = btnBG;
+
+        var colors = btn.colors;
+        colors.normalColor = bgColor;
+        colors.highlightedColor = new Color(
+            Mathf.Min(bgColor.r + 0.12f, 1f),
+            Mathf.Min(bgColor.g + 0.12f, 1f),
+            Mathf.Min(bgColor.b + 0.08f, 1f), 1f);
+        colors.pressedColor = new Color(
+            Mathf.Max(bgColor.r - 0.08f, 0f),
+            Mathf.Max(bgColor.g - 0.08f, 0f),
+            Mathf.Max(bgColor.b - 0.04f, 0f), 1f);
+        btn.colors = colors;
+
+        btn.onClick.AddListener(onClick);
+
+        // Label text
+        GameObject textGO = CreateDialogUIObject("Label", btnGO.transform);
+        RectTransform textRT = textGO.GetComponent<RectTransform>();
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.offsetMin = new Vector2(4f, 4f);
+        textRT.offsetMax = new Vector2(-4f, -4f);
+        textGO.AddComponent<CanvasRenderer>();
+
+        TextMeshProUGUI tmp = textGO.AddComponent<TextMeshProUGUI>();
+        tmp.text = label;
+        tmp.fontSize = 20;
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color = new Color(0.95f, 0.92f, 0.82f, 1f);
+        tmp.enableWordWrapping = true;
+        tmp.raycastTarget = false;
+        if (font != null) tmp.font = font;
+    }
+
+    // ============================
+    // ALT+F4 / FORCE-CLOSE INTERCEPT
+    // ============================
+
+    /// <summary>
+    /// Called when the player tries to quit the application (Alt+F4, window X, etc.)
+    /// Cancels the quit and shows the save-before-quit confirmation dialog instead.
+    /// The player must choose Save&Quit, Don't Save, or Cancel before the app exits.
+    /// </summary>
+    private bool OnWantsToQuit()
+    {
+        // If a dialog button already set allowQuit, let the application close now
+        if (allowQuit)
+            return true;
+
+        // Allow quit immediately from the main menu — no save needed
+        string sceneName = SceneManager.GetActiveScene().name;
+        if (!sceneName.StartsWith("Level"))
+            return true;
+
+        // If the dialog is already up, keep blocking — let the player decide
+        if (quitConfirmInstance != null)
+            return false;
+
+        Debug.Log("[PauseMenu] Alt+F4 / window close intercepted — showing quit confirmation.");
+
+        // Pause the game if not already paused
+        if (!IsPaused)
+            Pause();
+
+        // Hide the normal pause panel — the confirmation dialog takes over
+        if (pauseInstance != null)
+            pauseInstance.SetActive(false);
+
+        ShowQuitConfirmation(QuitOrigin.AppClose);
+
+        // Block the quit — the dialog buttons will call Application.Quit() if the player confirms
+        return false;
     }
 
     // ============================

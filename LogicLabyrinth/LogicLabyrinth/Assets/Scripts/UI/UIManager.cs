@@ -450,6 +450,7 @@ public class UIManager : MonoBehaviour
         {
             accountProfilePanel.SetActive(true);
             WireAccountProfilePanelButtons();
+            PopulateAccountProfileFields();
         }
         SetCursorState(false);
 
@@ -459,6 +460,98 @@ public class UIManager : MonoBehaviour
             ProfileManager.Instance.LoadCurrentProfileFromPlayer();
             ProfileManager.Instance.RefreshProfileDisplay();
         }
+    }
+
+    /// <summary>
+    /// Populates the Name, Email, Age, Gender fields in the AccountProfilePanel
+    /// from the current player's data.
+    /// The prefab structure is:  Profile / Name / Placeholder (TMP)  &amp;  Name / Input (TMP)
+    /// We write the value into the Placeholder TMP text and also enable + set the Input TMP.
+    /// </summary>
+    private void PopulateAccountProfileFields()
+    {
+        if (accountProfilePanel == null || AccountManager.Instance == null) return;
+        var p = AccountManager.Instance.GetCurrentPlayer();
+        if (p == null) return;
+
+        // Helper: sets the text in the correct child TMP under a named container.
+        // The AccountProfile prefab has two overlapping text children per field:
+        //   Placeholder (TMP) — semi-transparent hint text ("Name", "Email", etc.)
+        //   Input       (TMP) — the actual value (disabled by default)
+        // We must only show ONE of them to avoid overlapping text.
+        void SetProfileField(string containerName, string value)
+        {
+            Transform container = FindChildRecursive(accountProfilePanel.transform, containerName);
+            if (container == null) return;
+
+            bool hasValue = !string.IsNullOrWhiteSpace(value);
+            Transform phT = container.Find("Placeholder");
+            Transform inputT = container.Find("Input");
+
+            if (hasValue)
+            {
+                // Hide placeholder, show Input with the real value
+                if (phT != null) phT.gameObject.SetActive(false);
+                if (inputT != null)
+                {
+                    inputT.gameObject.SetActive(true);
+                    TextMeshProUGUI inputTMP = inputT.GetComponent<TextMeshProUGUI>();
+                    if (inputTMP != null)
+                    {
+                        inputTMP.text = value;
+                        inputTMP.enabled = true;
+                    }
+                }
+            }
+            else
+            {
+                // No value — show the placeholder, hide Input
+                if (phT != null) phT.gameObject.SetActive(true);
+                if (inputT != null) inputT.gameObject.SetActive(false);
+            }
+
+            // Also try TMP_InputField on the container itself (some setups use this)
+            TMP_InputField inputField = container.GetComponent<TMP_InputField>();
+            if (inputField != null) inputField.text = hasValue ? value : "";
+        }
+
+        // Gather values
+        string displayName = !string.IsNullOrWhiteSpace(p.displayName) ? p.displayName : p.username;
+        string email = !string.IsNullOrWhiteSpace(p.googleEmail)
+            ? p.googleEmail
+            : (p.username + "@logic.com");
+
+        SetProfileField("Name", displayName);
+        SetProfileField("Email", email);
+        SetProfileField("Age", p.age);
+        SetProfileField("Gender", p.gender);
+
+        // ── Stats section (Boarder) ──
+        // The "Boarder" child has 4 Text (TMP) children for: Maze Depth, level, Puzzle Solved, count
+        // We'll search for specific text content and update the value texts
+        Transform boarder = FindChildRecursive(accountProfilePanel.transform, "Boarder");
+        if (boarder != null)
+        {
+            TextMeshProUGUI[] statTexts = boarder.GetComponentsInChildren<TextMeshProUGUI>(true);
+            foreach (var txt in statTexts)
+            {
+                string lower = txt.text.Trim().ToLower();
+
+                // Update the "level" text (below "Maze Depth")
+                if (lower == "level" || lower.StartsWith("level"))
+                {
+                    txt.text = $"Level {p.unlockedLevels}";
+                }
+                // Update the puzzles count (below "Puzzle Solved")
+                else if (lower == "0" || (int.TryParse(lower, out _) && !lower.Contains(":")))
+                {
+                    int puzzleCount = p.completedPuzzles != null ? p.completedPuzzles.Count : 0;
+                    txt.text = puzzleCount.ToString();
+                }
+            }
+        }
+
+        Debug.Log($"[UIManager] Populated AccountProfilePanel: name='{displayName}', email='{email}', gender='{p.gender}', age='{p.age}'");
     }
 
     /// <summary>
@@ -497,7 +590,7 @@ public class UIManager : MonoBehaviour
 
     /// <summary>
     /// Finds the Save button in the AccountProfilePanel (named "Gender (1)" in the prefab)
-    /// and wires it to commit pending profile changes.
+    /// and wires it to commit pending profile changes (including text fields).
     /// </summary>
     private void WireSaveButton()
     {
@@ -524,9 +617,12 @@ public class UIManager : MonoBehaviour
         saveBtn.onClick.RemoveAllListeners();
         saveBtn.onClick.AddListener(() =>
         {
-            // Save the pending profile picture change
+            // 1. Save the pending profile picture change
             if (ProfileManager.Instance != null)
                 ProfileManager.Instance.SavePendingChanges();
+
+            // 2. Read text fields from the profile panel and persist them
+            SaveProfileFieldsToAccountManager();
 
             Debug.Log("[UIManager] Save button clicked — profile changes committed.");
         });
@@ -540,6 +636,82 @@ public class UIManager : MonoBehaviour
         saveBtn.colors = colors;
 
         Debug.Log("[UIManager] Wired Save button in AccountProfilePanel.");
+    }
+
+    /// <summary>
+    /// Reads the current text from profile field containers (Name, Email, Age, Gender)
+    /// and writes them back to AccountManager's current player, then saves to Firebase.
+    /// </summary>
+    private void SaveProfileFieldsToAccountManager()
+    {
+        if (accountProfilePanel == null || AccountManager.Instance == null) return;
+        var p = AccountManager.Instance.GetCurrentPlayer();
+        if (p == null) return;
+
+        // Helper: read text from the "Input" child (our populate function writes there)
+        string ReadProfileField(string containerName)
+        {
+            Transform container = FindChildRecursive(accountProfilePanel.transform, containerName);
+            if (container == null) return null;
+
+            // Try TMP_InputField first (if one was added dynamically)
+            TMP_InputField inputField = container.GetComponent<TMP_InputField>();
+            if (inputField != null) return inputField.text;
+
+            // Read from the Input TMP child (active when a value is set)
+            Transform inputT = container.Find("Input");
+            if (inputT != null && inputT.gameObject.activeSelf)
+            {
+                TextMeshProUGUI inputTMP = inputT.GetComponent<TextMeshProUGUI>();
+                if (inputTMP != null && !string.IsNullOrWhiteSpace(inputTMP.text))
+                    return inputTMP.text;
+            }
+
+            // Fallback: read Placeholder (if Input is hidden, value wasn't set)
+            Transform phT = container.Find("Placeholder");
+            if (phT != null && phT.gameObject.activeSelf)
+            {
+                TextMeshProUGUI phTMP = phT.GetComponent<TextMeshProUGUI>();
+                if (phTMP != null) return phTMP.text;
+            }
+            return null;
+        }
+
+        string newName = ReadProfileField("Name");
+        string newEmail = ReadProfileField("Email");
+        string newAge = ReadProfileField("Age");
+        string newGender = ReadProfileField("Gender");
+
+        bool changed = false;
+
+        // Only update if the text is different from the placeholder default
+        if (!string.IsNullOrWhiteSpace(newName) && newName != "Name" && newName != p.displayName)
+        {
+            p.displayName = newName;
+            changed = true;
+            Debug.Log($"[UIManager] Updated displayName → '{newName}'");
+        }
+        if (!string.IsNullOrWhiteSpace(newEmail) && newEmail != "Email" && newEmail != p.googleEmail)
+        {
+            p.googleEmail = newEmail;
+            changed = true;
+        }
+        if (!string.IsNullOrWhiteSpace(newAge) && newAge != "Age" && newAge != p.age)
+        {
+            p.age = newAge;
+            changed = true;
+        }
+        if (!string.IsNullOrWhiteSpace(newGender) && newGender != "Gender" && newGender != p.gender)
+        {
+            p.gender = newGender;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            AccountManager.Instance.SavePlayerProgress();
+            Debug.Log("[UIManager] Profile fields saved to Firebase.");
+        }
     }
 
     /// <summary>

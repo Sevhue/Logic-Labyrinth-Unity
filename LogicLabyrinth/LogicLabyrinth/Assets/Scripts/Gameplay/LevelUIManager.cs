@@ -23,8 +23,25 @@ public class LevelUIManager : MonoBehaviour
         // Bootstrap the GameInventoryUI if it doesn't already exist
         EnsureGameInventoryUI();
 
+        // Bootstrap the LevelTimer if LevelManager hasn't created it yet
+        EnsureLevelTimer();
+
         // ADDED: Update UI when level loads to show saved inventory
         RefreshUIOnLoad();
+    }
+
+    /// <summary>
+    /// Creates a LevelTimer if one doesn't exist yet.
+    /// Ensures the timer is available even when testing a scene directly without LevelManager.
+    /// </summary>
+    void EnsureLevelTimer()
+    {
+        if (LevelTimer.Instance == null)
+        {
+            GameObject timerGO = new GameObject("LevelTimer");
+            timerGO.AddComponent<LevelTimer>();
+            Debug.Log("LevelUIManager: Created LevelTimer singleton.");
+        }
     }
 
     /// <summary>

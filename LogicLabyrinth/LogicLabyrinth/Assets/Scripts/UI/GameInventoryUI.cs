@@ -87,6 +87,12 @@ public class GameInventoryUI : MonoBehaviour
 
     void Start()
     {
+        // Safety: reset stale static key flags so the hotbar starts clean.
+        // These statics can persist from a previous play session in the editor
+        // or from a previous level that didn't go through InventoryManager.ResetInventory().
+        TutorialDoor.PlayerHasKey = false;
+        SuccessDoor.PlayerHasSuccessKey = false;
+
         LoadMedievalFont();
         BuildUI();
         RefreshFromInventory();
@@ -240,8 +246,8 @@ public class GameInventoryUI : MonoBehaviour
         for (int i = 0; i < notCount && slot < SLOT_COUNT; i++, slot++)
             slotItems[slot] = ItemType.NOT;
 
-        // Fill Key if player has one
-        bool hasKey = TutorialDoor.PlayerHasKey;
+        // Fill Key if player has one (either tutorial or success key)
+        bool hasKey = TutorialDoor.PlayerHasKey || SuccessDoor.PlayerHasSuccessKey;
         if (hasKey && slot < SLOT_COUNT)
         {
             slotItems[slot] = ItemType.Key;

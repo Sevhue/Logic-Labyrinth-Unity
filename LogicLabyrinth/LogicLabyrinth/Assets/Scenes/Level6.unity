@@ -5733,6 +5733,8 @@ MonoBehaviour:
   fogColor: {r: 0.01, g: 0.01, b: 0.02, a: 1}
   fogDensity: 0.12
   directionalLightIntensity: 0.02
+  torchLightBoost: 1.5
+  torchExtraRange: 5
 --- !u!4 &406540035
 Transform:
   m_ObjectHideFlags: 0
@@ -11479,6 +11481,24 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: -5036817590841476419, guid: e6b43aea782f8944d8207798169a3ca7, type: 3}
+--- !u!114 &915135749
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1644757776}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2197845d5b7298142bc85d88ef646145, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::InteractiveTable
+  puzzleUIPrefab: {fileID: 4625769815249094943, guid: d5cc8a5dfc763f542ab4e490217b23d4, type: 3}
+  answerKey: 010000000100000000000000
+  questionAnswerKeys: []
+  maxAttempts: 3
+  successKeyObject: {fileID: 0}
+  highlightMaterial: {fileID: 0}
 --- !u!1 &915914206
 GameObject:
   m_ObjectHideFlags: 0
@@ -22752,9 +22772,15 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: -7707419095317511503, guid: e6b43aea782f8944d8207798169a3ca7, type: 3}
       insertIndex: -1
       addedObject: {fileID: 997410710}
+    - targetCorrespondingSourceObject: {fileID: -7707419095317511503, guid: e6b43aea782f8944d8207798169a3ca7, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 915135749}
     - targetCorrespondingSourceObject: {fileID: 3419386062283321775, guid: e6b43aea782f8944d8207798169a3ca7, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1899342268}
+    - targetCorrespondingSourceObject: {fileID: 3419386062283321775, guid: e6b43aea782f8944d8207798169a3ca7, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1899342272}
     - targetCorrespondingSourceObject: {fileID: -4685708040829289361, guid: e6b43aea782f8944d8207798169a3ca7, type: 3}
       insertIndex: -1
       addedObject: {fileID: 905059899}
@@ -32209,6 +32235,24 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: -6621582870438405646, guid: e6b43aea782f8944d8207798169a3ca7, type: 3}
+--- !u!114 &1899342272
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1644757775}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2197845d5b7298142bc85d88ef646145, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::InteractiveTable
+  puzzleUIPrefab: {fileID: 4625769815249094943, guid: d5cc8a5dfc763f542ab4e490217b23d4, type: 3}
+  answerKey: 010000000100000000000000
+  questionAnswerKeys: []
+  maxAttempts: 3
+  successKeyObject: {fileID: 0}
+  highlightMaterial: {fileID: 0}
 --- !u!64 &1900002207
 MeshCollider:
   m_ObjectHideFlags: 0

@@ -12,7 +12,8 @@ public class AccountManager : MonoBehaviour
     public class PlayerData
     {
         public string username;
-        public string passwordHash;
+        public string passwordHash;  // SHA-256 hash (not plain text)
+        public string passwordSalt;  // Random salt used for hashing
         public string securityQuestion;
         public string securityAnswer;
         public string googleId;
@@ -44,10 +45,30 @@ public class AccountManager : MonoBehaviour
         // Profile picture name (matches a file in Resources/ProfilePictures/)
         public string profilePicture = "image-removebg-preview";
 
-        public PlayerData(string user, string pass)
+        // ── Timing / Leaderboard ──
+        // Per-level best times stored as "level:seconds" pairs.
+        // Format: "1:45.23,2:120.5,3:88.1" — comma-separated, level:bestTimeInSeconds
+        public string bestLevelTimes = "";
+
+        // Total time spent playing across all sessions (seconds)
+        public float totalPlayedSeconds = 0f;
+
+        public PlayerData(string user, string pass, bool alreadyHashed = false)
         {
             this.username = user;
-            this.passwordHash = pass;
+            if (alreadyHashed || pass == "google_auth")
+            {
+                // Already hashed or a special marker — store as-is
+                this.passwordHash = pass;
+                this.passwordSalt = "";
+            }
+            else
+            {
+                // Hash the plain-text password with a fresh random salt
+                var (hash, salt) = PasswordHasher.HashNewPassword(pass);
+                this.passwordHash = hash;
+                this.passwordSalt = salt;
+            }
         }
     }
 
@@ -92,8 +113,20 @@ public class AccountManager : MonoBehaviour
                     // Inventory will be synced when the user clicks Load Game (ContinueGame).
                     // If they click New Game, everything gets reset anyway.
 
-                    // Go to Main Menu if already logged in
-                    if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                    // Check if profile is incomplete (missing name/gender/age)
+                    if (NewPlayerSetupUI.IsProfileIncomplete())
+                    {
+                        Debug.Log("Auto-login: Profile incomplete — showing setup UI.");
+                        NewPlayerSetupUI.Show(() =>
+                        {
+                            if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                        });
+                    }
+                    else
+                    {
+                        // Go to Main Menu if already logged in
+                        if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                    }
                 }
             });
         }
@@ -192,7 +225,19 @@ public class AccountManager : MonoBehaviour
                         currentPlayer = JsonUtility.FromJson<PlayerData>(dbTask.Result.GetRawJsonValue());
                         Debug.Log($"Login: Loaded gates - AND: {currentPlayer.andGatesCollected}, OR: {currentPlayer.orGatesCollected}, NOT: {currentPlayer.notGatesCollected}");
 
-                        if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                        // Check if profile is incomplete (missing name/gender/age)
+                        if (NewPlayerSetupUI.IsProfileIncomplete())
+                        {
+                            Debug.Log("Login: Profile incomplete — showing setup UI.");
+                            NewPlayerSetupUI.Show(() =>
+                            {
+                                if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                            });
+                        }
+                        else
+                        {
+                            if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                        }
                         onResult?.Invoke(true);
                     }
                     else
@@ -322,7 +367,9 @@ public class AccountManager : MonoBehaviour
     {
         if (currentPlayer != null && currentPlayer.username == user)
         {
-            currentPlayer.passwordHash = newPass;
+            var (hash, salt) = PasswordHasher.HashNewPassword(newPass);
+            currentPlayer.passwordHash = hash;
+            currentPlayer.passwordSalt = salt;
             SavePlayerProgress();
         }
     }
@@ -350,6 +397,125 @@ public class AccountManager : MonoBehaviour
             currentPlayer.completedPuzzles.Add(puzzleId);
             SavePlayerProgress();
         }
+    }
+
+    // ── TIMING / BEST TIMES ──
+
+    /// <summary>
+    /// Records a completion time for a level. Only updates if it's a new best (lower time).
+    /// Also adds to totalPlayedSeconds.
+    /// </summary>
+    public void RecordLevelTime(int level, float seconds)
+    {
+        if (currentPlayer == null) return;
+
+        // Add to total played time
+        currentPlayer.totalPlayedSeconds += seconds;
+
+        // Parse existing best times
+        var bestTimes = ParseBestTimes(currentPlayer.bestLevelTimes);
+
+        // Check if this is a new best
+        if (!bestTimes.ContainsKey(level) || seconds < bestTimes[level])
+        {
+            bestTimes[level] = seconds;
+            currentPlayer.bestLevelTimes = SerializeBestTimes(bestTimes);
+            Debug.Log($"[AccountManager] NEW BEST TIME for Level {level}: {LevelTimer.FormatTime(seconds)}!");
+        }
+        else
+        {
+            Debug.Log($"[AccountManager] Level {level} completed in {LevelTimer.FormatTime(seconds)} (best: {LevelTimer.FormatTime(bestTimes[level])})");
+        }
+
+        SavePlayerProgress();
+    }
+
+    /// <summary>
+    /// Gets the best time for a specific level. Returns -1 if no time recorded.
+    /// </summary>
+    public float GetBestTime(int level)
+    {
+        if (currentPlayer == null) return -1f;
+        var bestTimes = ParseBestTimes(currentPlayer.bestLevelTimes);
+        return bestTimes.ContainsKey(level) ? bestTimes[level] : -1f;
+    }
+
+    /// <summary>
+    /// Gets the sum of all best level times (used for global ranking).
+    /// Returns -1 if no times are recorded.
+    /// </summary>
+    public float GetTotalBestTime()
+    {
+        if (currentPlayer == null) return -1f;
+        var bestTimes = ParseBestTimes(currentPlayer.bestLevelTimes);
+        if (bestTimes.Count == 0) return -1f;
+
+        float total = 0f;
+        foreach (var kvp in bestTimes)
+            total += kvp.Value;
+        return total;
+    }
+
+    /// <summary>
+    /// Gets the fastest single level time across all levels.
+    /// Returns -1 if no times are recorded.
+    /// </summary>
+    public float GetFastestLevelTime()
+    {
+        if (currentPlayer == null) return -1f;
+        var bestTimes = ParseBestTimes(currentPlayer.bestLevelTimes);
+        if (bestTimes.Count == 0) return -1f;
+
+        float fastest = float.MaxValue;
+        foreach (var kvp in bestTimes)
+            if (kvp.Value < fastest) fastest = kvp.Value;
+        return fastest;
+    }
+
+    /// <summary>
+    /// Returns the number of levels that have a recorded best time.
+    /// </summary>
+    public int GetCompletedLevelCount()
+    {
+        if (currentPlayer == null) return 0;
+        return ParseBestTimes(currentPlayer.bestLevelTimes).Count;
+    }
+
+    // ── BEST TIME SERIALIZATION ──
+
+    /// <summary>
+    /// Parses "1:45.23,2:120.5,3:88.1" into a Dictionary.
+    /// </summary>
+    public static Dictionary<int, float> ParseBestTimes(string serialized)
+    {
+        var result = new Dictionary<int, float>();
+        if (string.IsNullOrWhiteSpace(serialized)) return result;
+
+        string[] pairs = serialized.Split(',');
+        foreach (string pair in pairs)
+        {
+            string[] parts = pair.Split(':');
+            if (parts.Length == 2 &&
+                int.TryParse(parts[0], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int lvl) &&
+                float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float time))
+            {
+                result[lvl] = time;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Serializes a Dictionary into "1:45.23,2:120.5,3:88.1" format.
+    /// </summary>
+    private static string SerializeBestTimes(Dictionary<int, float> times)
+    {
+        var parts = new List<string>();
+        foreach (var kvp in times)
+        {
+            parts.Add($"{kvp.Key}:{kvp.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+        return string.Join(",", parts);
     }
 
     public void SavePlayerProgress()
@@ -407,12 +573,33 @@ public class AccountManager : MonoBehaviour
     {
         if (currentPlayer == null) return;
 
+        // Prefer displayName for the leaderboard; fall back to username
+        string leaderboardName = !string.IsNullOrWhiteSpace(currentPlayer.displayName)
+            ? currentPlayer.displayName
+            : (currentPlayer.username ?? "Unknown");
+
+        // Calculate timing stats for leaderboard
+        var bestTimes = ParseBestTimes(currentPlayer.bestLevelTimes);
+        float totalBestTime = 0f;
+        float fastestLevel = -1f;
+        foreach (var kvp in bestTimes)
+        {
+            totalBestTime += kvp.Value;
+            if (fastestLevel < 0f || kvp.Value < fastestLevel)
+                fastestLevel = kvp.Value;
+        }
+
         var leaderboardData = new Dictionary<string, object>
         {
-            { "username", currentPlayer.username ?? "Unknown" },
+            { "username", leaderboardName },
             { "lastCompletedLevel", currentPlayer.lastCompletedLevel },
             { "puzzlesCompleted", currentPlayer.completedPuzzles != null ? currentPlayer.completedPuzzles.Count : 0 },
-            { "profilePicture", currentPlayer.profilePicture ?? "image-removebg-preview" }
+            { "profilePicture", currentPlayer.profilePicture ?? "image-removebg-preview" },
+            { "bestLevelTimes", currentPlayer.bestLevelTimes ?? "" },
+            { "totalBestTime", bestTimes.Count > 0 ? totalBestTime : -1f },
+            { "fastestLevelTime", fastestLevel },
+            { "levelsCompleted", bestTimes.Count },
+            { "totalPlayedSeconds", currentPlayer.totalPlayedSeconds }
         };
 
         dbRef.Child("leaderboard").Child(userId).UpdateChildrenAsync(leaderboardData).ContinueWithOnMainThread(task => {
@@ -433,7 +620,20 @@ public class AccountManager : MonoBehaviour
             {
                 currentPlayer = JsonUtility.FromJson<PlayerData>(task.Result.GetRawJsonValue());
                 Debug.Log("Google Login: Existing user found. Loading progress...");
-                if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+
+                // Check if profile is incomplete (missing name/gender/age)
+                if (NewPlayerSetupUI.IsProfileIncomplete())
+                {
+                    Debug.Log("Google Login: Profile incomplete — showing setup UI.");
+                    NewPlayerSetupUI.Show(() =>
+                    {
+                        if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                    });
+                }
+                else
+                {
+                    if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                }
             }
             else
             {
@@ -445,8 +645,13 @@ public class AccountManager : MonoBehaviour
                 };
 
                 SavePlayerProgress();
-                Debug.Log("Google Login: New user created.");
-                if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                Debug.Log("Google Login: New user created — showing profile setup.");
+
+                // New Google user — always show setup for gender/age
+                NewPlayerSetupUI.Show(() =>
+                {
+                    if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                });
             }
         });
     }
@@ -481,7 +686,9 @@ public class AccountManager : MonoBehaviour
         {
             if (currentPlayer.securityAnswer.Equals(securityAnswer, StringComparison.OrdinalIgnoreCase))
             {
-                currentPlayer.passwordHash = newPassword;
+                var (hash, salt) = PasswordHasher.HashNewPassword(newPassword);
+                currentPlayer.passwordHash = hash;
+                currentPlayer.passwordSalt = salt;
                 SavePlayerProgress();
                 Debug.Log("Password reset successful!");
                 return true;
