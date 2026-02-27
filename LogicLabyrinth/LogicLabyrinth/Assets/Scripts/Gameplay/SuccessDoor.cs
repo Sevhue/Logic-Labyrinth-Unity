@@ -32,6 +32,7 @@ public class SuccessDoor : MonoBehaviour
     private List<Light> highlightLights = new List<Light>();
     private GameObject lockedMessageUI;
     private Coroutine pulseCoroutine;
+    private Coroutine lockedMessageRoutine;
 
     void Start()
     {
@@ -190,7 +191,31 @@ public class SuccessDoor : MonoBehaviour
     {
         if (lockedMessageUI != null) return;
         Debug.Log("[SuccessDoor] Door is locked! Player needs to complete the puzzle first.");
-        StartCoroutine(ShowLockedMessageRoutine());
+        lockedMessageRoutine = StartCoroutine(ShowLockedMessageRoutine());
+    }
+
+    public void HideLockedMessageImmediate()
+    {
+        if (lockedMessageRoutine != null)
+        {
+            StopCoroutine(lockedMessageRoutine);
+            lockedMessageRoutine = null;
+        }
+        if (lockedMessageUI != null)
+        {
+            Destroy(lockedMessageUI);
+            lockedMessageUI = null;
+        }
+    }
+
+    public static void HideAllLockedMessages()
+    {
+        SuccessDoor[] doors = FindObjectsByType<SuccessDoor>(FindObjectsSortMode.None);
+        for (int i = 0; i < doors.Length; i++)
+        {
+            if (doors[i] != null)
+                doors[i].HideLockedMessageImmediate();
+        }
     }
 
     private IEnumerator AnimateDoorOpenAndTransition()
@@ -240,10 +265,27 @@ public class SuccessDoor : MonoBehaviour
         Debug.Log("[SuccessDoor] Screen fully dark.");
 
         // ── 4. Stop the timer and record the best time ──
+        bool recordedViaTimer = false;
         if (LevelTimer.Instance != null)
         {
             float completionTime = LevelTimer.Instance.StopAndRecordTime();
-            Debug.Log($"[SuccessDoor] Level completed in {LevelTimer.FormatTime(completionTime)}");
+            if (completionTime > 0f)
+            {
+                recordedViaTimer = true;
+                Debug.Log($"[SuccessDoor] Level completed in {LevelTimer.FormatTime(completionTime)}");
+            }
+        }
+
+        // Fallback: if timer wasn't running/initialized, still record a time for this level.
+        if (!recordedViaTimer && AccountManager.Instance != null)
+        {
+            int sceneLevel = GetSceneLevelNumber();
+            if (sceneLevel > 1)
+            {
+                float fallbackSeconds = Mathf.Max(Time.timeSinceLevelLoad, 0.01f);
+                AccountManager.Instance.RecordLevelTime(sceneLevel, fallbackSeconds);
+                Debug.Log($"[SuccessDoor] Fallback time record for Level {sceneLevel}: {LevelTimer.FormatTime(fallbackSeconds)}");
+            }
         }
 
         // ── 5. While dark, unlock the next level ──
@@ -266,10 +308,22 @@ public class SuccessDoor : MonoBehaviour
         if (fadeGO != null)
             fadeGO.AddComponent<FadeOverlayAutoDestroy>();
 
+        int sceneLevelForLoad = GetSceneLevelNumber();
         if (LevelManager.Instance != null)
         {
-            Debug.Log("[SuccessDoor] Triggering next level transition via LevelManager...");
-            LevelManager.Instance.LoadNextLevel();
+            // Prefer scene-derived next level so direct scene testing still advances correctly
+            // (e.g., Level3 -> Level4 even if LevelManager currentLevel was not initialized).
+            if (sceneLevelForLoad > 0)
+            {
+                int targetLevel = sceneLevelForLoad + 1;
+                Debug.Log($"[SuccessDoor] Triggering scene-derived transition: Level {sceneLevelForLoad} -> Level {targetLevel}");
+                LevelManager.Instance.LoadLevel(targetLevel);
+            }
+            else
+            {
+                Debug.Log("[SuccessDoor] Scene level unavailable, falling back to LoadNextLevel().");
+                LevelManager.Instance.LoadNextLevel();
+            }
         }
         else
         {
@@ -295,6 +349,18 @@ public class SuccessDoor : MonoBehaviour
             Debug.Log($"[SuccessDoor] LevelManager not found — loading '{nextScene}' via SceneManager.");
             SceneManager.LoadScene(nextScene);
         }
+    }
+
+    private int GetSceneLevelNumber()
+    {
+        string sceneName = SceneManager.GetActiveScene().name;
+        if (!string.IsNullOrEmpty(sceneName) &&
+            sceneName.StartsWith("Level") &&
+            int.TryParse(sceneName.Substring(5), out int parsed))
+        {
+            return parsed;
+        }
+        return -1;
     }
 
     // ═══════════════════════════════════════════════
@@ -401,6 +467,7 @@ public class SuccessDoor : MonoBehaviour
 
         Destroy(lockedMessageUI);
         lockedMessageUI = null;
+        lockedMessageRoutine = null;
     }
 
     void OnDestroy()

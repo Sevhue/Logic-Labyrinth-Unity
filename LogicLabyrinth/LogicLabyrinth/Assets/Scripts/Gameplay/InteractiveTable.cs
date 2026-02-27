@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 using System.Collections;
+using UnityEngine.UI;
 
 /// <summary>
 /// Serializable wrapper for a single question's answer key.
@@ -24,6 +25,8 @@ public class QuestionAnswerKey
 /// </summary>
 public class InteractiveTable : MonoBehaviour
 {
+    public bool IsSolved => puzzleAlreadySolved;
+
     [Header("Puzzle UI")]
     [Tooltip("Assign the UITable prefab from Assets/Prefabs/Table/Table/UITable.prefab")]
     public GameObject puzzleUIPrefab;
@@ -56,6 +59,8 @@ public class InteractiveTable : MonoBehaviour
     private GameObject puzzleUIInstance;
     private bool isPuzzleOpen;
     private bool puzzleAlreadySolved = false;
+    private bool hasLockedQuestionSelection = false;
+    private int lockedQuestionIndex = -1;
 
     // Runtime answer keys loaded from AnswerKeyConfig
     private GateType[][] runtimeAnswerKeys;
@@ -67,6 +72,8 @@ public class InteractiveTable : MonoBehaviour
         tableRenderer = GetComponent<Renderer>();
         if (tableRenderer != null)
             originalMaterial = tableRenderer.material;
+
+        ResolveSuccessKeyReference();
 
         // Always hide the success key at start
         if (successKeyObject != null)
@@ -184,8 +191,21 @@ public class InteractiveTable : MonoBehaviour
             return;
         }
 
-        // Pick a random question (each has equal probability)
-        int questionIndex = Random.Range(0, runtimeAnswerKeys.Length);
+        // Keep one question locked per table instance for the current play session.
+        // Reopening the table should not reshuffle the question.
+        int questionIndex;
+        if (hasLockedQuestionSelection &&
+            lockedQuestionIndex >= 0 &&
+            lockedQuestionIndex < runtimeAnswerKeys.Length)
+        {
+            questionIndex = lockedQuestionIndex;
+        }
+        else
+        {
+            questionIndex = Random.Range(0, runtimeAnswerKeys.Length);
+            lockedQuestionIndex = questionIndex;
+            hasLockedQuestionSelection = true;
+        }
         GateType[] selectedAnswerKey = runtimeAnswerKeys[questionIndex];
 
         Debug.Log($"[InteractiveTable] Randomly selected Q{questionIndex + 1}/{runtimeAnswerKeys.Length} " +
@@ -206,12 +226,9 @@ public class InteractiveTable : MonoBehaviour
 
         // Instantiate the puzzle UI
         puzzleUIInstance = Instantiate(puzzleUIPrefab);
-        puzzleUIInstance.name = $"PuzzleUI_Active_Q{questionIndex + 1}";
         puzzleUIInstance.SetActive(true);
 
-        Canvas puzzleCanvas = puzzleUIInstance.GetComponent<Canvas>();
-        if (puzzleCanvas != null)
-            puzzleCanvas.sortingOrder = 500;
+        EnsurePuzzleUIInfrastructure(puzzleUIInstance);
 
         PuzzleTableController controller = puzzleUIInstance.GetComponent<PuzzleTableController>();
         if (controller == null)
@@ -254,6 +271,45 @@ public class InteractiveTable : MonoBehaviour
         StartCoroutine(WatchForPuzzleClose());
     }
 
+    /// <summary>
+    /// Supports both full UITable prefabs and level panel-only prefabs by ensuring
+    /// the instantiated root can render as an overlay UI.
+    /// </summary>
+    private void EnsurePuzzleUIInfrastructure(GameObject root)
+    {
+        if (root == null) return;
+
+        Canvas puzzleCanvas = root.GetComponent<Canvas>();
+        if (puzzleCanvas == null)
+        {
+            puzzleCanvas = root.AddComponent<Canvas>();
+            puzzleCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            puzzleCanvas.pixelPerfect = false;
+        }
+        puzzleCanvas.sortingOrder = 500;
+
+        if (root.GetComponent<CanvasScaler>() == null)
+        {
+            CanvasScaler scaler = root.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = 0.5f;
+        }
+
+        if (root.GetComponent<GraphicRaycaster>() == null)
+            root.AddComponent<GraphicRaycaster>();
+
+        RectTransform rootRect = root.GetComponent<RectTransform>();
+        if (rootRect != null)
+        {
+            rootRect.anchorMin = Vector2.zero;
+            rootRect.anchorMax = Vector2.one;
+            rootRect.offsetMin = Vector2.zero;
+            rootRect.offsetMax = Vector2.zero;
+        }
+    }
+
     private void EnsureEventSystem()
     {
         if (FindAnyObjectByType<EventSystem>() == null)
@@ -286,10 +342,17 @@ public class InteractiveTable : MonoBehaviour
         {
             puzzleAlreadySolved = true;
 
+            if (successKeyObject == null)
+                ResolveSuccessKeyReference();
+
             if (successKeyObject != null)
             {
                 successKeyObject.SetActive(true);
                 Debug.Log("[InteractiveTable] Puzzle solved! Success key spawned.");
+            }
+            else
+            {
+                Debug.LogWarning("[InteractiveTable] Puzzle solved, but no success key is assigned/found in scene.");
             }
         }
 
@@ -306,5 +369,31 @@ public class InteractiveTable : MonoBehaviour
 
         if (tableRenderer != null && originalMaterial != null)
             tableRenderer.material = originalMaterial;
+    }
+
+    private void ResolveSuccessKeyReference()
+    {
+        if (successKeyObject != null) return;
+
+        CollectibleKey[] keys = FindObjectsByType<CollectibleKey>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < keys.Length; i++)
+        {
+            CollectibleKey key = keys[i];
+            if (key == null) continue;
+            if (key.gameObject.scene != gameObject.scene) continue;
+            if (key.keyType != CollectibleKey.KeyType.Success) continue;
+            successKeyObject = key.gameObject;
+            break;
+        }
+
+        if (successKeyObject == null)
+        {
+            successKeyObject = GameObject.Find("success_key");
+            if (successKeyObject == null) successKeyObject = GameObject.Find("Success_Key");
+            if (successKeyObject == null) successKeyObject = GameObject.Find("SuccessKey");
+        }
+
+        if (successKeyObject != null)
+            Debug.Log($"[InteractiveTable] Auto-resolved success key: {successKeyObject.name}");
     }
 }

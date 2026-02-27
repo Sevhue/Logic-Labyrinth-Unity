@@ -29,6 +29,7 @@ public class PlayerController : MonoBehaviour
     private Vector2 lookInput;
     private bool jumpPressed;
     private Interactable currentInteractable;
+    private bool cursorFreelookDisabled;
 
     void Start()
     {
@@ -53,6 +54,13 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
+        // TAB toggles gameplay cursor lock on/off.
+        // Useful for quickly interacting with on-screen overlays without opening pause.
+        if (Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame)
+        {
+            cursorFreelookDisabled = !cursorFreelookDisabled;
+        }
+
         // Don't do anything while a puzzle UI, swap UI, or pause menu is open
         if (PuzzleTableController.IsOpen || SwapGateUI.IsOpen || PauseMenuController.IsPaused) return;
 
@@ -61,12 +69,22 @@ public class PlayerController : MonoBehaviour
 
         // Auto-lock cursor in level scenes (but not during camera-only cutscene phase)
         string currentScene = SceneManager.GetActiveScene().name;
-        if (currentScene.StartsWith("Level") && !CutsceneController.CameraOnlyMode
-            && Cursor.lockState != CursorLockMode.Locked)
+        if (currentScene.StartsWith("Level") && !CutsceneController.CameraOnlyMode)
         {
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
-            Debug.Log("Cursor locked for gameplay");
+            if (cursorFreelookDisabled)
+            {
+                if (Cursor.lockState != CursorLockMode.None || !Cursor.visible)
+                {
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                }
+            }
+            else if (Cursor.lockState != CursorLockMode.Locked)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+                Debug.Log("Cursor locked for gameplay");
+            }
         }
 
         // Only handle movement if cursor is locked (in gameplay)

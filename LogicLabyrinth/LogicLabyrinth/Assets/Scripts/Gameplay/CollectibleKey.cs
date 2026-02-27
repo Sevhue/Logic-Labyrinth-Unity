@@ -27,6 +27,10 @@ public class CollectibleKey : MonoBehaviour
     public float shineIntensity = 3f;
     public float shineRange = 4f;
 
+    [Header("UI")]
+    [Tooltip("Legacy popup message. Keep false to avoid duplicate stacked key messages.")]
+    public bool showLegacyPickupPopup = false;
+
     /// <summary>True after the player picks up the key.</summary>
     public bool IsCollected { get; private set; } = false;
 
@@ -37,34 +41,74 @@ public class CollectibleKey : MonoBehaviour
     private List<Light> shineLights = new List<Light>();
     private Coroutine shinePulseCoroutine;
     private Coroutine shineSpawnCoroutine;
+    private Coroutine bobRoutine;
+
+    void Awake()
+    {
+        // Apply before physics/collider usage to avoid negative-scale collider warnings.
+        FixNegativeScale();
+        EnsureTriggerCollider();
+    }
 
     void Start()
     {
         startLocalPos = transform.localPosition;
+    }
 
-        // Ensure a collider exists so SphereCast can hit this object.
-        // Must be a TRIGGER so it doesn't push the player's CharacterController.
-        BoxCollider bc = GetComponent<BoxCollider>();
-        if (bc == null) bc = gameObject.AddComponent<BoxCollider>();
+    private void EnsureTriggerCollider()
+    {
+        BoxCollider legacyBox = GetComponent<BoxCollider>();
+        if (legacyBox != null) Destroy(legacyBox);
 
-        // Use Abs to avoid "BoxCollider does not support negative scale" warnings
-        // when the key model has a negative scale on any axis.
-        Vector3 ls = transform.lossyScale;
-        float sX = Mathf.Abs(ls.x) > 0.0001f ? 0.15f / Mathf.Abs(ls.x) : 0.15f;
-        float sY = Mathf.Abs(ls.y) > 0.0001f ? 0.15f / Mathf.Abs(ls.y) : 0.15f;
-        float sZ = Mathf.Abs(ls.z) > 0.0001f ? 0.15f / Mathf.Abs(ls.z) : 0.15f;
-        bc.size = new Vector3(sX, sY, sZ);
-        bc.center = new Vector3(0f, 0.005f, 0f);
-        bc.isTrigger = true;
+        SphereCollider sc = GetComponent<SphereCollider>();
+        if (sc == null) sc = gameObject.AddComponent<SphereCollider>();
+        sc.radius = 0.15f;
+        sc.center = new Vector3(0f, 0.005f, 0f);
+        sc.isTrigger = true;
+    }
 
-        // Fix negative scale — BoxCollider requires all scale axes to be positive.
-        FixNegativeScale();
+    private void EnsureSuccessDoorExists()
+    {
+        if (FindAnyObjectByType<SuccessDoor>() != null) return;
 
-        StartCoroutine(BobAndSpin());
+        GameObject candidate = GameObject.Find("Door_Success");
+        if (candidate == null) candidate = GameObject.Find("Success_Door");
+
+        if (candidate == null)
+        {
+            // Fallback for misnamed scenes: pick the nearest object containing "door".
+            GameObject[] allObjects = FindObjectsByType<GameObject>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            float nearest = float.MaxValue;
+            for (int i = 0; i < allObjects.Length; i++)
+            {
+                GameObject go = allObjects[i];
+                if (go == null) continue;
+                if (!go.name.ToLowerInvariant().Contains("door")) continue;
+                float d = Vector3.Distance(transform.position, go.transform.position);
+                if (d < nearest)
+                {
+                    nearest = d;
+                    candidate = go;
+                }
+            }
+        }
+
+        if (candidate != null && candidate.GetComponent<SuccessDoor>() == null)
+        {
+            candidate.AddComponent<SuccessDoor>();
+            Debug.Log($"[CollectibleKey] Auto-added SuccessDoor to '{candidate.name}' for level completion flow.");
+        }
     }
 
     void OnEnable()
     {
+        startLocalPos = transform.localPosition;
+        if (!IsCollected && bobRoutine == null)
+            bobRoutine = StartCoroutine(BobAndSpin());
+
+        if (keyType == KeyType.Success)
+            EnsureSuccessDoorExists();
+
         // Kick off the shine effect for success keys every time the object is activated
         if (keyType == KeyType.Success)
         {
@@ -74,6 +118,11 @@ public class CollectibleKey : MonoBehaviour
 
     void OnDisable()
     {
+        if (bobRoutine != null)
+        {
+            StopCoroutine(bobRoutine);
+            bobRoutine = null;
+        }
         CleanupShine();
     }
 
@@ -92,6 +141,10 @@ public class CollectibleKey : MonoBehaviour
         else
             TutorialDoor.PlayerHasKey = true;
 
+        // Remove any stale locked-door overlays so key pickup doesn't stack multiple UI banners.
+        TutorialDoor.HideAllLockedMessages();
+        SuccessDoor.HideAllLockedMessages();
+
         // Stop the shine effect — it will fade during the pickup animation
         CleanupShine();
 
@@ -107,8 +160,8 @@ public class CollectibleKey : MonoBehaviour
 
     private IEnumerator PickupAnimation()
     {
-        // Show pickup message
-        GameObject msgUI = CreatePickupMessage();
+        // Legacy popup is optional; inventory UI already shows key collection feedback.
+        GameObject msgUI = showLegacyPickupPopup ? CreatePickupMessage() : null;
 
         // Shrink and float upward
         Vector3 startScale = transform.localScale;
@@ -358,6 +411,11 @@ public class CollectibleKey : MonoBehaviour
 
     void OnDestroy()
     {
+        if (bobRoutine != null)
+        {
+            StopCoroutine(bobRoutine);
+            bobRoutine = null;
+        }
         CleanupShine();
     }
 }

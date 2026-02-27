@@ -110,7 +110,7 @@ public class SimpleGateCollector : MonoBehaviour
                         InteractiveTable directTable = directHit.collider.GetComponent<InteractiveTable>();
                         if (directTable == null)
                             directTable = directHit.collider.GetComponentInParent<InteractiveTable>();
-                        if (directTable != null)
+                        if (directTable != null && !directTable.IsSolved)
                         {
                             directTable.OpenPuzzleInterface();
                         }
@@ -177,7 +177,7 @@ public class SimpleGateCollector : MonoBehaviour
                             }
                         }
 
-                        if (nearestTable != null)
+                        if (nearestTable != null && !nearestTable.IsSolved)
                             nearestTable.OpenPuzzleInterface();
                     }
                 }
@@ -233,6 +233,24 @@ public class SimpleGateCollector : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// Strict visibility check: the first collider hit by the center-screen ray must belong to the target.
+    /// Prevents interacting with gates through walls.
+    /// </summary>
+    private bool IsDirectlyAimable(Transform target)
+    {
+        if (playerCamera == null || target == null) return false;
+
+        Ray centerRay = playerCamera.ScreenPointToRay(new Vector3(Screen.width / 2, Screen.height / 2, 0));
+        RaycastHit hit;
+        if (!Physics.Raycast(centerRay, out hit, interactDistance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            return false;
+
+        return hit.collider.transform == target ||
+               hit.collider.transform.IsChildOf(target) ||
+               target.IsChildOf(hit.collider.transform);
+    }
+
     void HandleInteraction()
     {
         if (playerCamera == null) return;
@@ -278,7 +296,8 @@ public class SimpleGateCollector : MonoBehaviour
                         bestInteractable = interactable;
                     }
                 }
-                else if (hitDist < bestDistance && HasLineOfSight(ray.origin, interactable.transform))
+                else if (hitDist < bestDistance
+                         && HasLineOfSight(ray.origin, interactable.transform))
                 {
                     bestDistance = hitDist;
                     bestInteractable = interactable;
@@ -289,7 +308,7 @@ public class SimpleGateCollector : MonoBehaviour
             InteractiveTable table = sphereHits[i].collider.GetComponent<InteractiveTable>();
             if (table == null) table = sphereHits[i].collider.GetComponentInParent<InteractiveTable>();
 
-            if (table != null)
+            if (table != null && !table.IsSolved)
             {
                 if (hitDist == 0f)
                 {
@@ -375,7 +394,7 @@ public class SimpleGateCollector : MonoBehaviour
             for (int i = 0; i < allTables.Length; i++)
             {
                 InteractiveTable t = allTables[i];
-                if (t == null || !t.isActiveAndEnabled) continue;
+                if (t == null || !t.isActiveAndEnabled || t.IsSolved) continue;
 
                 float dist = Vector3.Distance(ray.origin, t.transform.position);
                 if (dist > interactDistance) continue;
@@ -493,6 +512,13 @@ public class SimpleGateCollector : MonoBehaviour
     void TryCollectGate()
     {
         if (currentInteractable == null) return;
+        if (playerCamera == null) return;
+        if (!HasLineOfSight(playerCamera.transform.position, currentInteractable.transform))
+        {
+            currentInteractable = null;
+            HidePrompt();
+            return;
+        }
 
         if (InventoryManager.Instance != null && InventoryManager.Instance.IsInventoryFull())
         {

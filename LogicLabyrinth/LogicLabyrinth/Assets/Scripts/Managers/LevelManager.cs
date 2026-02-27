@@ -16,12 +16,13 @@ public class LevelManager : MonoBehaviour
     private Coroutine outOfBoundsWatchdogRoutine;
     private Vector3 lastSafePlayerPosition = Vector3.zero;
     private float lastSafePlayerYaw = 0f;
+    private float currentSceneVoidThreshold = float.NegativeInfinity;
 
     [Header("Player Safety")]
     [Tooltip("If player Y drops below this, auto-rescue to the last safe position.")]
-    public float voidYThreshold = -8f;
-    [Tooltip("If player drifts too far from origin, auto-rescue.")]
-    public float maxAbsWorldCoordinate = 300f;
+    public float voidYThreshold = -60f;
+    [Tooltip("Extreme hard limit for broken coordinates (very high on purpose; normal gameplay never reaches this).")]
+    public float emergencyMaxAbsCoordinate = 100000f;
     [Tooltip("How often to check for out-of-bounds/fall events.")]
     public float safetyCheckInterval = 0.25f;
 
@@ -77,6 +78,11 @@ public class LevelManager : MonoBehaviour
             if (InventoryManager.Instance != null)
                 InventoryManager.Instance.SetHasCandle(false);
             Debug.Log("[LevelManager] Reset key/candle flags for fresh level load.");
+
+            // Reset cached rescue data per level load.
+            lastSafePlayerPosition = Vector3.zero;
+            lastSafePlayerYaw = 0f;
+            currentSceneVoidThreshold = float.NegativeInfinity;
         }
 
 
@@ -531,6 +537,8 @@ public class LevelManager : MonoBehaviour
     private void StartOutOfBoundsWatchdog()
     {
         StopOutOfBoundsWatchdog();
+        NormalizeSafetySettings();
+        InitializeSceneSafetyBounds();
         outOfBoundsWatchdogRoutine = StartCoroutine(OutOfBoundsWatchdog());
     }
 
@@ -547,32 +555,44 @@ public class LevelManager : MonoBehaviour
     {
         // Wait a frame for scene/player initialization.
         yield return null;
+        int invalidStreak = 0;
 
         while (true)
         {
             Scene active = SceneManager.GetActiveScene();
             if (!active.name.StartsWith("Level"))
             {
+                invalidStreak = 0;
                 yield return new WaitForSeconds(safetyCheckInterval);
                 continue;
             }
 
-            GameObject playerGO = PauseMenuController.FindPlayerWithCharacterController();
+            GameObject playerGO = FindActiveScenePlayerWithCharacterController(active);
             if (playerGO == null)
             {
+                invalidStreak = 0;
                 yield return new WaitForSeconds(safetyCheckInterval);
                 continue;
             }
 
             Vector3 pos = playerGO.transform.position;
-            bool invalid =
-                float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z) ||
-                pos.y < voidYThreshold ||
-                Mathf.Abs(pos.x) > maxAbsWorldCoordinate ||
-                Mathf.Abs(pos.z) > maxAbsWorldCoordinate;
+            float yThreshold = float.IsNegativeInfinity(currentSceneVoidThreshold) ? voidYThreshold : currentSceneVoidThreshold;
+            bool hasNaN = float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z);
+            bool fellBelowThreshold = pos.y < yThreshold;
+            bool absurdX = Mathf.Abs(pos.x) > emergencyMaxAbsCoordinate;
+            bool absurdZ = Mathf.Abs(pos.z) > emergencyMaxAbsCoordinate;
+            bool invalid = hasNaN || fellBelowThreshold || absurdX || absurdZ;
 
             if (invalid)
             {
+                invalidStreak++;
+                if (invalidStreak < 2)
+                {
+                    // Ignore one-off bad samples to prevent spurious teleports from transient physics spikes.
+                    yield return new WaitForSeconds(safetyCheckInterval);
+                    continue;
+                }
+
                 Vector3 rescuePos = lastSafePlayerPosition;
                 float rescueYaw = lastSafePlayerYaw;
 
@@ -586,14 +606,27 @@ public class LevelManager : MonoBehaviour
                     }
                 }
 
-                Debug.LogWarning($"[LevelManager] Out-of-bounds detected at ({pos.x:F2},{pos.y:F2},{pos.z:F2}) — rescuing player.");
+                string reason =
+                    hasNaN ? "NaN coordinates" :
+                    fellBelowThreshold ? $"Y below threshold ({pos.y:F2} < {yThreshold:F2})" :
+                    absurdX ? $"X exceeded emergency bound ({pos.x:F2})" :
+                    $"Z exceeded emergency bound ({pos.z:F2})";
+
+                Debug.LogWarning($"[LevelManager] Out-of-bounds detected at ({pos.x:F2},{pos.y:F2},{pos.z:F2}) — reason: {reason} — rescuing player.");
                 TeleportPlayer(rescuePos, rescueYaw);
+                invalidStreak = 0;
             }
             else
             {
-                // Cache a safe location while the player is in valid space.
-                lastSafePlayerPosition = pos;
-                lastSafePlayerYaw = playerGO.transform.eulerAngles.y;
+                invalidStreak = 0;
+                // Cache a safe location while grounded to avoid saving unstable in-air positions.
+                CharacterController cc = playerGO.GetComponent<CharacterController>();
+                bool groundedOrNoCC = (cc == null) || cc.isGrounded;
+                if (groundedOrNoCC)
+                {
+                    lastSafePlayerPosition = pos;
+                    lastSafePlayerYaw = playerGO.transform.eulerAngles.y;
+                }
             }
 
             yield return new WaitForSeconds(safetyCheckInterval);
@@ -626,6 +659,110 @@ public class LevelManager : MonoBehaviour
         spawnPos = spawn.transform.position + Vector3.up * 0.2f;
         spawnYaw = spawn.transform.eulerAngles.y;
         return true;
+    }
+
+    /// <summary>
+    /// Finds the moving player capsule from the currently active scene only.
+    /// Avoids grabbing stale/foreign Player-tagged objects from other loaded scenes.
+    /// </summary>
+    private GameObject FindActiveScenePlayerWithCharacterController(Scene activeScene)
+    {
+        if (!activeScene.IsValid() || !activeScene.isLoaded)
+            return null;
+
+        GameObject[] roots = activeScene.GetRootGameObjects();
+        for (int i = 0; i < roots.Length; i++)
+        {
+            CharacterController[] ccs = roots[i].GetComponentsInChildren<CharacterController>(true);
+            for (int j = 0; j < ccs.Length; j++)
+            {
+                CharacterController cc = ccs[j];
+                if (cc == null) continue;
+                if (cc.gameObject.scene != activeScene) continue;
+                return cc.gameObject;
+            }
+        }
+
+        return null;
+    }
+
+    private void InitializeSceneSafetyBounds()
+    {
+        currentSceneVoidThreshold = voidYThreshold;
+
+        Scene active = SceneManager.GetActiveScene();
+        if (TryGetSceneFloorMinY(active, out float minColliderY))
+        {
+            // Keep the rescue plane below all known solid colliders in this scene.
+            float floorBasedThreshold = minColliderY - 8f;
+            currentSceneVoidThreshold = Mathf.Min(currentSceneVoidThreshold, floorBasedThreshold);
+        }
+
+        if (TryGetSpawnFallback(out Vector3 spawnPos, out _))
+        {
+            // Use a scene-relative floor threshold to avoid false positives on deep maps (e.g. Level 6).
+            currentSceneVoidThreshold = Mathf.Min(voidYThreshold, spawnPos.y - 25f);
+            if (TryGetSceneFloorMinY(active, out minColliderY))
+                currentSceneVoidThreshold = Mathf.Min(currentSceneVoidThreshold, minColliderY - 8f);
+
+            Debug.Log($"[LevelManager] Safety bounds initialized. Scene={active.name}, SpawnY={spawnPos.y:F2}, MinColliderY={minColliderY:F2}, voidThreshold={currentSceneVoidThreshold:F2}");
+        }
+        else
+        {
+            string minColliderInfo = TryGetSceneFloorMinY(active, out minColliderY) ? minColliderY.ToString("F2") : "N/A";
+            Debug.Log($"[LevelManager] Safety bounds initialized. Scene={active.name}, SpawnY=N/A, MinColliderY={minColliderInfo}, voidThreshold={currentSceneVoidThreshold:F2}");
+        }
+    }
+
+    private void NormalizeSafetySettings()
+    {
+        // Guard against stale Inspector overrides from older scene versions.
+        if (voidYThreshold > -20f)
+        {
+            Debug.LogWarning($"[LevelManager] voidYThreshold override ({voidYThreshold:F2}) is too high; forcing -60.");
+            voidYThreshold = -60f;
+        }
+
+        if (emergencyMaxAbsCoordinate < 1000f)
+        {
+            Debug.LogWarning($"[LevelManager] emergencyMaxAbsCoordinate override ({emergencyMaxAbsCoordinate:F2}) is too low; forcing 100000.");
+            emergencyMaxAbsCoordinate = 100000f;
+        }
+
+        if (safetyCheckInterval < 0.05f)
+        {
+            Debug.LogWarning($"[LevelManager] safetyCheckInterval override ({safetyCheckInterval:F3}) is too low; forcing 0.25.");
+            safetyCheckInterval = 0.25f;
+        }
+    }
+
+    private bool TryGetSceneFloorMinY(Scene scene, out float minY)
+    {
+        minY = float.PositiveInfinity;
+        if (!scene.IsValid() || !scene.isLoaded) return false;
+
+        bool found = false;
+        GameObject[] roots = scene.GetRootGameObjects();
+        for (int i = 0; i < roots.Length; i++)
+        {
+            Collider[] colliders = roots[i].GetComponentsInChildren<Collider>(true);
+            for (int j = 0; j < colliders.Length; j++)
+            {
+                Collider col = colliders[j];
+                if (col == null || !col.enabled || col.isTrigger) continue;
+                if (col.gameObject.scene != scene) continue;
+
+                float y = col.bounds.min.y;
+                if (float.IsNaN(y) || float.IsInfinity(y)) continue;
+
+                if (y < minY)
+                    minY = y;
+
+                found = true;
+            }
+        }
+
+        return found;
     }
 
     public bool CanAccessLevel(int level)

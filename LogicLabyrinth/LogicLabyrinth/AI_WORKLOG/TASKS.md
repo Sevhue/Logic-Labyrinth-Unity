@@ -1,0 +1,61 @@
+# Tasks
+
+## Active
+- Validate Level2 puzzle questions Q1..Q5 in Play Mode after level-specific prefab assignment fix.
+- Validate Level3 puzzle open flow and ensure question UI renders correctly.
+- Validate Level4 puzzle questions Q1..Q5 in Play Mode after level-specific prefab assignment fix.
+- Verify warning `[PuzzleTable] Level root 'Level2' not found` no longer appears.
+- Validate no duplicate key/locked overlays during rapid interactions in Level1.
+- Validate solved table no longer shows interact prompt in Level1.
+- Validate reopening same unsolved Level2 table keeps the same question index.
+- Validate Level2 success key bob/spin appears after puzzle solve.
+- Validate Level2 success door now opens and transitions correctly.
+- Validate `success_key` no longer logs BoxCollider negative-scale warning.
+- Validate Level2 completion writes a best time entry under leaderboard Level 2.
+- Validate Level3 completion writes a best time entry under leaderboard Level 3.
+- Validate Level3 `success_key` spins when activated after puzzle solve.
+- Validate Level3 `Success_Door` opens with success key and transitions to Level4.
+- Validate Level4 `success_key` appears/spins after puzzle completion and opens `Door_Success`.
+- Validate game startup/menu flow remains functional when Firebase/external connector is unavailable.
+- Validate Store button appears below top-right pause button on all level scenes.
+- Validate clicking Store opens `Store` overlay and ESC/click toggle closes it.
+- Validate store item hover updates description text for Scanner/Lantern/Adrenaline.
+- Validate Store button styling now shows medieval-themed cart/store icon (not duplicated hamburger icon).
+- Validate `Tab` toggles gameplay cursor visibility/lock (show pointer on first press, lock on second press).
+- Validate store hover now consistently updates description text when pointer is over item pictures.
+- Validate item pictures hide while hovered description is shown, then restore on pointer exit.
+- Validate store hover no longer flickers when moving pointer across item area.
+- Validate TAB toggle no longer causes stuck camera spinning after mid-movement toggle.
+
+## Pending
+- Add optional debug path log for selected puzzle panel (`LevelX/Background/QY`) when puzzle opens.
+- Add optional fallback UI warning if expected `QY` panel is missing.
+
+## Completed
+- Fixed gate pickup reliability by replacing strict center-ray-only gate validation with line-of-sight checks in `SimpleGateCollector`.
+- Verified `GateSpawner` setup for Level2/Level3/Level4 (prefabs, spawn points, counts).
+- Fixed question panel lookup scoping in `PuzzleTableController` to use current level root (`Level{currentLevelNumber}`).
+- Updated scene `InteractiveTable.puzzleUIPrefab` references for Level2/Level3/Level4 to use level-specific table prefabs.
+- Added runtime UI bootstrap (`Canvas`, `CanvasScaler`, `GraphicRaycaster`) in `InteractiveTable` for panel-only level prefabs.
+- Updated level root detection in `PuzzleTableController` to support root object named `Level{N}`.
+- Added solved-table prompt suppression in `SimpleGateCollector` (skip solved `InteractiveTable` targets).
+- Added success-key auto-resolution fallback in `InteractiveTable`.
+- Added door locked-message cleanup hooks and disabled legacy duplicate key popup by default.
+- Locked per-table question selection for current session in `InteractiveTable` (no reroll on reopen).
+- Added `SuccessDoor` component to Level2 `Door_Success` scene object.
+- Improved Level2 root detection robustness by avoiding runtime UI root rename and adding `Background` fallback in `PuzzleTableController`.
+- Switched `CollectibleKey` trigger collider to `SphereCollider` and restarted bob animation on `OnEnable`.
+- Added timer bootstrap in `LevelTimer.Start()` to support direct play from level scenes.
+- Added fallback completion-time recording path in `SuccessDoor` when timer instance is missing/uninitialized.
+- Added success-door auto-attachment fallback from `CollectibleKey` (for misconfigured scenes).
+- Added/renamed Level3 success door setup in scene and attached `SuccessDoor` component.
+- Updated `SuccessDoor` transition to prefer scene-derived next level (e.g., Level3 -> Level4).
+- Expanded `TECH_DICTIONARY.md` with locked-level flow, settings flow, save/load pipeline, panel routing, and logging guide.
+- Added missing `SuccessDoor` component to Level4 `Door_Success` scene object to match Level1/2/3 success flow.
+- Added offline-safe fallback in `AccountManager` so startup/login/save paths do not block gameplay when cloud services are unavailable.
+- Added gameplay HUD Store button and Store overlay flow in `PauseMenuController`, with hover descriptions wired for store item images.
+- Added Store button style pass in `PauseMenuController` (medieval tint + cart/store icon label).
+- Added final working `Tab` cursor toggle in Starter Assets first-person controller for in-level mouse pointer access.
+- Improved Store hover reliability and visual hide/show behavior during description display in `PauseMenuController`.
+- Stabilized Store hover trigger wiring and TAB cursor toggle input reset to remove flicker/spin regressions.
+

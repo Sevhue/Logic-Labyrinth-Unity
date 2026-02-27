@@ -4,6 +4,7 @@ using UnityEngine.SceneManagement;
 using UnityEngine.InputSystem;
 using UnityEngine.EventSystems;
 using TMPro;
+using System.Collections.Generic;
 
 /// <summary>
 /// Manages the in-game pause menu and the Options overlay.
@@ -27,9 +28,17 @@ public class PauseMenuController : MonoBehaviour
     [Tooltip("The Options prefab (Canvas with Volume/Graphics)")]
     public GameObject settingsPrefab;
 
+    [Tooltip("The Store prefab (Canvas). Loaded from Resources/Store as fallback.")]
+    public GameObject storePrefab;
+
     // Runtime instances
     private GameObject pauseInstance;
     private GameObject settingsInstance;
+    private GameObject storeInstance;
+    private GameObject storeButtonInstance;
+    private TextMeshProUGUI storeDescriptionText;
+    private string storeDefaultDescription = "";
+    private readonly Dictionary<string, List<Graphic>> storeItemVisuals = new Dictionary<string, List<Graphic>>();
 
     // Track where Options was opened from
     private enum SettingsOrigin { Pause, MainMenu }
@@ -40,6 +49,13 @@ public class PauseMenuController : MonoBehaviour
     private enum QuitOrigin { PauseMenu, AppClose }
     private QuitOrigin quitOrigin = QuitOrigin.PauseMenu;
     private bool allowQuit = false; // set true right before Application.Quit() so OnWantsToQuit lets it through
+
+    private readonly Dictionary<string, string> storeItemDescriptions = new Dictionary<string, string>
+    {
+        { "Scanner", "Scanner: reveals useful puzzle clues and hidden interaction hints." },
+        { "Lantern", "Lantern: improves visibility in dark areas to help exploration." },
+        { "Adrenaline", "Adrenaline: temporary boost item for faster and safer movement." }
+    };
 
     void Awake()
     {
@@ -65,6 +81,12 @@ public class PauseMenuController : MonoBehaviour
 
         if (Input.GetKeyDown(KeyCode.Escape))
         {
+            if (storeInstance != null)
+            {
+                CloseStoreOverlay();
+                return;
+            }
+
             // If quit confirmation dialog is open, close it → back to Pause
             if (quitConfirmInstance != null)
             {
@@ -139,6 +161,12 @@ public class PauseMenuController : MonoBehaviour
             }
 
             StartCoroutine(WireOptionsButtonDelayed());
+            CleanupStoreHUDButton();
+            CloseStoreOverlay();
+        }
+        else if (scene.name.StartsWith("Level"))
+        {
+            StartCoroutine(EnsureStoreButtonDelayed());
         }
     }
 
@@ -146,6 +174,13 @@ public class PauseMenuController : MonoBehaviour
     {
         yield return null; // Wait one frame for scene objects to initialize
         WireMainLoginOptionsButton();
+    }
+
+    private System.Collections.IEnumerator EnsureStoreButtonDelayed()
+    {
+        // Wait one frame for gameplay HUD objects to initialize.
+        yield return null;
+        EnsureStoreHUDButton();
     }
 
     // ============================
@@ -175,6 +210,333 @@ public class PauseMenuController : MonoBehaviour
                 Debug.Log("[PauseMenu] Loaded Options prefab from Resources.");
             else
                 Debug.LogError("[PauseMenu] FAILED to load Options prefab! Ensure Assets/Resources/Options.prefab exists.");
+        }
+
+        if (storePrefab == null)
+        {
+            storePrefab = Resources.Load<GameObject>("Store");
+            if (storePrefab != null)
+                Debug.Log("[PauseMenu] Loaded Store prefab from Resources.");
+            else
+                Debug.LogWarning("[PauseMenu] Store prefab not found in Resources/Store.");
+        }
+    }
+
+    private void EnsureStoreHUDButton()
+    {
+        if (!SceneManager.GetActiveScene().name.StartsWith("Level")) return;
+
+        if (storeButtonInstance != null) return;
+
+        EnsureEventSystem();
+
+        Button pauseButton = FindTopRightPauseButton();
+        if (pauseButton == null)
+        {
+            Debug.LogWarning("[PauseMenu] Could not find top-right pause button. Store button was not created.");
+            return;
+        }
+
+        storeButtonInstance = Instantiate(pauseButton.gameObject, pauseButton.transform.parent);
+        storeButtonInstance.name = "StoreButton_Runtime";
+
+        RectTransform pauseRT = pauseButton.GetComponent<RectTransform>();
+        RectTransform storeRT = storeButtonInstance.GetComponent<RectTransform>();
+        if (pauseRT != null && storeRT != null)
+        {
+            // Position directly below pause button.
+            storeRT.anchorMin = pauseRT.anchorMin;
+            storeRT.anchorMax = pauseRT.anchorMax;
+            storeRT.pivot = pauseRT.pivot;
+            float yStep = Mathf.Max(60f, pauseRT.rect.height + 8f);
+            storeRT.anchoredPosition = pauseRT.anchoredPosition + new Vector2(0f, -yStep);
+            storeRT.sizeDelta = pauseRT.sizeDelta;
+        }
+
+        var btn = storeButtonInstance.GetComponent<Button>();
+        if (btn != null)
+        {
+            btn.onClick = new Button.ButtonClickedEvent();
+            btn.onClick.AddListener(ToggleStoreOverlay);
+        }
+
+        StylizeStoreHUDButton(storeButtonInstance);
+    }
+
+    private void StylizeStoreHUDButton(GameObject buttonGO)
+    {
+        if (buttonGO == null) return;
+
+        // Hide cloned hamburger/icon children so we can render a clean store icon.
+        for (int i = 0; i < buttonGO.transform.childCount; i++)
+            buttonGO.transform.GetChild(i).gameObject.SetActive(false);
+
+        // Keep a medieval gold tone consistent with current UI palette.
+        Image bg = buttonGO.GetComponent<Image>();
+        if (bg != null)
+            bg.color = new Color(0.30f, 0.23f, 0.10f, 0.92f);
+
+        // Create a centered cart + label using TMP text.
+        GameObject labelGO = new GameObject("StoreLabel", typeof(RectTransform));
+        labelGO.transform.SetParent(buttonGO.transform, false);
+        RectTransform labelRT = labelGO.GetComponent<RectTransform>();
+        labelRT.anchorMin = Vector2.zero;
+        labelRT.anchorMax = Vector2.one;
+        labelRT.offsetMin = Vector2.zero;
+        labelRT.offsetMax = Vector2.zero;
+
+        var label = labelGO.AddComponent<TextMeshProUGUI>();
+        label.raycastTarget = false;
+        label.alignment = TextAlignmentOptions.Center;
+        label.enableWordWrapping = false;
+        label.richText = true;
+        label.font = TMP_Settings.defaultFontAsset;
+        label.color = new Color(0.92f, 0.83f, 0.58f, 1f);
+        label.text = "<size=32>\U0001F6D2</size>\n<size=11>STORE</size>";
+    }
+
+    private Button FindTopRightPauseButton()
+    {
+        Button[] buttons = FindObjectsByType<Button>(FindObjectsSortMode.None);
+        Button best = null;
+        float bestScore = float.NegativeInfinity;
+
+        foreach (var b in buttons)
+        {
+            if (b == null || !b.gameObject.activeInHierarchy) continue;
+            RectTransform rt = b.GetComponent<RectTransform>();
+            if (rt == null) continue;
+
+            // Favor top-right anchored buttons (where pause icon lives).
+            bool likelyTopRight = rt.anchorMin.x > 0.7f && rt.anchorMax.x > 0.7f &&
+                                  rt.anchorMin.y > 0.7f && rt.anchorMax.y > 0.7f;
+            if (!likelyTopRight) continue;
+
+            float score = rt.anchorMin.x + rt.anchorMax.x + rt.anchorMin.y + rt.anchorMax.y;
+
+            string n = b.name.ToLowerInvariant();
+            if (n.Contains("pause") || n.Contains("menu") || n.Contains("option"))
+                score += 1.5f;
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = b;
+            }
+        }
+
+        return best;
+    }
+
+    public void ToggleStoreOverlay()
+    {
+        if (storeInstance != null)
+        {
+            CloseStoreOverlay();
+            return;
+        }
+
+        // Don't open store while puzzle-related UI is active.
+        if (PuzzleTableController.IsOpen || SwapGateUI.IsOpen) return;
+
+        EnsurePrefabs();
+        EnsureEventSystem();
+
+        if (storePrefab == null)
+        {
+            Debug.LogError("[PauseMenu] Store prefab is null. Ensure Assets/Resources/Store.prefab exists.");
+            return;
+        }
+
+        storeInstance = Instantiate(storePrefab);
+        storeInstance.name = "StoreOverlay_Runtime";
+        storeInstance.SetActive(true);
+
+        Canvas canvas = storeInstance.GetComponent<Canvas>();
+        if (canvas != null)
+        {
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 115;
+        }
+
+        if (storeInstance.GetComponent<GraphicRaycaster>() == null)
+            storeInstance.AddComponent<GraphicRaycaster>();
+        if (storeInstance.GetComponent<CanvasScaler>() == null)
+            storeInstance.AddComponent<CanvasScaler>();
+
+        // Prepare hover descriptions.
+        SetupStoreDescriptionHover();
+
+        // Make sure player can interact with store UI.
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+        SetPlayerInputEnabled(false);
+    }
+
+    private void CloseStoreOverlay()
+    {
+        if (storeInstance != null)
+        {
+            Destroy(storeInstance);
+            storeInstance = null;
+            storeDescriptionText = null;
+            storeDefaultDescription = "";
+            storeItemVisuals.Clear();
+        }
+
+        // Restore gameplay input only when no other blocking UI is open.
+        if (!IsPaused && !PuzzleTableController.IsOpen && !SwapGateUI.IsOpen)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+            SetPlayerInputEnabled(true);
+        }
+    }
+
+    private void CleanupStoreHUDButton()
+    {
+        if (storeButtonInstance != null)
+        {
+            Destroy(storeButtonInstance);
+            storeButtonInstance = null;
+        }
+    }
+
+    private void SetupStoreDescriptionHover()
+    {
+        if (storeInstance == null) return;
+
+        // Try to locate the description text area in Store prefab.
+        Transform descriptionRoot = DeepFind(storeInstance.transform, "Description");
+        if (descriptionRoot != null)
+        {
+            var tmps = descriptionRoot.GetComponentsInChildren<TextMeshProUGUI>(true);
+            if (tmps != null && tmps.Length > 0)
+            {
+                // Prefer the largest body text (actual description paragraph), not short labels.
+                TextMeshProUGUI best = tmps[0];
+                foreach (var t in tmps)
+                {
+                    if (t != null && t.text != null && t.text.Length > best.text.Length)
+                        best = t;
+                }
+                storeDescriptionText = best;
+                storeDefaultDescription = storeDescriptionText.text;
+            }
+        }
+
+        // Fallback if Description panel naming differs.
+        if (storeDescriptionText == null)
+        {
+            var tmps = storeInstance.GetComponentsInChildren<TextMeshProUGUI>(true);
+            if (tmps != null && tmps.Length > 0)
+            {
+                storeDescriptionText = tmps[0];
+                storeDefaultDescription = storeDescriptionText.text;
+            }
+        }
+
+        foreach (var kv in storeItemDescriptions)
+        {
+            Transform item = DeepFind(storeInstance.transform, kv.Key);
+            if (item == null) continue;
+
+            CacheStoreItemVisuals(kv.Key, item);
+
+            // Wire hover only on item root. Child-level triggers can cause enter/exit storms
+            // when visuals are hidden, which appears as text flicker.
+            WireStoreHoverTarget(item.gameObject, kv.Key, kv.Value);
+        }
+    }
+
+    private void CacheStoreItemVisuals(string itemKey, Transform itemRoot)
+    {
+        if (itemRoot == null) return;
+        if (storeItemVisuals.ContainsKey(itemKey)) return;
+
+        var visuals = new List<Graphic>();
+        var rootGraphic = itemRoot.GetComponent<Graphic>();
+        var allGraphics = itemRoot.GetComponentsInChildren<Graphic>(true);
+        foreach (var g in allGraphics)
+        {
+            if (g == null) continue;
+            // Keep root graphic active for event detection; hide only child visuals.
+            if (rootGraphic != null && g == rootGraphic) continue;
+            visuals.Add(g);
+        }
+        storeItemVisuals[itemKey] = visuals;
+    }
+
+    private void WireStoreHoverTarget(GameObject target, string itemKey, string description)
+    {
+        if (target == null) return;
+
+        var graphic = target.GetComponent<Graphic>();
+        if (graphic == null)
+        {
+            var hitbox = target.AddComponent<Image>();
+            hitbox.color = new Color(1f, 1f, 1f, 0f);
+            hitbox.raycastTarget = true;
+        }
+        else
+        {
+            graphic.raycastTarget = true;
+        }
+
+        var trigger = target.GetComponent<EventTrigger>();
+        if (trigger == null) trigger = target.AddComponent<EventTrigger>();
+        trigger.triggers.Clear();
+
+        // Pointer enter
+        var enter = new EventTrigger.Entry();
+        enter.eventID = EventTriggerType.PointerEnter;
+        enter.callback.AddListener((_) => ShowStoreDescriptionForItem(itemKey, description));
+        trigger.triggers.Add(enter);
+
+        // Pointer exit
+        var exit = new EventTrigger.Entry();
+        exit.eventID = EventTriggerType.PointerExit;
+        exit.callback.AddListener((_) => ResetStoreDescription());
+        trigger.triggers.Add(exit);
+    }
+
+    private void ShowStoreDescriptionForItem(string itemKey, string text)
+    {
+        ShowAllStoreItemVisuals();
+        HideStoreItemVisuals(itemKey);
+        ShowStoreDescription(text);
+    }
+
+    private void ShowStoreDescription(string text)
+    {
+        if (storeDescriptionText != null) storeDescriptionText.text = text;
+    }
+
+    private void ResetStoreDescription()
+    {
+        ShowAllStoreItemVisuals();
+        if (storeDescriptionText != null) storeDescriptionText.text = storeDefaultDescription;
+    }
+
+    private void HideStoreItemVisuals(string itemKey)
+    {
+        if (!storeItemVisuals.TryGetValue(itemKey, out var visuals)) return;
+        foreach (var g in visuals)
+        {
+            if (g != null) g.enabled = false;
+        }
+    }
+
+    private void ShowAllStoreItemVisuals()
+    {
+        foreach (var pair in storeItemVisuals)
+        {
+            var visuals = pair.Value;
+            if (visuals == null) continue;
+            foreach (var g in visuals)
+            {
+                if (g != null) g.enabled = true;
+            }
         }
     }
 

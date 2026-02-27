@@ -1211,6 +1211,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::InteractiveTable
   puzzleUIPrefab: {fileID: 6149884197997888047, guid: d81b58c5b44a4bd4788a0a27d050fe3f, type: 3}
   answerKey: 010000000100000000000000
+  questionAnswerKeys: []
   maxAttempts: 3
   successKeyObject: {fileID: 601111944}
   highlightMaterial: {fileID: 0}
@@ -5809,6 +5810,7 @@ MonoBehaviour:
   shinePulseSpeed: 2.5
   shineIntensity: 3
   shineRange: 4
+  showLegacyPickupPopup: 0
 --- !u!64 &603571173
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -15694,6 +15696,7 @@ MonoBehaviour:
   shinePulseSpeed: 2.5
   shineIntensity: 3
   shineRange: 4
+  showLegacyPickupPopup: 0
 --- !u!1001 &1406605448
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -17854,6 +17857,119 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 668735768885291391, guid: 91ad7bf144749b04ab484a680630a040, type: 3}
   m_PrefabInstance: {fileID: 1527908101}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1528887712
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1528887713}
+  - component: {fileID: 1528887716}
+  - component: {fileID: 1528887715}
+  - component: {fileID: 1528887714}
+  m_Layer: 0
+  m_Name: Ceiling_SquareLarge__8_ (1)
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1528887713
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1528887712}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0.000000037748947, y: 0, z: -0, w: 1}
+  m_LocalPosition: {x: 1.57, y: -0.82586896, z: -20}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 502808554}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!64 &1528887714
+MeshCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1528887712}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 5
+  m_Convex: 0
+  m_CookingOptions: 30
+  m_Mesh: {fileID: 489282377228628555, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
+--- !u!23 &1528887715
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1528887712}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: c0df91a37fabb7548be678ae26e60c30, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_MaskInteraction: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!33 &1528887716
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1528887712}
+  m_Mesh: {fileID: 489282377228628555, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
 --- !u!1 &1544048827
 GameObject:
   m_ObjectHideFlags: 0
@@ -26831,55 +26947,58 @@ PrefabInstance:
       insertIndex: 13
       addedObject: {fileID: 754903701}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 222
-      addedObject: {fileID: 1397575948}
+      insertIndex: 19
+      addedObject: {fileID: 1528887713}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: 223
-      addedObject: {fileID: 1298029972}
+      addedObject: {fileID: 1397575948}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: 224
-      addedObject: {fileID: 1883018886}
+      addedObject: {fileID: 1298029972}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: 225
-      addedObject: {fileID: 1363927554}
+      addedObject: {fileID: 1883018886}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: 226
-      addedObject: {fileID: 1544048828}
+      addedObject: {fileID: 1363927554}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: 227
-      addedObject: {fileID: 1665909388}
+      addedObject: {fileID: 1544048828}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: 228
-      addedObject: {fileID: 827457670}
+      addedObject: {fileID: 1665909388}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: 229
+      addedObject: {fileID: 827457670}
+    - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
+      insertIndex: 230
       addedObject: {fileID: 703891293}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 232
+      insertIndex: 233
       addedObject: {fileID: 1378728508}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 235
+      insertIndex: 236
       addedObject: {fileID: 1156761404}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 236
+      insertIndex: 237
       addedObject: {fileID: 2065458268}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 237
+      insertIndex: 238
       addedObject: {fileID: 583744808}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 240
+      insertIndex: 241
       addedObject: {fileID: 1999383715}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 241
+      insertIndex: 242
       addedObject: {fileID: 1807388031}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 242
+      insertIndex: 243
       addedObject: {fileID: 1922397031}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 243
+      insertIndex: 244
       addedObject: {fileID: 924603870}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 305
+      insertIndex: 306
       addedObject: {fileID: 1786699422}
     m_AddedComponents:
     - targetCorrespondingSourceObject: {fileID: -6600374686172715016, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
@@ -31017,6 +31136,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::InteractiveTable
   puzzleUIPrefab: {fileID: 0}
   answerKey: 0100000001000000010000000000000000000000
+  questionAnswerKeys: []
   maxAttempts: 3
   successKeyObject: {fileID: 0}
   highlightMaterial: {fileID: 0}

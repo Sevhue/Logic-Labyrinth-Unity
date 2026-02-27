@@ -4,6 +4,7 @@ using TMPro;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine.SceneManagement;
+using System;
 using StarterAssets;
 
 /// <summary>
@@ -282,6 +283,38 @@ public class PuzzleTableController : MonoBehaviour
         // Prefabs may have them saved as inactive
         ActivateAllChildren(transform);
 
+        // Resolve the level-specific UI root first so we don't accidentally pick
+        // Background/Q panels from another embedded level template in UITable.
+        string expectedLevelRootName = $"Level{currentLevelNumber}";
+        Transform levelRoot = string.Equals(transform.name.Trim(), expectedLevelRootName, StringComparison.OrdinalIgnoreCase)
+            ? transform
+            : FindDeepChild(transform, expectedLevelRootName);
+        if (levelRoot == null)
+        {
+            // Panel-only level prefabs may be wrapped/renamed at runtime.
+            // If this root already contains the puzzle hierarchy, treat it as the level root.
+            Transform maybeBackground = FindDeepChild(transform, "Background");
+            if (maybeBackground != null)
+                levelRoot = transform;
+        }
+        Transform searchRoot = levelRoot != null ? levelRoot : transform;
+        if (levelRoot == null)
+            Debug.LogWarning($"[PuzzleTable] Level root 'Level{currentLevelNumber}' not found. Falling back to global search.");
+
+        // Free-form levels (Level 6+) do not rely on Q1..Q5 panel objects.
+        // Use the background root directly to avoid noisy Qx lookup warnings.
+        if (IsFreeFormCanvasMode())
+        {
+            puzzleContent = FindActiveDeepChild(searchRoot, "Background");
+            if (puzzleContent == null)
+                puzzleContent = FindDeepChild(searchRoot, "Background");
+            if (puzzleContent == null)
+                puzzleContent = transform;
+
+            Debug.Log($"[PuzzleTable] Free-form mode: using puzzleContent '{puzzleContent.name}' (path: {GetTransformPath(puzzleContent)})");
+            return;
+        }
+
         // ── Multi-question mode: activate the selected Q panel, deactivate others ──
         if (selectedQuestionIndex >= 0)
         {
@@ -289,7 +322,9 @@ public class PuzzleTableController : MonoBehaviour
             Debug.Log($"[PuzzleTable] Multi-question mode: looking for '{targetQName}'");
 
             // Find Background parent (contains Q1..Q5)
-            Transform background = FindDeepChild(transform, "Background");
+            Transform background = FindDeepChild(searchRoot, "Background");
+            if (background == null && searchRoot != transform)
+                background = FindDeepChild(transform, "Background");
             if (background != null)
             {
                 // Deactivate ALL Q panels, then activate the selected one
@@ -326,19 +361,19 @@ public class PuzzleTableController : MonoBehaviour
 
         // ── Single-question mode (original logic) ──
         // Search only ACTIVE children to avoid picking up inactive levels
-        puzzleContent = FindActiveDeepChild(transform, "Q1");
+        puzzleContent = FindActiveDeepChild(searchRoot, "Q1");
         if (puzzleContent == null)
         {
-            puzzleContent = FindActiveDeepChild(transform, "Background");
+            puzzleContent = FindActiveDeepChild(searchRoot, "Background");
         }
         // Fallback: search all children (including inactive) if nothing active found
         if (puzzleContent == null)
         {
-            puzzleContent = FindDeepChild(transform, "Q1");
+            puzzleContent = FindDeepChild(searchRoot, "Q1");
         }
         if (puzzleContent == null)
         {
-            puzzleContent = FindDeepChild(transform, "Background");
+            puzzleContent = FindDeepChild(searchRoot, "Background");
         }
         if (puzzleContent == null)
         {

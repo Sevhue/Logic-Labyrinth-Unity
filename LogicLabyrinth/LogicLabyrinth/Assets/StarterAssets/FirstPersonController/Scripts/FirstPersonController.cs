@@ -90,6 +90,7 @@ namespace StarterAssets
 		private CharacterController _controller;
 		private StarterAssetsInputs _input;
 		private GameObject _mainCamera;
+		private bool _tabCursorVisible;
 
 		private const float _threshold = 0.01f;
 
@@ -131,12 +132,31 @@ namespace StarterAssets
 			// Initialize stamina
 			CurrentStamina = MaxStamina;
 			IsExhausted = false;
+
+			_tabCursorVisible = false;
+			SetGameplayCursorVisible(false);
 		}
 
 		private void Update()
 		{
+			// If pause is open, clear tab-toggle state so resume returns to normal locked gameplay cursor.
+			if (PauseMenuController.IsPaused)
+			{
+				_tabCursorVisible = false;
+				return;
+			}
+
+#if ENABLE_INPUT_SYSTEM
+			// TAB toggles gameplay cursor visibility/lock so players can quickly use the mouse.
+			if (Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame)
+			{
+				_tabCursorVisible = !_tabCursorVisible;
+				SetGameplayCursorVisible(_tabCursorVisible);
+			}
+#endif
+
 			// Don't process input while game is paused
-			if (PauseMenuController.IsPaused) return;
+			// (already handled above)
 
 			// Full cutscene block (Cutscene1/2: black screens) — freeze everything
 			if (CutsceneController.IsPlaying) return;
@@ -156,10 +176,30 @@ namespace StarterAssets
 			Move();
 		}
 
+		private void SetGameplayCursorVisible(bool visible)
+		{
+			Cursor.lockState = visible ? CursorLockMode.None : CursorLockMode.Locked;
+			Cursor.visible = visible;
+
+			if (_input != null)
+			{
+				_input.cursorInputForLook = !visible;
+				_input.cursorLocked = !visible;
+				_input.LookInput(Vector2.zero);
+				if (visible)
+				{
+					_input.MoveInput(Vector2.zero);
+				}
+			}
+
+			_rotationVelocity = 0f;
+		}
+
 		private void LateUpdate()
 		{
 			// Don't rotate camera while paused
 			if (PauseMenuController.IsPaused) return;
+			if (_tabCursorVisible) return;
 
 			// Full cutscene block — no camera rotation
 			if (CutsceneController.IsPlaying) return;

@@ -7,6 +7,7 @@ using Firebase.Extensions;
 public class AccountManager : MonoBehaviour
 {
     public static AccountManager Instance;
+    private bool cloudServicesAvailable = true;
 
     [Serializable]
     public class PlayerData
@@ -75,13 +76,50 @@ public class AccountManager : MonoBehaviour
     private PlayerData currentPlayer;
     private DatabaseReference dbRef;
 
+    private bool TryGetAuth(out Firebase.Auth.FirebaseAuth auth)
+    {
+        auth = null;
+        try
+        {
+            auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
+            return auth != null;
+        }
+        catch (Exception ex)
+        {
+            cloudServicesAvailable = false;
+            Debug.LogWarning("[AccountManager] Firebase Auth unavailable. Running in local/offline mode. " + ex.Message);
+            return false;
+        }
+    }
+
+    private void EnsureOfflineGuestPlayer()
+    {
+        if (currentPlayer != null) return;
+
+        currentPlayer = new PlayerData("offline_guest", "offline_guest", true)
+        {
+            username = "offline_guest",
+            displayName = "Offline Guest",
+            unlockedLevels = 99
+        };
+    }
+
     void Awake()
     {
         if (Instance == null)
         {
             Instance = this;
             DontDestroyOnLoad(gameObject);
-            dbRef = FirebaseDatabase.DefaultInstance.RootReference;
+            try
+            {
+                dbRef = FirebaseDatabase.DefaultInstance.RootReference;
+            }
+            catch (Exception ex)
+            {
+                cloudServicesAvailable = false;
+                dbRef = null;
+                Debug.LogWarning("[AccountManager] Firebase Database unavailable. Running in local/offline mode. " + ex.Message);
+            }
         }
         else
         {
@@ -90,12 +128,17 @@ public class AccountManager : MonoBehaviour
     }
     void Start()
     {
-        var auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
-
         // 1. Show Main Login (Landing Page) first
         if (UIManager.Instance != null)
         {
             UIManager.Instance.ShowMainLoginPanel();
+        }
+
+        if (!TryGetAuth(out var auth) || auth == null)
+        {
+            EnsureOfflineGuestPlayer();
+            if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+            return;
         }
 
         // 2. AUTO-LOGIN CHECK: Only if there is a session
@@ -138,7 +181,13 @@ public class AccountManager : MonoBehaviour
     /// </summary>
     public void RefreshPlayerDataFromFirebase(System.Action<bool> onComplete)
     {
-        var auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
+        if (!TryGetAuth(out var auth) || dbRef == null)
+        {
+            EnsureOfflineGuestPlayer();
+            onComplete?.Invoke(false);
+            return;
+        }
+
         if (auth.CurrentUser == null)
         {
             Debug.LogWarning("RefreshPlayerData: No authenticated user.");
@@ -204,6 +253,14 @@ public class AccountManager : MonoBehaviour
 
     public void Login(string user, string pass, System.Action<bool> onResult)
     {
+        if (!TryGetAuth(out var auth) || dbRef == null)
+        {
+            EnsureOfflineGuestPlayer();
+            if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+            onResult?.Invoke(true);
+            return;
+        }
+
         // 1. Clean input
         string cleanUser = user.Trim().ToLower();
 
@@ -212,7 +269,7 @@ public class AccountManager : MonoBehaviour
 
         Debug.Log("DEBUG: Attempting login with: [" + emailToAuthenticate + "]");
 
-        Firebase.Auth.FirebaseAuth.DefaultInstance.SignInWithEmailAndPasswordAsync(emailToAuthenticate, pass).ContinueWithOnMainThread(authTask => {
+        auth.SignInWithEmailAndPasswordAsync(emailToAuthenticate, pass).ContinueWithOnMainThread(authTask => {
 
             if (authTask.IsCompleted && !authTask.IsFaulted && !authTask.IsCanceled)
             {
@@ -256,7 +313,12 @@ public class AccountManager : MonoBehaviour
     }
     public void CreateAccountWithSecurity(string user, string pass, string q, string a, string gender = "", string age = "", System.Action<bool, string> onResult = null)
     {
-        Firebase.Auth.FirebaseAuth auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
+        if (!TryGetAuth(out var auth) || dbRef == null)
+        {
+            EnsureOfflineGuestPlayer();
+            onResult?.Invoke(false, "Cloud account services unavailable (offline mode).");
+            return;
+        }
 
         // Sign out any previous user first to avoid session conflicts
         if (auth.CurrentUser != null)
@@ -324,7 +386,12 @@ public class AccountManager : MonoBehaviour
     }
     public void CreateFullAccount(string user, string pass, string securityAnswer, string gender, string age, System.Action<bool> onResult)
     {
-        var auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
+        if (!TryGetAuth(out var auth) || dbRef == null)
+        {
+            EnsureOfflineGuestPlayer();
+            onResult?.Invoke(false);
+            return;
+        }
 
         auth.CreateUserWithEmailAndPasswordAsync(user, pass).ContinueWithOnMainThread(task => {
 
@@ -407,7 +474,11 @@ public class AccountManager : MonoBehaviour
     /// </summary>
     public void RecordLevelTime(int level, float seconds)
     {
-        if (currentPlayer == null) return;
+        if (currentPlayer == null)
+        {
+            Debug.LogWarning($"[AccountManager] Skipped RecordLevelTime for Level {level}: no logged-in player.");
+            return;
+        }
 
         // Add to total played time
         currentPlayer.totalPlayedSeconds += seconds;
@@ -534,7 +605,14 @@ public class AccountManager : MonoBehaviour
             return;
         }
 
-        var auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
+        if (!TryGetAuth(out var auth) || dbRef == null || auth.CurrentUser == null)
+        {
+            // Offline/local mode: keep gameplay functional without cloud persistence.
+            Debug.LogWarning("[AccountManager] Cloud save skipped (offline/local mode).");
+            onComplete?.Invoke(true);
+            return;
+        }
+
         if (auth.CurrentUser != null)
         {
             string userId = auth.CurrentUser.UserId;
@@ -571,7 +649,7 @@ public class AccountManager : MonoBehaviour
     /// </summary>
     private void UpdateLeaderboardEntry(string userId)
     {
-        if (currentPlayer == null) return;
+        if (currentPlayer == null || dbRef == null || string.IsNullOrWhiteSpace(userId)) return;
 
         // Prefer displayName for the leaderboard; fall back to username
         string leaderboardName = !string.IsNullOrWhiteSpace(currentPlayer.displayName)
@@ -610,8 +688,12 @@ public class AccountManager : MonoBehaviour
 
     public void LinkWithGoogle(string email, string gid, string name)
     {
-        var auth = Firebase.Auth.FirebaseAuth.DefaultInstance;
-        if (auth.CurrentUser == null) return;
+        if (!TryGetAuth(out var auth) || dbRef == null || auth.CurrentUser == null)
+        {
+            EnsureOfflineGuestPlayer();
+            if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+            return;
+        }
 
         string userId = auth.CurrentUser.UserId;
 
@@ -659,7 +741,8 @@ public class AccountManager : MonoBehaviour
     public void Logout()
     {
         // 1. Firebase Sign Out
-        Firebase.Auth.FirebaseAuth.DefaultInstance.SignOut();
+        if (TryGetAuth(out var auth) && auth != null)
+            auth.SignOut();
 
         // 2. Clear local player data
         currentPlayer = null;

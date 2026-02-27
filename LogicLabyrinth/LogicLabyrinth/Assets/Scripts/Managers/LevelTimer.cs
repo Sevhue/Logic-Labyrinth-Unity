@@ -59,6 +59,13 @@ public class LevelTimer : MonoBehaviour
         }
     }
 
+    void Start()
+    {
+        // Handle the currently loaded scene immediately (important when pressing Play directly
+        // from Level2/Level3 in the editor, where sceneLoaded may not fire for this first scene).
+        OnSceneLoaded(SceneManager.GetActiveScene(), LoadSceneMode.Single);
+    }
+
     void Update()
     {
         if (IsRunning)

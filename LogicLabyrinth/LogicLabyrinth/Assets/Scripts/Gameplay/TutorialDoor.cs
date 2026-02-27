@@ -32,6 +32,7 @@ public class TutorialDoor : MonoBehaviour
     private List<Light> highlightLights = new List<Light>();
     private GameObject lockedMessageUI;
     private Coroutine pulseCoroutine;
+    private Coroutine lockedMessageRoutine;
 
     void Start()
     {
@@ -197,7 +198,31 @@ public class TutorialDoor : MonoBehaviour
     {
         if (lockedMessageUI != null) return;
         Debug.Log("[TutorialDoor] Door is locked! Player needs a key.");
-        StartCoroutine(ShowLockedMessageRoutine());
+        lockedMessageRoutine = StartCoroutine(ShowLockedMessageRoutine());
+    }
+
+    public void HideLockedMessageImmediate()
+    {
+        if (lockedMessageRoutine != null)
+        {
+            StopCoroutine(lockedMessageRoutine);
+            lockedMessageRoutine = null;
+        }
+        if (lockedMessageUI != null)
+        {
+            Destroy(lockedMessageUI);
+            lockedMessageUI = null;
+        }
+    }
+
+    public static void HideAllLockedMessages()
+    {
+        TutorialDoor[] doors = FindObjectsByType<TutorialDoor>(FindObjectsSortMode.None);
+        for (int i = 0; i < doors.Length; i++)
+        {
+            if (doors[i] != null)
+                doors[i].HideLockedMessageImmediate();
+        }
     }
 
     private IEnumerator ShowUnlockMessageAndOpen()
@@ -286,6 +311,7 @@ public class TutorialDoor : MonoBehaviour
 
         Destroy(lockedMessageUI);
         lockedMessageUI = null;
+        lockedMessageRoutine = null;
     }
 
     void OnDestroy()
