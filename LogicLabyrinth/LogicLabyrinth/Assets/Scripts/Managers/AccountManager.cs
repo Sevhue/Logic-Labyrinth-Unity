@@ -8,15 +8,19 @@ public class AccountManager : MonoBehaviour
 {
     public static AccountManager Instance;
     private bool cloudServicesAvailable = true;
+    private const string RealtimeDatabaseUrl = "https://logiclabyrinth-auth-default-rtdb.asia-southeast1.firebasedatabase.app";
+    private const string SecurityAnswerIndexSalt = "logiclabyrinth-security-answer-v1";
 
     [Serializable]
     public class PlayerData
     {
         public string username;
+        public string usernameLower;
         public string passwordHash;  // SHA-256 hash (not plain text)
         public string passwordSalt;  // Random salt used for hashing
         public string securityQuestion;
         public string securityAnswer;
+        public string securityAnswerHashIndex;
         public string googleId;
         public string googleEmail;
         public string displayName;
@@ -31,6 +35,11 @@ public class AccountManager : MonoBehaviour
         public int andGatesCollected = 0;
         public int orGatesCollected = 0;
         public int notGatesCollected = 0;
+
+        // Store purchases
+        public bool hasScanner = false;
+        public bool hasLantern = false;
+        public int adrenalineCount = 0;
 
         // Saved position & rotation for mid-level save
         public float savedPosX = 0f;
@@ -57,6 +66,7 @@ public class AccountManager : MonoBehaviour
         public PlayerData(string user, string pass, bool alreadyHashed = false)
         {
             this.username = user;
+            this.usernameLower = AccountManager.NormalizeUsernameForLookup(user);
             if (alreadyHashed || pass == "google_auth")
             {
                 // Already hashed or a special marker — store as-is
@@ -75,6 +85,273 @@ public class AccountManager : MonoBehaviour
 
     private PlayerData currentPlayer;
     private DatabaseReference dbRef;
+    private string lastUsernameLookupError = "";
+
+    private const string InternalEmailSuffix = "@logic.com";
+
+    private static string BuildLookupErrorMessage(Exception ex)
+    {
+        if (ex == null) return "";
+
+        string msg = ex.ToString();
+        if (!string.IsNullOrEmpty(msg) && msg.IndexOf("permission denied", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "Permission denied by Firebase Rules.";
+
+        return "Firebase lookup failed.";
+    }
+
+    public string GetLastUsernameLookupError()
+    {
+        return lastUsernameLookupError;
+    }
+
+    private static string HashSecurityAnswerForIndex(string answer)
+    {
+        if (answer == null) answer = "";
+        return PasswordHasher.HashPassword(answer, SecurityAnswerIndexSalt);
+    }
+
+    private static bool IsLikelySha256Hex(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length != 64) return false;
+        for (int i = 0; i < value.Length; i++)
+        {
+            char c = value[i];
+            bool isHex = (c >= '0' && c <= '9') ||
+                         (c >= 'a' && c <= 'f') ||
+                         (c >= 'A' && c <= 'F');
+            if (!isHex) return false;
+        }
+        return true;
+    }
+
+    private static bool VerifySecurityAnswerValue(PlayerData data, string typedAnswer)
+    {
+        if (data == null) return false;
+
+        if (!string.IsNullOrEmpty(data.securityAnswerHashIndex))
+        {
+            string typedHash = HashSecurityAnswerForIndex(typedAnswer);
+            return string.Equals(data.securityAnswerHashIndex, typedHash, StringComparison.OrdinalIgnoreCase);
+        }
+
+        string stored = data.securityAnswer ?? "";
+        if (IsLikelySha256Hex(stored))
+        {
+            string typedHash = HashSecurityAnswerForIndex(typedAnswer);
+            return string.Equals(stored, typedHash, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return string.Equals(stored, typedAnswer, StringComparison.Ordinal);
+    }
+
+    private void UpsertPasswordResetIndex(string userId, PlayerData data)
+    {
+        if (dbRef == null || string.IsNullOrWhiteSpace(userId) || data == null) return;
+
+        string normalized = NormalizeUsernameForLookup(data.username);
+        if (string.IsNullOrWhiteSpace(normalized))
+            normalized = NormalizeUsernameForLookup(data.usernameLower);
+        if (string.IsNullOrWhiteSpace(normalized)) return;
+
+        string answerHash = HashSecurityAnswerForIndex(data.securityAnswer ?? "");
+        data.securityAnswerHashIndex = answerHash;
+
+        var resetEntry = new Dictionary<string, object>
+        {
+            { "uid", userId },
+            { "usernameLower", normalized },
+            { "securityQuestion", data.securityQuestion ?? "" },
+            { "securityAnswerHash", answerHash }
+        };
+
+        dbRef.Child("passwordResetIndex").Child(userId).UpdateChildrenAsync(resetEntry)
+            .ContinueWithOnMainThread(task =>
+            {
+                if (task.IsFaulted || task.IsCanceled)
+                    Debug.LogWarning("[AccountManager] Failed to update passwordResetIndex: " + task.Exception);
+            });
+    }
+
+    private static string NormalizeUsernameForLookup(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "";
+
+        string normalized = value.Trim().ToLowerInvariant();
+        if (normalized.EndsWith(InternalEmailSuffix))
+            normalized = normalized.Substring(0, normalized.Length - InternalEmailSuffix.Length);
+
+        return normalized;
+    }
+
+    private static void NormalizePlayerIdentityFields(PlayerData data)
+    {
+        if (data == null) return;
+
+        string normalized = NormalizeUsernameForLookup(data.username);
+        if (string.IsNullOrWhiteSpace(normalized))
+            normalized = NormalizeUsernameForLookup(data.usernameLower);
+
+        data.usernameLower = normalized;
+    }
+
+    private static bool UsernamesMatch(PlayerData data, string normalizedLookup)
+    {
+        if (data == null || string.IsNullOrEmpty(normalizedLookup)) return false;
+
+        if (NormalizeUsernameForLookup(data.username) == normalizedLookup) return true;
+        if (NormalizeUsernameForLookup(data.usernameLower) == normalizedLookup) return true;
+
+        return false;
+    }
+
+    private static Firebase.Database.DataSnapshot GetSnapshotAtPath(Firebase.Database.DataSnapshot root, string path)
+    {
+        if (root == null || string.IsNullOrEmpty(path)) return null;
+
+        Firebase.Database.DataSnapshot node = root;
+        string[] parts = path.Split('/');
+        for (int i = 0; i < parts.Length; i++)
+        {
+            if (string.IsNullOrEmpty(parts[i])) continue;
+            node = node.Child(parts[i]);
+            if (node == null || !node.Exists) return null;
+        }
+
+        return node;
+    }
+
+    private static string GetSnapshotString(Firebase.Database.DataSnapshot root, string path)
+    {
+        var node = GetSnapshotAtPath(root, path);
+        if (node == null || !node.Exists || node.Value == null) return "";
+        return node.Value.ToString();
+    }
+
+    private static bool SnapshotUsernameMatches(Firebase.Database.DataSnapshot userSnapshot, string normalizedLookup)
+    {
+        if (userSnapshot == null || string.IsNullOrEmpty(normalizedLookup)) return false;
+
+        string[] usernamePaths =
+        {
+            "username",
+            "usernameLower",
+            "profile/username",
+            "profile/usernameLower"
+        };
+
+        for (int i = 0; i < usernamePaths.Length; i++)
+        {
+            string candidate = NormalizeUsernameForLookup(GetSnapshotString(userSnapshot, usernamePaths[i]));
+            if (candidate == normalizedLookup) return true;
+        }
+
+        return false;
+    }
+
+    private PlayerData BuildPlayerDataFromSnapshot(Firebase.Database.DataSnapshot userSnapshot, string normalizedLookup)
+    {
+        if (userSnapshot == null || !userSnapshot.Exists) return null;
+
+        PlayerData data = null;
+        string rawJson = userSnapshot.GetRawJsonValue();
+        if (!string.IsNullOrEmpty(rawJson))
+            data = JsonUtility.FromJson<PlayerData>(rawJson);
+
+        string usernameFromSnapshot = GetSnapshotString(userSnapshot, "username");
+        if (string.IsNullOrWhiteSpace(usernameFromSnapshot))
+            usernameFromSnapshot = GetSnapshotString(userSnapshot, "profile/username");
+
+        if (data == null)
+        {
+            string fallbackName = string.IsNullOrWhiteSpace(usernameFromSnapshot)
+                ? normalizedLookup
+                : usernameFromSnapshot;
+            data = new PlayerData(fallbackName, "", true);
+        }
+
+        if (string.IsNullOrWhiteSpace(data.username))
+            data.username = usernameFromSnapshot;
+
+        if (string.IsNullOrWhiteSpace(data.usernameLower))
+            data.usernameLower = NormalizeUsernameForLookup(string.IsNullOrWhiteSpace(data.username)
+                ? normalizedLookup
+                : data.username);
+
+        if (string.IsNullOrWhiteSpace(data.securityQuestion))
+            data.securityQuestion = GetSnapshotString(userSnapshot, "securityQuestion");
+        if (string.IsNullOrWhiteSpace(data.securityQuestion))
+            data.securityQuestion = GetSnapshotString(userSnapshot, "profile/securityQuestion");
+
+        if (string.IsNullOrWhiteSpace(data.securityAnswer))
+            data.securityAnswer = GetSnapshotString(userSnapshot, "securityAnswer");
+        if (string.IsNullOrWhiteSpace(data.securityAnswer))
+            data.securityAnswer = GetSnapshotString(userSnapshot, "profile/securityAnswer");
+
+        if (string.IsNullOrWhiteSpace(data.passwordHash))
+            data.passwordHash = GetSnapshotString(userSnapshot, "passwordHash");
+        if (string.IsNullOrWhiteSpace(data.passwordHash))
+            data.passwordHash = GetSnapshotString(userSnapshot, "profile/passwordHash");
+
+        if (string.IsNullOrWhiteSpace(data.passwordSalt))
+            data.passwordSalt = GetSnapshotString(userSnapshot, "passwordSalt");
+        if (string.IsNullOrWhiteSpace(data.passwordSalt))
+            data.passwordSalt = GetSnapshotString(userSnapshot, "profile/passwordSalt");
+
+        // Legacy compatibility: some early records stored plain password in "password".
+        if (string.IsNullOrWhiteSpace(data.passwordHash))
+            data.passwordHash = GetSnapshotString(userSnapshot, "password");
+        if (string.IsNullOrWhiteSpace(data.passwordHash))
+            data.passwordHash = GetSnapshotString(userSnapshot, "profile/password");
+
+        NormalizePlayerIdentityFields(data);
+        return data;
+    }
+
+    private bool TryBuildFromResetIndexSnapshot(Firebase.Database.DataSnapshot snapshot, string normalizedLookup,
+        out PlayerData data, out Firebase.Database.DatabaseReference userRef)
+    {
+        data = null;
+        userRef = null;
+
+        if (snapshot == null || !snapshot.Exists) return false;
+
+        string uid = snapshot.Key;
+        if (string.IsNullOrWhiteSpace(uid))
+            uid = GetSnapshotString(snapshot, "uid");
+        if (string.IsNullOrWhiteSpace(uid)) return false;
+
+        string question = GetSnapshotString(snapshot, "securityQuestion");
+        string answerHash = GetSnapshotString(snapshot, "securityAnswerHash");
+        if (string.IsNullOrWhiteSpace(answerHash)) return false;
+
+        data = new PlayerData(normalizedLookup, "", true)
+        {
+            username = normalizedLookup,
+            usernameLower = normalizedLookup,
+            securityQuestion = question,
+            securityAnswerHashIndex = answerHash
+        };
+
+        userRef = dbRef.Child("users").Child(uid);
+        return true;
+    }
+
+    private void BackfillNormalizedUsernameAsync(Firebase.Database.DatabaseReference userRef, PlayerData data, string normalizedLookup)
+    {
+        if (userRef == null || data == null || string.IsNullOrEmpty(normalizedLookup)) return;
+        if (NormalizeUsernameForLookup(data.usernameLower) == normalizedLookup) return;
+
+        data.usernameLower = normalizedLookup;
+        string json = JsonUtility.ToJson(data);
+        userRef.SetRawJsonValueAsync(json).ContinueWithOnMainThread(task =>
+        {
+            if (task.IsCompleted && !task.IsFaulted && !task.IsCanceled)
+                Debug.Log($"[AccountManager] Backfilled usernameLower for '{data.username}'.");
+            else
+                Debug.LogWarning("[AccountManager] Failed to backfill usernameLower: " + task.Exception);
+        });
+    }
 
     private bool TryGetAuth(out Firebase.Auth.FirebaseAuth auth)
     {
@@ -112,7 +389,8 @@ public class AccountManager : MonoBehaviour
             DontDestroyOnLoad(gameObject);
             try
             {
-                dbRef = FirebaseDatabase.DefaultInstance.RootReference;
+                dbRef = FirebaseDatabase.GetInstance(RealtimeDatabaseUrl).RootReference;
+                Debug.Log("[AccountManager] Using RTDB URL: " + RealtimeDatabaseUrl);
             }
             catch (Exception ex)
             {
@@ -149,6 +427,7 @@ public class AccountManager : MonoBehaviour
                 if (task.IsCompleted && task.Result.Exists)
                 {
                     currentPlayer = JsonUtility.FromJson<PlayerData>(task.Result.GetRawJsonValue());
+                    NormalizePlayerIdentityFields(currentPlayer);
                     Debug.Log("Auto-login: Session found.");
                     Debug.Log($"Auto-login: Loaded gates - AND: {currentPlayer.andGatesCollected}, OR: {currentPlayer.orGatesCollected}, NOT: {currentPlayer.notGatesCollected}");
 
@@ -205,6 +484,7 @@ public class AccountManager : MonoBehaviour
                 Debug.Log($"[RefreshPlayerData] RAW JSON from Firebase:\n{rawJson}");
 
                 currentPlayer = JsonUtility.FromJson<PlayerData>(rawJson);
+                NormalizePlayerIdentityFields(currentPlayer);
 
                 Debug.Log($"[RefreshPlayerData] Deserialized: gates AND={currentPlayer.andGatesCollected}, OR={currentPlayer.orGatesCollected}, NOT={currentPlayer.notGatesCollected}");
                 Debug.Log($"[RefreshPlayerData] Deserialized: savedLevel={currentPlayer.savedLevel}, pos=({currentPlayer.savedPosX:F2},{currentPlayer.savedPosY:F2},{currentPlayer.savedPosZ:F2}), rotY={currentPlayer.savedRotY:F1}");
@@ -280,6 +560,7 @@ public class AccountManager : MonoBehaviour
                     if (dbTask.IsCompleted && dbTask.Result.Exists)
                     {
                         currentPlayer = JsonUtility.FromJson<PlayerData>(dbTask.Result.GetRawJsonValue());
+                        NormalizePlayerIdentityFields(currentPlayer);
                         Debug.Log($"Login: Loaded gates - AND: {currentPlayer.andGatesCollected}, OR: {currentPlayer.orGatesCollected}, NOT: {currentPlayer.notGatesCollected}");
 
                         // Check if profile is incomplete (missing name/gender/age)
@@ -306,9 +587,80 @@ public class AccountManager : MonoBehaviour
             }
             else
             {
-                Debug.LogError("Firebase Auth Error: " + authTask.Exception.Flatten().InnerExceptions[0].Message);
-                onResult?.Invoke(false);
+                string firebaseError = authTask.Exception?.Flatten()?.InnerExceptions?[0]?.Message ?? "Unknown Firebase auth error";
+
+                // Forgot-password for logged-out users updates DB hash/salt, not Firebase Auth password.
+                // Fallback to DB credential verification so reset users can still sign in.
+                TryDatabaseCredentialLogin(cleanUser, pass, success =>
+                {
+                    if (!success)
+                    {
+                        Debug.LogError("Firebase Auth Error: " + firebaseError);
+                        onResult?.Invoke(false);
+                    }
+                    else
+                    {
+                        Debug.LogWarning("Firebase Auth sign-in failed, but DB fallback login succeeded.");
+                        onResult?.Invoke(true);
+                    }
+                });
             }
+        });
+    }
+
+    private void TryDatabaseCredentialLogin(string normalizedUsername, string password, System.Action<bool> onResult)
+    {
+        if (dbRef == null)
+        {
+            Debug.LogWarning("[AccountManager] DB login fallback aborted: dbRef is null.");
+            onResult?.Invoke(false);
+            return;
+        }
+
+        FindUserByUsernameAsync(normalizedUsername, (data, userRef) =>
+        {
+            if (data == null || userRef == null)
+            {
+                Debug.LogWarning($"[AccountManager] DB login fallback failed: user '{normalizedUsername}' not found. LookupError='{lastUsernameLookupError}'.");
+                onResult?.Invoke(false);
+                return;
+            }
+
+            bool passwordMatches = PasswordHasher.VerifyPassword(password, data.passwordHash, data.passwordSalt);
+            if (!passwordMatches)
+            {
+                // Legacy compatibility: very old records may still have plain text in passwordHash.
+                passwordMatches = string.Equals(data.passwordHash ?? "", password, StringComparison.Ordinal);
+            }
+
+            if (!passwordMatches)
+            {
+                string hashPreview = string.IsNullOrEmpty(data.passwordHash)
+                    ? "<empty>"
+                    : data.passwordHash.Substring(0, Math.Min(8, data.passwordHash.Length));
+                string saltState = string.IsNullOrEmpty(data.passwordSalt) ? "missing" : "present";
+                Debug.LogWarning($"[AccountManager] DB login fallback password mismatch for '{normalizedUsername}' (hash={hashPreview}..., salt={saltState}).");
+                onResult?.Invoke(false);
+                return;
+            }
+
+            NormalizePlayerIdentityFields(data);
+            currentPlayer = data;
+            Debug.Log("[AccountManager] Login fallback succeeded via DB password hash verification.");
+
+            if (NewPlayerSetupUI.IsProfileIncomplete())
+            {
+                NewPlayerSetupUI.Show(() =>
+                {
+                    if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                });
+            }
+            else
+            {
+                if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+            }
+
+            onResult?.Invoke(true);
         });
     }
     public void CreateAccountWithSecurity(string user, string pass, string q, string a, string gender = "", string age = "", System.Action<bool, string> onResult = null)
@@ -362,7 +714,8 @@ public class AccountManager : MonoBehaviour
                 securityAnswer = a,
                 gender = gender,
                 age = age,
-                username = cleanUser.Replace("@logic.com", "")
+                username = cleanUser.Replace("@logic.com", ""),
+                usernameLower = NormalizeUsernameForLookup(cleanUser)
             };
 
             string json = JsonUtility.ToJson(newData);
@@ -406,10 +759,12 @@ public class AccountManager : MonoBehaviour
 
             PlayerData newData = new PlayerData(user, pass)
             {
+                securityQuestion = "What is your security answer?",
                 securityAnswer = securityAnswer,
                 gender = gender,
                 age = age,
-                username = user.Replace("@logic.com", "")
+                username = user.Replace("@logic.com", ""),
+                usernameLower = NormalizeUsernameForLookup(user)
             };
 
             string json = JsonUtility.ToJson(newData);
@@ -443,7 +798,7 @@ public class AccountManager : MonoBehaviour
 
     public bool VerifySecurityAnswer(string user, string answer)
     {
-        return currentPlayer != null && currentPlayer.securityAnswer == answer;
+        return currentPlayer != null && currentPlayer.securityAnswer.Equals(answer, StringComparison.Ordinal);
     }
 
     // --- GAMEPLAY & PROGRESS ---
@@ -616,6 +971,7 @@ public class AccountManager : MonoBehaviour
         if (auth.CurrentUser != null)
         {
             string userId = auth.CurrentUser.UserId;
+            NormalizePlayerIdentityFields(currentPlayer);
             string json = JsonUtility.ToJson(currentPlayer);
 
             Debug.Log($"[AccountManager] Saving to Firebase: {json}");
@@ -701,6 +1057,7 @@ public class AccountManager : MonoBehaviour
             if (task.IsCompleted && task.Result.Exists)
             {
                 currentPlayer = JsonUtility.FromJson<PlayerData>(task.Result.GetRawJsonValue());
+                NormalizePlayerIdentityFields(currentPlayer);
                 Debug.Log("Google Login: Existing user found. Loading progress...");
 
                 // Check if profile is incomplete (missing name/gender/age)
@@ -761,8 +1118,328 @@ public class AccountManager : MonoBehaviour
     }
     public string GetSecurityQuestion(string username)
     {
-        return (currentPlayer != null) ? currentPlayer.securityQuestion : "No question found";
+        if (currentPlayer != null &&
+            currentPlayer.username.Equals(username.Trim(), StringComparison.OrdinalIgnoreCase))
+            return currentPlayer.securityQuestion;
+        return null;
     }
+
+    /// <summary>
+    /// Finds a user record by username (case-insensitive).
+    /// First tries an indexed query with the lowercase name; if not found, falls back to a
+    /// full scan so that accounts stored with mixed-case usernames are still matched.
+    /// Calls callback(playerData, dbRef) — both null if no match.
+    /// </summary>
+    private void FindUserByUsernameAsync(string username,
+        System.Action<PlayerData, Firebase.Database.DatabaseReference> callback)
+    {
+        lastUsernameLookupError = "";
+        if (dbRef == null)
+        {
+            lastUsernameLookupError = "Firebase database is unavailable.";
+            callback?.Invoke(null, null);
+            return;
+        }
+
+        string normalizedLookup = NormalizeUsernameForLookup(username);
+        if (string.IsNullOrEmpty(normalizedLookup))
+        {
+            lastUsernameLookupError = "Username is empty.";
+            callback?.Invoke(null, null);
+            return;
+        }
+
+        // Direct lookup path on users node.
+        FindUserByUsersNodeFallbackAsync(normalizedLookup, callback);
+    }
+
+    private void FindUserByUsersNodeFallbackAsync(string normalizedLookup,
+        System.Action<PlayerData, Firebase.Database.DatabaseReference> callback)
+    {
+        dbRef.Child("users").OrderByChild("usernameLower").EqualTo(normalizedLookup).LimitToFirst(1)
+            .GetValueAsync().ContinueWithOnMainThread(task =>
+            {
+                if (task.IsFaulted || task.IsCanceled)
+                {
+                    lastUsernameLookupError = BuildLookupErrorMessage(task.Exception);
+                    Debug.LogWarning("[AccountManager] usernameLower lookup failed: " + task.Exception);
+
+                    // Permission errors won't be fixed by fallback queries.
+                    if (lastUsernameLookupError.Contains("Permission denied", StringComparison.OrdinalIgnoreCase))
+                    {
+                        callback?.Invoke(null, null);
+                        return;
+                    }
+                }
+
+                if (task.IsCompleted && !task.IsFaulted && !task.IsCanceled && task.Result != null && task.Result.Exists)
+                {
+                    foreach (var child in task.Result.Children)
+                    {
+                        PlayerData data = BuildPlayerDataFromSnapshot(child, normalizedLookup);
+                        if (data != null)
+                        {
+                            callback?.Invoke(data, child.Reference);
+                            return;
+                        }
+                    }
+                }
+
+                // Legacy fallback: old rows without usernameLower.
+                FindUserByLegacyUsernameIndexAsync(normalizedLookup, callback);
+            });
+    }
+
+    private void FindUserByLegacyUsernameIndexAsync(string normalizedLookup,
+        System.Action<PlayerData, Firebase.Database.DatabaseReference> callback)
+    {
+        dbRef.Child("users").OrderByChild("username").EqualTo(normalizedLookup).LimitToFirst(1)
+            .GetValueAsync().ContinueWithOnMainThread(task =>
+            {
+                if (task.IsFaulted || task.IsCanceled)
+                {
+                    lastUsernameLookupError = BuildLookupErrorMessage(task.Exception);
+                    Debug.LogWarning("[AccountManager] Legacy username lookup failed: " + task.Exception);
+
+                    if (lastUsernameLookupError.Contains("Permission denied", StringComparison.OrdinalIgnoreCase))
+                    {
+                        callback?.Invoke(null, null);
+                        return;
+                    }
+                }
+
+                if (task.IsCompleted && !task.IsFaulted && !task.IsCanceled && task.Result != null && task.Result.Exists)
+                {
+                    foreach (var child in task.Result.Children)
+                    {
+                        PlayerData data = BuildPlayerDataFromSnapshot(child, normalizedLookup);
+                        if (data != null)
+                        {
+                            BackfillNormalizedUsernameAsync(child.Reference, data, normalizedLookup);
+                            callback?.Invoke(data, child.Reference);
+                            return;
+                        }
+                    }
+                }
+
+                // Final fallback: full scan for mixed-case legacy usernames.
+                FindUserByFullScanAsync(normalizedLookup, callback);
+            });
+    }
+
+    private void FindUserByFullScanAsync(string normalizedLookup,
+        System.Action<PlayerData, Firebase.Database.DatabaseReference> callback)
+    {
+        dbRef.Child("users").GetValueAsync().ContinueWithOnMainThread(task =>
+        {
+            if (task.IsFaulted || task.IsCanceled)
+            {
+                lastUsernameLookupError = BuildLookupErrorMessage(task.Exception);
+                Debug.LogWarning("[AccountManager] Full-scan username lookup failed: " + task.Exception);
+            }
+
+            if (task.IsCompleted && !task.IsFaulted && !task.IsCanceled && task.Result != null && task.Result.Exists)
+            {
+                int scannedUsers = 0;
+                foreach (var child in task.Result.Children)
+                {
+                    scannedUsers++;
+                    if (SnapshotUsernameMatches(child, normalizedLookup))
+                    {
+                        PlayerData data = BuildPlayerDataFromSnapshot(child, normalizedLookup);
+                        if (data == null) continue;
+
+                        BackfillNormalizedUsernameAsync(child.Reference, data, normalizedLookup);
+                        callback?.Invoke(data, child.Reference);
+                        return;
+                    }
+                }
+
+                Debug.Log($"[AccountManager] Full-scan checked {scannedUsers} users; no username match for '{normalizedLookup}'.");
+            }
+
+            if (string.IsNullOrEmpty(lastUsernameLookupError))
+                lastUsernameLookupError = "Username not found.";
+
+            Debug.LogWarning($"[AccountManager] Username '{normalizedLookup}' not found in Firebase.");
+            callback?.Invoke(null, null);
+        });
+    }
+
+    /// <summary>
+    /// Async version: returns the security question for the given username.
+    /// Works for both logged-in and logged-out users by querying Firebase DB when needed.
+    /// </summary>
+    public void GetSecurityQuestionForUserAsync(string username, System.Action<string> callback)
+    {
+        if (currentPlayer != null &&
+            currentPlayer.username.Equals(username.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            callback?.Invoke(currentPlayer.securityQuestion);
+            return;
+        }
+
+        FindUserByUsernameAsync(username, (data, _) =>
+        {
+            if (data == null)
+            {
+                callback?.Invoke(null);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(data.securityQuestion))
+            {
+                callback?.Invoke("Answer your security answer to continue.");
+                return;
+            }
+
+            callback?.Invoke(data.securityQuestion);
+        });
+    }
+
+    /// <summary>
+    /// Async version: verifies the security answer for the given username.
+    /// Works for both logged-in and logged-out users.
+    /// </summary>
+    public void VerifySecurityAnswerAsync(string username, string answer, System.Action<bool> callback)
+    {
+        string trimmedAnswer = answer.Trim();
+
+        if (currentPlayer != null &&
+            currentPlayer.username.Equals(username.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            callback?.Invoke(currentPlayer.securityAnswer.Equals(trimmedAnswer, StringComparison.Ordinal));
+            return;
+        }
+
+        FindUserByUsernameAsync(username, (data, _) =>
+        {
+            if (data == null) { callback?.Invoke(false); return; }
+            callback?.Invoke(VerifySecurityAnswerValue(data, trimmedAnswer));
+        });
+    }
+
+    /// <summary>
+    /// Async password reset. Verifies security answer, updates Firebase Auth password (for
+    /// logged-in users) and the database record. Calls callback(success, message) on completion.
+    /// </summary>
+    public void ResetPasswordAsync(string username, string newPassword, string securityAnswer,
+        System.Action<bool, string> callback)
+    {
+        string trimmedAnswer = securityAnswer.Trim();
+
+        // ── Case 1: Logged-in user changing their own password ──
+        if (currentPlayer != null &&
+            currentPlayer.username.Equals(username.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            if (!currentPlayer.securityAnswer.Equals(trimmedAnswer, StringComparison.Ordinal))
+            {
+                callback?.Invoke(false, "Incorrect security answer.");
+                return;
+            }
+
+            var (hash, salt) = PasswordHasher.HashNewPassword(newPassword);
+            currentPlayer.passwordHash = hash;
+            currentPlayer.passwordSalt = salt;
+
+            if (TryGetAuth(out var auth) && auth.CurrentUser != null)
+            {
+                auth.CurrentUser.UpdatePasswordAsync(newPassword).ContinueWithOnMainThread(task =>
+                {
+                    if (task.IsCompleted && !task.IsFaulted && !task.IsCanceled)
+                    {
+                        SavePlayerProgress();
+                        Debug.Log("[AccountManager] Firebase Auth password updated successfully.");
+                        callback?.Invoke(true, "Password changed successfully!");
+                    }
+                    else
+                    {
+                        string err = task.Exception?.Flatten()?.InnerExceptions?[0]?.Message ?? "Unknown error";
+                        Debug.LogError("[AccountManager] UpdatePasswordAsync failed: " + err);
+                        if (err.Contains("requires-recent-login"))
+                            callback?.Invoke(false, "Please log out and log back in before changing your password.");
+                        else
+                            callback?.Invoke(false, "Failed to update password. Please try again.");
+                    }
+                });
+            }
+            else
+            {
+                SavePlayerProgress();
+                callback?.Invoke(true, "Password updated.");
+            }
+            return;
+        }
+
+        // ── Case 2: Non-logged-in user — look up by username in Firebase DB ──
+        if (dbRef == null)
+        {
+            callback?.Invoke(false, "Service unavailable. Please try again later.");
+            return;
+        }
+
+        FindUserByUsernameAsync(username, (data, userRef) =>
+        {
+            if (data == null || userRef == null)
+            {
+                if (!string.IsNullOrEmpty(lastUsernameLookupError) &&
+                    lastUsernameLookupError.Contains("Permission denied", StringComparison.OrdinalIgnoreCase))
+                {
+                    callback?.Invoke(false, "Cannot reset password: Firebase Rules blocked username lookup (permission denied).");
+                }
+                else
+                {
+                    callback?.Invoke(false, "Username not found.");
+                }
+                return;
+            }
+
+            bool answerOk = VerifySecurityAnswerValue(data, trimmedAnswer);
+
+            if (!answerOk)
+            {
+                callback?.Invoke(false, "Incorrect security answer.");
+                return;
+            }
+
+            var (hash, salt) = PasswordHasher.HashNewPassword(newPassword);
+            data.passwordHash = hash;
+            data.passwordSalt = salt;
+            NormalizePlayerIdentityFields(data);
+
+            var passwordUpdate = new Dictionary<string, object>
+            {
+                { "passwordHash", hash },
+                { "passwordSalt", salt }
+            };
+
+            var setHashTask = userRef.Child("passwordHash").SetValueAsync(hash);
+            var setSaltTask = userRef.Child("passwordSalt").SetValueAsync(salt);
+
+            System.Threading.Tasks.Task.WhenAll(setHashTask, setSaltTask).ContinueWithOnMainThread(dbTask =>
+            {
+                if (dbTask.IsCompleted && !dbTask.IsFaulted)
+                {
+                    Debug.Log("[AccountManager] Password reset for non-logged-in user saved to DB.");
+                    callback?.Invoke(true, "Password has been reset. You can now log in with your new password.");
+                }
+                else
+                {
+                    Debug.LogError("[AccountManager] Failed to save password reset: " + dbTask.Exception);
+                    if (dbTask.Exception != null &&
+                        dbTask.Exception.ToString().IndexOf("permission denied", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        callback?.Invoke(false, "Password reset blocked by Firebase Rules (permission denied).");
+                    }
+                    else
+                    {
+                        callback?.Invoke(false, "Failed to save new password. Please try again.");
+                    }
+                }
+            });
+        });
+    }
+
     public bool ResetPassword(string username, string newPassword, string securityAnswer)
     {
         if (currentPlayer != null && currentPlayer.username == username)
@@ -782,5 +1459,56 @@ public class AccountManager : MonoBehaviour
     public bool IsPuzzleCompleted(string puzzleId)
     {
         return currentPlayer != null && currentPlayer.completedPuzzles.Contains(puzzleId);
+    }
+
+    public bool HasStoreItem(string itemId)
+    {
+        if (currentPlayer == null || string.IsNullOrWhiteSpace(itemId)) return false;
+
+        switch (itemId.Trim().ToLowerInvariant())
+        {
+            case "scanner":
+                return currentPlayer.hasScanner;
+            case "lantern":
+                return currentPlayer.hasLantern;
+            case "adrenaline":
+                return currentPlayer.adrenalineCount > 0;
+            default:
+                return false;
+        }
+    }
+
+    public void GrantStoreItem(string itemId, int quantity = 1)
+    {
+        if (currentPlayer == null || string.IsNullOrWhiteSpace(itemId)) return;
+
+        string key = itemId.Trim().ToLowerInvariant();
+        switch (key)
+        {
+            case "scanner":
+                currentPlayer.hasScanner = true;
+                break;
+            case "lantern":
+                currentPlayer.hasLantern = true;
+                if (InventoryManager.Instance != null)
+                    InventoryManager.Instance.SetHasCandle(true);
+                break;
+            case "adrenaline":
+                currentPlayer.adrenalineCount += Mathf.Max(1, quantity);
+                break;
+            default:
+                Debug.LogWarning($"[AccountManager] Unknown store item '{itemId}'.");
+                return;
+        }
+
+        if (currentPlayer.collectedGates != null)
+        {
+            string marker = $"shop_{key}";
+            if (!currentPlayer.collectedGates.Contains(marker))
+                currentPlayer.collectedGates.Add(marker);
+        }
+
+        SavePlayerProgress();
+        Debug.Log($"[AccountManager] Granted store item '{itemId}' x{Mathf.Max(1, quantity)}.");
     }
 }

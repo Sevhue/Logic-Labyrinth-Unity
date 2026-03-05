@@ -61,14 +61,14 @@ public class CreateAccountPanel : MonoBehaviour
     {
         if (validationPopup != null && validationMessageText != null)
         {
+            validationMessageText.color = Color.red;
             validationMessageText.text = message;
             validationPopup.SetActive(true);
             Debug.Log($"VALIDATION POPUP: {message}");
         }
         else
         {
-            Debug.LogError("ValidationPopup references not set!");
-            
+            Debug.LogError("ValidationPopup references not set in Inspector!");
             ShowMessage(message, true);
         }
     }
@@ -263,12 +263,4 @@ public class CreateAccountPanel : MonoBehaviour
         CloseValidationPopup(); 
     }
 
-    
-    void Update()
-    {
-        if (Input.GetKeyDown(KeyCode.Return))
-        {
-            OnCreateClicked();
-        }
-    }
 }

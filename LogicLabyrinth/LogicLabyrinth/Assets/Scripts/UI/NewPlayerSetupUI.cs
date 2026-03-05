@@ -60,6 +60,13 @@ public class NewPlayerSetupUI : MonoBehaviour
         var p = AccountManager.Instance.GetCurrentPlayer();
         if (p == null) return false;
 
+        // Only force this popup flow for Google-auth users.
+        bool isGoogleUser = !string.IsNullOrWhiteSpace(p.googleId)
+            || !string.IsNullOrWhiteSpace(p.googleEmail);
+
+        if (!isGoogleUser)
+            return false;
+
         return string.IsNullOrWhiteSpace(p.displayName)
             || string.IsNullOrWhiteSpace(p.gender)
             || string.IsNullOrWhiteSpace(p.age);

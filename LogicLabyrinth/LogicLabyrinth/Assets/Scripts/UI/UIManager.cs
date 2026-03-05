@@ -131,6 +131,7 @@ public class UIManager : MonoBehaviour
         AutoFindInteractPrompt();
         WireLogoutButtonToPopup();
         WireLoggedInPanelButtons();
+        WireLoginPanelButtons();
 
         if (AccountManager.Instance != null && AccountManager.Instance.GetCurrentPlayer() != null)
         {
@@ -782,7 +783,8 @@ public class UIManager : MonoBehaviour
     public void ShowForgotPasswordPanel()
     {
         HideAllPanels();
-        if (forgotPasswordPanel != null) forgotPasswordPanel.SetActive(true);
+        if (forgotPasswordPanel != null) forgotPasswordPanel.SetActive(false);
+        ForgotPasswordRuntimePanel.Show();
         SetCursorState(false);
     }
 
@@ -856,6 +858,31 @@ public class UIManager : MonoBehaviour
 
         // Wire LeaderboardsButton → ShowLeaderboardsPanel
         WireButtonByName(loggedInPanel, "LeaderboardsButton", ShowLeaderboardsPanel, "ShowLeaderboardsPanel");
+
+    }
+
+    /// <summary>
+    /// Wires buttons inside the LoginFormPanel (loginPanel) at runtime.
+    /// ForgotPasswordButton lives inside LoginFormPanel > BG, not LoggedInPanel.
+    /// </summary>
+    private void WireLoginPanelButtons()
+    {
+        if (loginPanel == null) return;
+
+        Button forgotBtn = FindButtonRecursive(loginPanel.transform, "ForgotPasswordButton");
+        if (forgotBtn != null)
+        {
+            if (forgotBtn.onClick.GetPersistentEventCount() == 0)
+            {
+                forgotBtn.onClick.RemoveAllListeners();
+                forgotBtn.onClick.AddListener(ShowForgotPasswordPanel);
+                Debug.Log("[UIManager] Wired ForgotPasswordButton → ShowForgotPasswordPanel");
+            }
+        }
+        else
+        {
+            Debug.LogWarning("[UIManager] ForgotPasswordButton not found anywhere under loginPanel.");
+        }
     }
 
     /// <summary>
@@ -1388,6 +1415,10 @@ public class UIManager : MonoBehaviour
     }
     public void GoToNextSignUpPanel()
     {
+        // Only run when step 1 (credentialsPanel) is actually visible.
+        // Prevents stale navigation when CreateAccountPanel already advanced the flow.
+        if (credentialsPanel != null && !credentialsPanel.activeInHierarchy) return;
+
         // SAFETY CHECK
         if (validationMessageText == null || validationPopup == null)
         {

@@ -18,6 +18,8 @@ using System.Linq;
 /// </summary>
 public class LeaderboardPanel : MonoBehaviour
 {
+    private const string RealtimeDatabaseUrl = "https://logiclabyrinth-auth-default-rtdb.asia-southeast1.firebasedatabase.app";
+
     [Header("Max entries to display")]
     public int maxEntries = 20;
 
@@ -510,7 +512,7 @@ public class LeaderboardPanel : MonoBehaviour
                 Destroy(child.gameObject);
         }
 
-        DatabaseReference dbRef = FirebaseDatabase.DefaultInstance.RootReference;
+        DatabaseReference dbRef = FirebaseDatabase.GetInstance(RealtimeDatabaseUrl).RootReference;
         dbRef.Child("leaderboard").GetValueAsync().ContinueWithOnMainThread(task =>
         {
             if (task.IsFaulted || task.IsCanceled)

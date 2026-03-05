@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
 
@@ -21,35 +21,55 @@ public class ForgotPasswordPanel : MonoBehaviour
     public GameObject passwordResetSection;
 
     private string currentUsername;
+    private bool isLoggedInFlow; // true when accessed from LoggedInPanel
 
     void Start()
     {
-        
         if (submitButton != null)
             submitButton.onClick.AddListener(OnSubmitClicked);
 
         if (backButton != null)
             backButton.onClick.AddListener(OnBackClicked);
 
-        
         if (usernameField != null)
             usernameField.onValueChanged.AddListener(OnUsernameChanged);
 
-        
         if (securityAnswerField != null)
             securityAnswerField.onValueChanged.AddListener(OnSecurityAnswerChanged);
 
-       
         ShowUsernameSection();
     }
 
     void OnEnable()
     {
-        
-        ShowUsernameSection();
+        // Detect if a player is already logged in
+        bool loggedIn = AccountManager.Instance != null &&
+                        AccountManager.Instance.GetCurrentPlayer() != null;
+        isLoggedInFlow = loggedIn;
+
+        if (loggedIn)
+        {
+            // Pre-fill username and jump straight to the security-question step
+            string loggedInUsername = AccountManager.Instance.GetCurrentPlayer().username;
+            currentUsername = loggedInUsername;
+
+            if (usernameField != null)
+                usernameField.text = loggedInUsername;
+
+            string secQ = AccountManager.Instance.GetSecurityQuestion(loggedInUsername);
+            if (securityQuestionText != null)
+                securityQuestionText.text = string.IsNullOrEmpty(secQ) ? "No security question set." : secQ;
+
+            ShowSecuritySection();
+        }
+        else
+        {
+            ShowUsernameSection();
+        }
     }
 
-    
+    // ── Username step ─────────────────────────────────────────────────────────
+
     void OnUsernameChanged(string username)
     {
         if (AccountManager.Instance == null)
@@ -66,53 +86,61 @@ public class ForgotPasswordPanel : MonoBehaviour
             return;
         }
 
-        
         if (securityQuestionText != null)
             securityQuestionText.text = "Checking username...";
         ShowMessage("Checking username...", false);
 
-        
         CancelInvoke("CheckUsername");
         Invoke("CheckUsername", 0.8f);
     }
 
     void CheckUsername()
     {
-        string username = usernameField.text.Trim();
+        string username = usernameField != null ? usernameField.text.Trim() : "";
+        if (string.IsNullOrEmpty(username)) return;
 
-        if (string.IsNullOrEmpty(username))
-            return;
-
-        string securityQuestion = AccountManager.Instance.GetSecurityQuestion(username);
-
-        if (string.IsNullOrEmpty(securityQuestion))
+        AccountManager.Instance.GetSecurityQuestionForUserAsync(username, (secQ) =>
         {
-            if (securityQuestionText != null)
-                securityQuestionText.text = "❌ Username not found";
-            ShowMessage("Username not found! Please check and try again.", true);
-            currentUsername = ""; 
-        }
-        else
-        {
-            if (securityQuestionText != null)
-                securityQuestionText.text = securityQuestion;
-            currentUsername = username;
-            ShowMessage("✓ Username found! Please answer your security question.", false);
-
-            
-            if (securitySection != null && !securitySection.activeInHierarchy)
+            if (string.IsNullOrEmpty(secQ))
             {
-                ShowSecuritySection();
+                string lookupError = AccountManager.Instance.GetLastUsernameLookupError();
+                bool permissionDenied = !string.IsNullOrEmpty(lookupError) &&
+                                        lookupError.ToLowerInvariant().Contains("permission denied");
+
+                if (permissionDenied)
+                {
+                    if (securityQuestionText != null)
+                        securityQuestionText.text = "❌ Firebase rules blocked lookup";
+                    ShowMessage("Firebase Rules denied username lookup. Please update Realtime Database rules.", true);
+                }
+                else
+                {
+                    if (securityQuestionText != null)
+                        securityQuestionText.text = "❌ Username not found";
+                    ShowMessage("Username not found! Please check and try again.", true);
+                }
+
+                currentUsername = "";
             }
-        }
+            else
+            {
+                if (securityQuestionText != null)
+                    securityQuestionText.text = secQ;
+                currentUsername = username;
+                ShowMessage("✓ Username found! Please answer your security question.", false);
+
+                if (securitySection != null && !securitySection.activeInHierarchy)
+                    ShowSecuritySection();
+            }
+        });
     }
 
-    
+    // ── Security-answer step ──────────────────────────────────────────────────
+
     void OnSecurityAnswerChanged(string answer)
     {
         if (!string.IsNullOrEmpty(answer) && answer.Length >= 2)
         {
-           
             CancelInvoke("VerifyAndAdvance");
             Invoke("VerifyAndAdvance", 0.8f);
         }
@@ -120,19 +148,19 @@ public class ForgotPasswordPanel : MonoBehaviour
 
     void VerifyAndAdvance()
     {
-        if (securitySection != null && securitySection.activeInHierarchy && !string.IsNullOrEmpty(securityAnswerField.text))
+        if (securitySection == null || !securitySection.activeInHierarchy) return;
+        if (securityAnswerField == null || string.IsNullOrEmpty(securityAnswerField.text)) return;
+
+        if (string.IsNullOrEmpty(currentUsername))
         {
-            
-            if (string.IsNullOrEmpty(currentUsername))
-            {
-                ShowMessage("Please enter a valid username first", true);
-                return;
-            }
+            ShowMessage("Please enter a valid username first", true);
+            return;
+        }
 
-            string securityAnswer = securityAnswerField.text.Trim();
-            bool isAnswerCorrect = AccountManager.Instance.VerifySecurityAnswer(currentUsername, securityAnswer);
-
-            if (isAnswerCorrect)
+        string answer = securityAnswerField.text;
+        AccountManager.Instance.VerifySecurityAnswerAsync(currentUsername, answer, (isCorrect) =>
+        {
+            if (isCorrect)
             {
                 ShowMessage("✓ Security answer correct! Now set your new password.", false);
                 ShowPasswordResetSection();
@@ -140,7 +168,6 @@ public class ForgotPasswordPanel : MonoBehaviour
             else
             {
                 ShowMessage("❌ Security answer incorrect. Please try again.", true);
-                
                 if (securityAnswerField != null)
                 {
                     securityAnswerField.text = "";
@@ -148,8 +175,10 @@ public class ForgotPasswordPanel : MonoBehaviour
                     securityAnswerField.ActivateInputField();
                 }
             }
-        }
+        });
     }
+
+    // ── Password reset step ───────────────────────────────────────────────────
 
     void OnSubmitClicked()
     {
@@ -160,20 +189,10 @@ public class ForgotPasswordPanel : MonoBehaviour
             return;
         }
 
-        string securityAnswer = securityAnswerField.text.Trim();
-        string newPassword = newPasswordField.text;
-        string confirmPassword = confirmPasswordField.text;
+        string secAnswer = securityAnswerField != null ? securityAnswerField.text : "";
+        string newPassword = newPasswordField != null ? newPasswordField.text : "";
+        string confirmPassword = confirmPasswordField != null ? confirmPasswordField.text : "";
 
-        
-        bool isAnswerCorrect = AccountManager.Instance.VerifySecurityAnswer(currentUsername, securityAnswer);
-        if (!isAnswerCorrect)
-        {
-            ShowPasswordMessage("❌ Security answer incorrect. Please go back and verify.", true);
-            ShowSecuritySection();
-            return;
-        }
-
-        
         string passwordError = GetPasswordError(newPassword);
         if (!string.IsNullOrEmpty(passwordError))
         {
@@ -181,30 +200,32 @@ public class ForgotPasswordPanel : MonoBehaviour
             return;
         }
 
-        
         if (newPassword != confirmPassword)
         {
             ShowPasswordMessage("Passwords don't match", true);
             return;
         }
 
-       
-        bool success = AccountManager.Instance.ResetPassword(currentUsername, newPassword, securityAnswer);
+        // Disable submit button to prevent double-submission
+        if (submitButton != null) submitButton.interactable = false;
+        ShowPasswordMessage("Updating password...", false);
 
-        if (success)
+        AccountManager.Instance.ResetPasswordAsync(currentUsername, newPassword, secAnswer, (success, message) =>
         {
-            ShowPasswordMessage("✓ Password reset successfully! You can now login with your new password", false);
+            if (submitButton != null) submitButton.interactable = true;
 
-           
-            Invoke("ReturnToLogin", 2f);
-        }
-        else
-        {
-            ShowPasswordMessage("❌ Password reset failed. Please try again.", true);
-        }
+            if (success)
+            {
+                ShowPasswordMessage("✓ " + message, false);
+                Invoke("ReturnAfterReset", 2f);
+            }
+            else
+            {
+                ShowPasswordMessage("❌ " + message, true);
+            }
+        });
     }
 
-    
     private string GetPasswordError(string password)
     {
         if (password.Length < 8)
@@ -222,6 +243,8 @@ public class ForgotPasswordPanel : MonoBehaviour
         return "";
     }
 
+    // ── Navigation ────────────────────────────────────────────────────────────
+
     void OnBackClicked()
     {
         if (passwordResetSection != null && passwordResetSection.activeInHierarchy)
@@ -230,14 +253,35 @@ public class ForgotPasswordPanel : MonoBehaviour
         }
         else if (securitySection != null && securitySection.activeInHierarchy)
         {
-            ShowUsernameSection();
+            if (isLoggedInFlow)
+                ExitPanel(); // Skip username section for logged-in users; just exit
+            else
+                ShowUsernameSection();
         }
         else
         {
-            UIManager.Instance.ShowLoginPanel();
-            ClearFields();
+            ExitPanel();
         }
     }
+
+    void ReturnAfterReset()
+    {
+        ExitPanel();
+        ClearFields();
+    }
+
+    void ExitPanel()
+    {
+        ClearFields();
+        if (UIManager.Instance == null) return;
+
+        if (isLoggedInFlow)
+            UIManager.Instance.ShowMainMenu();
+        else
+            UIManager.Instance.ShowLoginPanel();
+    }
+
+    // ── Section visibility ────────────────────────────────────────────────────
 
     void ShowUsernameSection()
     {
@@ -252,7 +296,6 @@ public class ForgotPasswordPanel : MonoBehaviour
         }
         if (passwordMessageText != null) passwordMessageText.gameObject.SetActive(false);
 
-        
         if (usernameField != null)
         {
             usernameField.text = "";
@@ -272,9 +315,9 @@ public class ForgotPasswordPanel : MonoBehaviour
         if (messageText != null) messageText.gameObject.SetActive(true);
         if (passwordMessageText != null) passwordMessageText.gameObject.SetActive(false);
 
-        
         if (securityAnswerField != null)
         {
+            securityAnswerField.text = "";
             securityAnswerField.Select();
             securityAnswerField.ActivateInputField();
         }
@@ -286,14 +329,13 @@ public class ForgotPasswordPanel : MonoBehaviour
         if (securitySection != null) securitySection.SetActive(false);
         if (passwordResetSection != null) passwordResetSection.SetActive(true);
 
-        if (messageText != null) messageText.gameObject.SetActive(false); 
+        if (messageText != null) messageText.gameObject.SetActive(false);
         if (passwordMessageText != null)
         {
             passwordMessageText.gameObject.SetActive(true);
             passwordMessageText.text = "";
         }
 
-       
         if (newPasswordField != null)
         {
             newPasswordField.Select();
@@ -301,11 +343,7 @@ public class ForgotPasswordPanel : MonoBehaviour
         }
     }
 
-    void ReturnToLogin()
-    {
-        UIManager.Instance.ShowLoginPanel();
-        ClearFields();
-    }
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     void ShowMessage(string message, bool isError)
     {
@@ -339,10 +377,8 @@ public class ForgotPasswordPanel : MonoBehaviour
 
         ShowMessage("", false);
         ShowPasswordMessage("", false);
-        ShowUsernameSection();
     }
 
-    
     void Update()
     {
         if (Input.GetKeyDown(KeyCode.Return))

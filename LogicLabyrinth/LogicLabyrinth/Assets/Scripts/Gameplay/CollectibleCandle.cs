@@ -194,7 +194,7 @@ public class CollectibleCandle : MonoBehaviour
         textRT.offsetMax = new Vector2(-10f, -5f);
 
         TextMeshProUGUI tmp = textGO.AddComponent<TextMeshProUGUI>();
-        tmp.text = "Torch collected!";
+        tmp.text = "Candle collected!";
         tmp.fontSize = 26;
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.color = new Color(1f, 0.9f, 0.5f, 1f);
@@ -272,6 +272,7 @@ public class CollectibleCandle : MonoBehaviour
     {
         if (!IsEquipped) return;
         IsEquipped = false;
+        attachedToCamera = false;
 
         Debug.Log("[CollectibleCandle] Candle unequipped!");
 
@@ -287,8 +288,13 @@ public class CollectibleCandle : MonoBehaviour
         RestorePlayerLight();
     }
 
+    // True when the candle is parented to the camera anchor (not a skeleton bone)
+    private static bool attachedToCamera = false;
+
     private static Transform FindRightHandBone()
     {
+        attachedToCamera = false;
+
         // Priority order: animated skeleton bones first, then mesh objects
         // "mixamorig:RightHand" is the actual animated bone.
         // "R_hand" / "R_Hand" are skinned mesh renderers (NOT animated bones) — avoid those.
@@ -338,7 +344,30 @@ public class CollectibleCandle : MonoBehaviour
             }
         }
 
-        Debug.LogWarning("[CollectibleCandle] Could not find any right hand bone!");
+        // ── CAMERA FALLBACK ──────────────────────────────────────────────────
+        // No skeleton bone found — attach to the first-person camera instead.
+        // This is reliable for FPS games where the body model is separate from the view.
+        Camera fpsCam = Camera.main;
+        if (fpsCam == null)
+        {
+            Camera[] cams = Object.FindObjectsByType<Camera>(FindObjectsSortMode.None);
+            foreach (var c in cams) { if (c.isActiveAndEnabled) { fpsCam = c; break; } }
+        }
+        if (fpsCam != null)
+        {
+            Transform anchor = fpsCam.transform.Find("CandleHandAnchor");
+            if (anchor == null)
+            {
+                var anchorGO = new GameObject("CandleHandAnchor");
+                anchorGO.transform.SetParent(fpsCam.transform, false);
+                anchor = anchorGO.transform;
+            }
+            attachedToCamera = true;
+            Debug.Log("[CollectibleCandle] No hand bone found — attaching candle to camera anchor.");
+            return anchor;
+        }
+
+        Debug.LogWarning("[CollectibleCandle] Could not find any right hand bone or camera!");
         return null;
     }
 
@@ -365,10 +394,21 @@ public class CollectibleCandle : MonoBehaviour
         equippedCandleModel = new GameObject("EquippedCandle");
         equippedCandleModel.transform.SetParent(rightHand, false);
 
-        // Default position in the right hand (you can tweak via the adjuster)
-        equippedCandleModel.transform.localPosition = new Vector3(0f, 0.06f, 0.04f);
-        equippedCandleModel.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
-        equippedCandleModel.transform.localScale = Vector3.one;
+        if (attachedToCamera)
+        {
+            // Camera-space defaults: lower-right of view, within arm's reach.
+            // Press P in Play mode to print current values, then paste them here.
+            equippedCandleModel.transform.localPosition = new Vector3(0.22f, -0.28f, 0.45f);
+            equippedCandleModel.transform.localRotation = Quaternion.Euler(10f, -15f, 5f);
+            equippedCandleModel.transform.localScale = Vector3.one;
+        }
+        else
+        {
+            // Bone-space defaults (you can tweak via the adjuster)
+            equippedCandleModel.transform.localPosition = new Vector3(0f, 0.06f, 0.04f);
+            equippedCandleModel.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+            equippedCandleModel.transform.localScale = Vector3.one;
+        }
 
         Transform meshChild = null;
 
@@ -378,9 +418,9 @@ public class CollectibleCandle : MonoBehaviour
             GameObject candleMeshGO = new GameObject("CandleMesh");
             candleMeshGO.transform.SetParent(equippedCandleModel.transform, false);
 
-            candleMeshGO.transform.localScale = Vector3.one * 12f;
-            candleMeshGO.transform.localPosition = new Vector3(-0.013f, 0.008f, 0.025f);
-            candleMeshGO.transform.localRotation = Quaternion.Euler(27.917f, -14.251f, 69.963f);
+            candleMeshGO.transform.localScale = new Vector3(0.810f, 1.145f, 0.692f);
+            candleMeshGO.transform.localPosition = new Vector3(0.038f, -0.001f, 0.013f);
+            candleMeshGO.transform.localRotation = Quaternion.Euler(41.135f, 354.422f, 63.344f);
 
             meshChild = candleMeshGO.transform;
 
@@ -429,7 +469,7 @@ public class CollectibleCandle : MonoBehaviour
         GameObject flameSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         flameSphere.name = "FlameGlow";
         flameSphere.transform.SetParent(equippedCandleModel.transform, false);
-        flameSphere.transform.localPosition = new Vector3(0f, flameY - 0.01f, 0f);
+        flameSphere.transform.localPosition = new Vector3(-0.077f, 0.043f, 0.040f);
         flameSphere.transform.localScale = new Vector3(0.015f, 0.025f, 0.015f);
 
         Collider flameCol = flameSphere.GetComponent<Collider>();

@@ -80,10 +80,10 @@ public class PlayerController : MonoBehaviour
                 }
             }
             else if (Cursor.lockState != CursorLockMode.Locked)
-            {
-                Cursor.lockState = CursorLockMode.Locked;
-                Cursor.visible = false;
-                Debug.Log("Cursor locked for gameplay");
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+            Debug.Log("Cursor locked for gameplay");
             }
         }
 

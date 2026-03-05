@@ -272,7 +272,7 @@ public class SuccessDoor : MonoBehaviour
             if (completionTime > 0f)
             {
                 recordedViaTimer = true;
-                Debug.Log($"[SuccessDoor] Level completed in {LevelTimer.FormatTime(completionTime)}");
+            Debug.Log($"[SuccessDoor] Level completed in {LevelTimer.FormatTime(completionTime)}");
             }
         }
 
@@ -322,7 +322,7 @@ public class SuccessDoor : MonoBehaviour
             else
             {
                 Debug.Log("[SuccessDoor] Scene level unavailable, falling back to LoadNextLevel().");
-                LevelManager.Instance.LoadNextLevel();
+            LevelManager.Instance.LoadNextLevel();
             }
         }
         else

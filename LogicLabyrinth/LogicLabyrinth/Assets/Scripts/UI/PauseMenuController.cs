@@ -3,8 +3,14 @@ using UnityEngine.UI;
 using UnityEngine.SceneManagement;
 using UnityEngine.InputSystem;
 using UnityEngine.EventSystems;
+using UnityEngine.Networking;
 using TMPro;
+using System;
 using System.Collections.Generic;
+using System.Text;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 /// <summary>
 /// Manages the in-game pause menu and the Options overlay.
@@ -31,14 +37,107 @@ public class PauseMenuController : MonoBehaviour
     [Tooltip("The Store prefab (Canvas). Loaded from Resources/Store as fallback.")]
     public GameObject storePrefab;
 
+    [Header("Maya Checkout Backend")]
+    [Tooltip("Your backend URL that proxies requests to Maya (never call Maya secret APIs directly from Unity).")]
+    public string mayaBackendBaseUrl = "http://localhost:8787";
+
+    [Tooltip("Where Maya should redirect after payment result. Backend should host these paths.")]
+    public string mayaReturnBaseUrl = "http://localhost:8787/maya-return";
+
     // Runtime instances
     private GameObject pauseInstance;
     private GameObject settingsInstance;
     private GameObject storeInstance;
     private GameObject storeButtonInstance;
     private TextMeshProUGUI storeDescriptionText;
+    private Transform storeDescriptionRoot;
+    private readonly Dictionary<string, GameObject> storeDescriptionPanels = new Dictionary<string, GameObject>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, RectTransform> storeItemHoverRects = new Dictionary<string, RectTransform>(StringComparer.OrdinalIgnoreCase);
+    private string activeStoreHoverItemKey = null;
+    private int storeHoverEventToken = 0;
     private string storeDefaultDescription = "";
     private readonly Dictionary<string, List<Graphic>> storeItemVisuals = new Dictionary<string, List<Graphic>>();
+    private readonly Dictionary<string, decimal> storeItemPricesPhp = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+    {
+        { "Lantern", 59m },
+        { "Scanner", 74m },
+        { "Adrenaline", 19m }
+    };
+    private readonly Dictionary<string, int> storeItemQuantities = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+    {
+        { "Lantern", 1 },
+        { "Scanner", 10 },
+        { "Adrenaline", 5 }
+    };
+
+    private GameObject checkoutPanelInstance;
+    private GameObject checkoutQrPopupInstance;
+    private TextMeshProUGUI checkoutStatusText;
+    private Button checkoutPayButton;
+    private Button checkoutLoginButton;
+    private Button checkoutOpenHostedButton;
+    private string pendingCheckoutItemKey;
+    private string pendingCheckoutRedirectUrl;
+    private string pendingCheckoutId;
+    private bool checkoutInProgress = false;
+
+    [Serializable]
+    private class MayaCreateCheckoutRequest
+    {
+        public MayaAmount totalAmount;
+        public MayaBuyer buyer;
+        public MayaRedirectUrls redirectUrl;
+        public string requestReferenceNumber;
+        public MayaItem[] items;
+    }
+
+    [Serializable]
+    private class MayaAmount
+    {
+        public float value;
+        public string currency;
+    }
+
+    [Serializable]
+    private class MayaBuyer
+    {
+        public string firstName;
+        public string lastName;
+    }
+
+    [Serializable]
+    private class MayaRedirectUrls
+    {
+        public string success;
+        public string failure;
+        public string cancel;
+    }
+
+    [Serializable]
+    private class MayaItem
+    {
+        public string name;
+        public int quantity;
+        public MayaAmount totalAmount;
+    }
+
+    [Serializable]
+    private class MayaCreateCheckoutResponse
+    {
+        public string checkoutId;
+        public string redirectUrl;
+        public string status;
+        public string message;
+    }
+
+    [Serializable]
+    private class MayaCheckoutStatusResponse
+    {
+        public string checkoutId;
+        public string status;
+        public bool paid;
+        public string message;
+    }
 
     // Track where Options was opened from
     private enum SettingsOrigin { Pause, MainMenu }
@@ -214,11 +313,21 @@ public class PauseMenuController : MonoBehaviour
 
         if (storePrefab == null)
         {
-            storePrefab = Resources.Load<GameObject>("Store");
+#if UNITY_EDITOR
+            // Prefer the editable prefab the user is modifying in Editor.
+            storePrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Store/Store.prefab");
             if (storePrefab != null)
-                Debug.Log("[PauseMenu] Loaded Store prefab from Resources.");
-            else
-                Debug.LogWarning("[PauseMenu] Store prefab not found in Resources/Store.");
+                Debug.Log("[PauseMenu] Loaded Store prefab from Assets/Store/Store.prefab (Editor).");
+#endif
+
+            if (storePrefab == null)
+            {
+                storePrefab = Resources.Load<GameObject>("Store");
+                if (storePrefab != null)
+                    Debug.Log("[PauseMenu] Loaded Store prefab from Resources.");
+                else
+                    Debug.LogWarning("[PauseMenu] Store prefab not found in Assets/Store or Resources/Store.");
+            }
         }
     }
 
@@ -344,9 +453,13 @@ public class PauseMenuController : MonoBehaviour
 
         if (storePrefab == null)
         {
-            Debug.LogError("[PauseMenu] Store prefab is null. Ensure Assets/Resources/Store.prefab exists.");
+            Debug.LogError("[PauseMenu] Store prefab is null. Ensure Assets/Store/Store.prefab or Assets/Resources/Store.prefab exists.");
             return;
         }
+
+#if UNITY_EDITOR
+        Debug.Log($"[PauseMenu] Using Store prefab asset: {AssetDatabase.GetAssetPath(storePrefab)}");
+#endif
 
         storeInstance = Instantiate(storePrefab);
         storeInstance.name = "StoreOverlay_Runtime";
@@ -375,11 +488,18 @@ public class PauseMenuController : MonoBehaviour
 
     private void CloseStoreOverlay()
     {
+        CloseCheckoutPanel();
+
         if (storeInstance != null)
         {
             Destroy(storeInstance);
             storeInstance = null;
             storeDescriptionText = null;
+            storeDescriptionRoot = null;
+            storeDescriptionPanels.Clear();
+            storeItemHoverRects.Clear();
+            activeStoreHoverItemKey = null;
+            storeHoverEventToken = 0;
             storeDefaultDescription = "";
             storeItemVisuals.Clear();
         }
@@ -406,14 +526,17 @@ public class PauseMenuController : MonoBehaviour
     {
         if (storeInstance == null) return;
 
-        // Try to locate the description text area in Store prefab.
-        Transform descriptionRoot = DeepFind(storeInstance.transform, "Description");
-        if (descriptionRoot != null)
+        // Description root in prefab
+        storeDescriptionRoot = DeepFind(storeInstance.transform, "Description");
+
+        CacheStoreDescriptionPanels();
+
+        // Optional text fallback if no panels are found
+        if (storeDescriptionRoot != null)
         {
-            var tmps = descriptionRoot.GetComponentsInChildren<TextMeshProUGUI>(true);
+            var tmps = storeDescriptionRoot.GetComponentsInChildren<TextMeshProUGUI>(true);
             if (tmps != null && tmps.Length > 0)
             {
-                // Prefer the largest body text (actual description paragraph), not short labels.
                 TextMeshProUGUI best = tmps[0];
                 foreach (var t in tmps)
                 {
@@ -425,28 +548,978 @@ public class PauseMenuController : MonoBehaviour
             }
         }
 
-        // Fallback if Description panel naming differs.
-        if (storeDescriptionText == null)
-        {
-            var tmps = storeInstance.GetComponentsInChildren<TextMeshProUGUI>(true);
-            if (tmps != null && tmps.Length > 0)
-            {
-                storeDescriptionText = tmps[0];
-                storeDefaultDescription = storeDescriptionText.text;
-            }
-        }
-
         foreach (var kv in storeItemDescriptions)
         {
             Transform item = DeepFind(storeInstance.transform, kv.Key);
             if (item == null) continue;
 
             CacheStoreItemVisuals(kv.Key, item);
-
-            // Wire hover only on item root. Child-level triggers can cause enter/exit storms
-            // when visuals are hidden, which appears as text flicker.
             WireStoreHoverTarget(item.gameObject, kv.Key, kv.Value);
+            WireStorePurchaseTarget(item.gameObject, kv.Key);
         }
+    }
+
+    private void WireStorePurchaseTarget(GameObject target, string itemKey)
+    {
+        if (target == null || string.IsNullOrWhiteSpace(itemKey)) return;
+
+        Button button = target.GetComponent<Button>();
+        if (button == null)
+            button = target.AddComponent<Button>();
+
+        button.transition = Selectable.Transition.ColorTint;
+        ColorBlock colors = button.colors;
+        colors.highlightedColor = new Color(1f, 0.93f, 0.70f, 1f);
+        colors.pressedColor = new Color(0.98f, 0.84f, 0.52f, 1f);
+        colors.selectedColor = colors.highlightedColor;
+        button.colors = colors;
+
+        button.onClick.AddListener(() => OpenMayaSandboxCheckout(itemKey));
+    }
+
+    private void OpenMayaSandboxCheckout(string itemKey)
+    {
+        if (checkoutInProgress) return;
+
+        CloseCheckoutPanel();
+
+        pendingCheckoutItemKey = itemKey;
+        int quantity = GetStoreQuantity(itemKey);
+        decimal price = GetStorePrice(itemKey);
+        bool alreadyOwned = AccountManager.Instance != null && AccountManager.Instance.HasStoreItem(itemKey) && !itemKey.Equals("Adrenaline", StringComparison.OrdinalIgnoreCase);
+
+        string reference = $"LL-{DateTime.UtcNow:HHmmssfff}";
+        string checkoutId = $"chk_sandbox_{DateTime.UtcNow:yyyyMMddHHmmssfff}";
+        pendingCheckoutRedirectUrl = $"https://payments-web-sandbox.maya.ph/v2/checkout?checkoutId={checkoutId}";
+
+        checkoutPanelInstance = CreateCheckoutBlock(
+            storeInstance.transform,
+            "MayaCheckoutSandbox",
+            new Color(0f, 0f, 0f, 0.78f),
+            Vector2.zero,
+            Vector2.one,
+            Vector2.zero,
+            Vector2.zero);
+
+        BuildMayaCheckoutPaymentScreen(itemKey, quantity, price, reference, alreadyOwned);
+    }
+
+    private void BuildMayaCheckoutPaymentScreen(string itemKey, int quantity, decimal price, string reference, bool alreadyOwned)
+    {
+        if (checkoutPanelInstance == null) return;
+
+        ClearCheckoutChildren();
+
+        GameObject shell = CreateCheckoutBlock(
+            checkoutPanelInstance.transform,
+            "CheckoutShell",
+            new Color(0.06f, 0.08f, 0.11f, 1f),
+            new Vector2(0.05f, 0.06f),
+            new Vector2(0.95f, 0.94f),
+            Vector2.zero,
+            Vector2.zero);
+
+        GameObject divider = CreateCheckoutBlock(
+            shell.transform,
+            "VerticalDivider",
+            new Color(0.27f, 0.29f, 0.34f, 1f),
+            new Vector2(0.60f, 0.02f),
+            new Vector2(0.604f, 0.98f),
+            Vector2.zero,
+            Vector2.zero);
+        if (divider != null) { }
+
+        GameObject leftPane = CreateCheckoutBlock(
+            shell.transform,
+            "LeftPane",
+            new Color(0f, 0f, 0f, 0f),
+            new Vector2(0.03f, 0.05f),
+            new Vector2(0.57f, 0.95f),
+            Vector2.zero,
+            Vector2.zero);
+
+        GameObject rightPane = CreateCheckoutBlock(
+            shell.transform,
+            "RightPane",
+            new Color(0f, 0f, 0f, 0f),
+            new Vector2(0.63f, 0.12f),
+            new Vector2(0.97f, 0.88f),
+            Vector2.zero,
+            Vector2.zero);
+
+        TextMeshProUGUI backToMerchant = CreateCheckoutText(leftPane.transform, "<  Back to Merchant", 28, FontStyles.Bold);
+        backToMerchant.color = new Color(0.22f, 0.68f, 1f, 1f);
+        backToMerchant.alignment = TextAlignmentOptions.Left;
+        SetAnchors(backToMerchant.rectTransform, new Vector2(0.02f, 0.90f), new Vector2(0.45f, 0.98f));
+
+        GameObject walletPanel = CreateCheckoutBlock(
+            leftPane.transform,
+            "WalletPanel",
+            new Color(0.08f, 0.10f, 0.13f, 1f),
+            new Vector2(0f, 0.70f),
+            new Vector2(0.95f, 0.86f),
+            Vector2.zero,
+            Vector2.zero);
+
+        TextMeshProUGUI walletTitle = CreateCheckoutText(walletPanel.transform, "QR and e-Wallets", 32, FontStyles.Bold);
+        walletTitle.color = new Color(0.86f, 0.86f, 0.86f, 1f);
+        walletTitle.alignment = TextAlignmentOptions.Left;
+        SetAnchors(walletTitle.rectTransform, new Vector2(0.06f, 0.58f), new Vector2(0.74f, 0.90f));
+
+        Button mayaWalletButton = CreateCheckoutButton(
+            walletPanel.transform,
+            "maya",
+            new Vector2(0.06f, 0.16f),
+            new Vector2(0.33f, 0.53f),
+            Vector2.zero,
+            Vector2.zero,
+            new Color(0.07f, 0.12f, 0.16f, 1f),
+            new Color(0.05f, 0.82f, 0.52f, 1f),
+            34f);
+
+        TextMeshProUGUI walletSub = CreateCheckoutText(mayaWalletButton.transform, "wallet + credit", 14, FontStyles.Normal);
+        walletSub.color = new Color(0.62f, 0.67f, 0.73f, 1f);
+        walletSub.alignment = TextAlignmentOptions.Center;
+        SetAnchors(walletSub.rectTransform, new Vector2(0.10f, 0.08f), new Vector2(0.90f, 0.30f));
+
+        TextMeshProUGUI payByCardInfo = CreateCheckoutText(leftPane.transform, "Or pay using your debit/credit card or wallet", 18, FontStyles.Normal);
+        payByCardInfo.color = new Color(0.56f, 0.60f, 0.66f, 1f);
+        payByCardInfo.alignment = TextAlignmentOptions.Center;
+        SetAnchors(payByCardInfo.rectTransform, new Vector2(0.12f, 0.64f), new Vector2(0.82f, 0.69f));
+
+        GameObject cardPanel = CreateCheckoutBlock(
+            leftPane.transform,
+            "CardPanel",
+            new Color(0.08f, 0.10f, 0.13f, 1f),
+            new Vector2(0f, 0.17f),
+            new Vector2(0.95f, 0.62f),
+            Vector2.zero,
+            Vector2.zero);
+
+        TextMeshProUGUI cardTitle = CreateCheckoutText(cardPanel.transform, "Debit/Credit Card", 34, FontStyles.Bold);
+        cardTitle.color = new Color(0.88f, 0.88f, 0.88f, 1f);
+        cardTitle.alignment = TextAlignmentOptions.Left;
+        SetAnchors(cardTitle.rectTransform, new Vector2(0.06f, 0.84f), new Vector2(0.65f, 0.97f));
+
+        TextMeshProUGUI brandText = CreateCheckoutText(cardPanel.transform, "MASTERCARD   VISA   JCB", 16, FontStyles.Bold);
+        brandText.color = new Color(0.75f, 0.80f, 0.90f, 1f);
+        brandText.alignment = TextAlignmentOptions.Right;
+        SetAnchors(brandText.rectTransform, new Vector2(0.62f, 0.86f), new Vector2(0.95f, 0.96f));
+
+        CreateDarkInputStub(cardPanel.transform, "First Name", new Vector2(0.06f, 0.63f), new Vector2(0.48f, 0.79f));
+        CreateDarkInputStub(cardPanel.transform, "Last Name", new Vector2(0.52f, 0.63f), new Vector2(0.94f, 0.79f));
+        CreateDarkInputStub(cardPanel.transform, "Card Number", new Vector2(0.06f, 0.45f), new Vector2(0.94f, 0.60f));
+        CreateDarkInputStub(cardPanel.transform, "Expiry Date", new Vector2(0.06f, 0.27f), new Vector2(0.48f, 0.42f));
+        CreateDarkInputStub(cardPanel.transform, "CVV", new Vector2(0.52f, 0.27f), new Vector2(0.86f, 0.42f));
+
+        TextMeshProUGUI cvvInfo = CreateCheckoutText(cardPanel.transform, "i", 24, FontStyles.Bold);
+        cvvInfo.color = new Color(0.27f, 1f, 0.72f, 1f);
+        cvvInfo.alignment = TextAlignmentOptions.Center;
+        SetAnchors(cvvInfo.rectTransform, new Vector2(0.87f, 0.27f), new Vector2(0.94f, 0.42f));
+
+        checkoutPayButton = CreateCheckoutButton(
+            cardPanel.transform,
+            "Confirm and pay",
+            new Vector2(0.38f, 0.08f),
+            new Vector2(0.94f, 0.20f),
+            Vector2.zero,
+            Vector2.zero,
+            new Color(0.14f, 0.18f, 0.22f, 1f),
+            new Color(0.85f, 0.86f, 0.88f, 1f),
+            24f);
+
+        GameObject pciPanel = CreateCheckoutBlock(
+            leftPane.transform,
+            "PciPanel",
+            new Color(0.08f, 0.10f, 0.13f, 1f),
+            new Vector2(0f, 0.04f),
+            new Vector2(0.95f, 0.14f),
+            Vector2.zero,
+            Vector2.zero);
+
+        TextMeshProUGUI pciTitle = CreateCheckoutText(pciPanel.transform, "Maya Checkout is PCI-DSS Certified", 20, FontStyles.Bold);
+        pciTitle.color = new Color(0.91f, 0.91f, 0.91f, 1f);
+        pciTitle.alignment = TextAlignmentOptions.Left;
+        SetAnchors(pciTitle.rectTransform, new Vector2(0.18f, 0.42f), new Vector2(0.95f, 0.88f));
+
+        TextMeshProUGUI pciSub = CreateCheckoutText(pciPanel.transform, "Your payment is secured.", 16, FontStyles.Normal);
+        pciSub.color = new Color(0.70f, 0.73f, 0.78f, 1f);
+        pciSub.alignment = TextAlignmentOptions.Left;
+        SetAnchors(pciSub.rectTransform, new Vector2(0.18f, 0.08f), new Vector2(0.95f, 0.42f));
+
+        TextMeshProUGUI badge = CreateCheckoutText(pciPanel.transform, "PCI", 18, FontStyles.Bold);
+        badge.color = new Color(1f, 0.80f, 0.45f, 1f);
+        badge.alignment = TextAlignmentOptions.Center;
+        SetAnchors(badge.rectTransform, new Vector2(0.03f, 0.18f), new Vector2(0.14f, 0.82f));
+
+        TextMeshProUGUI summaryTitle = CreateCheckoutText(rightPane.transform, "Order Summary", 42, FontStyles.Bold);
+        summaryTitle.color = new Color(0.86f, 0.86f, 0.86f, 1f);
+        summaryTitle.alignment = TextAlignmentOptions.Left;
+        SetAnchors(summaryTitle.rectTransform, new Vector2(0f, 0.76f), new Vector2(0.98f, 0.92f));
+
+        TextMeshProUGUI productLine = CreateCheckoutText(rightPane.transform, itemKey, 34, FontStyles.Normal);
+        productLine.color = new Color(0.88f, 0.88f, 0.88f, 1f);
+        productLine.alignment = TextAlignmentOptions.Left;
+        SetAnchors(productLine.rectTransform, new Vector2(0f, 0.63f), new Vector2(0.70f, 0.73f));
+
+        TextMeshProUGUI qtyLine = CreateCheckoutText(rightPane.transform, $"Quantity: {quantity}", 24, FontStyles.Normal);
+        qtyLine.color = new Color(0.62f, 0.66f, 0.72f, 1f);
+        qtyLine.alignment = TextAlignmentOptions.Left;
+        SetAnchors(qtyLine.rectTransform, new Vector2(0f, 0.57f), new Vector2(0.70f, 0.64f));
+
+        TextMeshProUGUI lineAmount = CreateCheckoutText(rightPane.transform, $"PHP {price:0.00}", 36, FontStyles.Normal);
+        lineAmount.color = new Color(0.88f, 0.88f, 0.88f, 1f);
+        lineAmount.alignment = TextAlignmentOptions.Right;
+        SetAnchors(lineAmount.rectTransform, new Vector2(0.60f, 0.62f), new Vector2(1f, 0.73f));
+
+        TextMeshProUGUI totalLabel = CreateCheckoutText(rightPane.transform, "Total Amount", 36, FontStyles.Bold);
+        totalLabel.color = new Color(0.90f, 0.90f, 0.90f, 1f);
+        totalLabel.alignment = TextAlignmentOptions.Left;
+        SetAnchors(totalLabel.rectTransform, new Vector2(0f, 0.40f), new Vector2(0.66f, 0.52f));
+
+        TextMeshProUGUI totalAmount = CreateCheckoutText(rightPane.transform, $"PHP {price:0.00}", 56, FontStyles.Bold);
+        totalAmount.color = new Color(0.94f, 0.93f, 0.90f, 1f);
+        totalAmount.alignment = TextAlignmentOptions.Right;
+        SetAnchors(totalAmount.rectTransform, new Vector2(0.52f, 0.36f), new Vector2(1f, 0.52f));
+
+        TextMeshProUGUI powered = CreateCheckoutText(rightPane.transform, "Powered by maya BUSINESS", 24, FontStyles.Bold);
+        powered.color = new Color(0.05f, 0.82f, 0.52f, 1f);
+        powered.alignment = TextAlignmentOptions.Center;
+        SetAnchors(powered.rectTransform, new Vector2(0f, 0.22f), new Vector2(1f, 0.30f));
+
+        checkoutOpenHostedButton = CreateCheckoutButton(
+            rightPane.transform,
+            "Open Hosted Checkout",
+            new Vector2(0f, 0.08f),
+            new Vector2(0.65f, 0.16f),
+            Vector2.zero,
+            Vector2.zero,
+            new Color(0.15f, 0.33f, 0.65f, 1f),
+            Color.white,
+            18f);
+        checkoutOpenHostedButton.onClick.AddListener(() =>
+        {
+            if (!string.IsNullOrEmpty(pendingCheckoutRedirectUrl))
+                Application.OpenURL(pendingCheckoutRedirectUrl);
+        });
+
+        checkoutStatusText = CreateCheckoutText(rightPane.transform, $"{reference}", 14, FontStyles.Normal);
+        checkoutStatusText.color = new Color(0.50f, 0.54f, 0.60f, 1f);
+        checkoutStatusText.alignment = TextAlignmentOptions.Right;
+        SetAnchors(checkoutStatusText.rectTransform, new Vector2(0.66f, 0.09f), new Vector2(1f, 0.16f));
+
+        if (alreadyOwned)
+        {
+            checkoutPayButton.interactable = false;
+            if (checkoutStatusText != null)
+            {
+                checkoutStatusText.text = $"{itemKey} already owned";
+                checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
+            }
+        }
+        else
+        {
+            checkoutPayButton.onClick.AddListener(() => StartCoroutine(CreateMayaCheckoutAndOpen(itemKey, quantity, price, reference)));
+            mayaWalletButton.onClick.AddListener(() => StartCoroutine(CreateMayaCheckoutAndOpen(itemKey, quantity, price, reference)));
+        }
+    }
+
+    private void ShowMayaPasskeyScreen(string itemKey, int quantity, decimal price, string reference)
+    {
+        if (checkoutPanelInstance == null) return;
+        ClearCheckoutChildren();
+
+        GameObject stage = CreateCheckoutBlock(
+            checkoutPanelInstance.transform,
+            "PasskeyStage",
+            new Color(0.90f, 0.90f, 0.90f, 1f),
+            new Vector2(0.05f, 0.06f),
+            new Vector2(0.95f, 0.94f),
+            Vector2.zero,
+            Vector2.zero);
+
+        GameObject card = CreateCheckoutBlock(
+            stage.transform,
+            "PasskeyCard",
+            new Color(0f, 0f, 0f, 0f),
+            new Vector2(0.30f, 0.18f),
+            new Vector2(0.70f, 0.84f),
+            Vector2.zero,
+            Vector2.zero);
+
+        TextMeshProUGUI prompt = CreateCheckoutText(card.transform, "Provide your card's passkey below:", 20, FontStyles.Normal);
+        prompt.color = new Color(0.35f, 0.35f, 0.35f, 1f);
+        prompt.alignment = TextAlignmentOptions.Left;
+        SetAnchors(prompt.rectTransform, new Vector2(0f, 0.90f), new Vector2(1f, 1f));
+
+        TextMeshProUGUI merchant = CreateCheckoutText(card.transform, "Merchant:\nDEV PORTAL", 40, FontStyles.Bold);
+        merchant.color = new Color(0.10f, 0.10f, 0.10f, 1f);
+        merchant.alignment = TextAlignmentOptions.Left;
+        SetAnchors(merchant.rectTransform, new Vector2(0f, 0.68f), new Vector2(1f, 0.90f));
+
+        TextMeshProUGUI amount = CreateCheckoutText(card.transform, $"Amount:\n{price:0.00} PHP", 40, FontStyles.Bold);
+        amount.color = new Color(0.10f, 0.10f, 0.10f, 1f);
+        amount.alignment = TextAlignmentOptions.Left;
+        SetAnchors(amount.rectTransform, new Vector2(0f, 0.46f), new Vector2(1f, 0.68f));
+
+        TextMeshProUGUI cardNumber = CreateCheckoutText(card.transform, "Card Number:\n4123 45XX XXXX 4443", 38, FontStyles.Bold);
+        cardNumber.color = new Color(0.10f, 0.10f, 0.10f, 1f);
+        cardNumber.alignment = TextAlignmentOptions.Left;
+        SetAnchors(cardNumber.rectTransform, new Vector2(0f, 0.24f), new Vector2(1f, 0.46f));
+
+        GameObject passkeyField = CreateCheckoutBlock(
+            card.transform,
+            "PasskeyField",
+            new Color(1f, 1f, 1f, 1f),
+            new Vector2(0f, 0.12f),
+            new Vector2(1f, 0.22f),
+            Vector2.zero,
+            Vector2.zero);
+        TextMeshProUGUI passkeyPlaceholder = CreateCheckoutText(passkeyField.transform, "Passkey", 24, FontStyles.Normal);
+        passkeyPlaceholder.color = new Color(0.45f, 0.45f, 0.45f, 1f);
+        passkeyPlaceholder.alignment = TextAlignmentOptions.Left;
+        SetAnchors(passkeyPlaceholder.rectTransform, new Vector2(0.04f, 0.15f), new Vector2(0.40f, 0.85f));
+
+        checkoutLoginButton = CreateCheckoutButton(
+            card.transform,
+            "Submit",
+            new Vector2(0f, 0f),
+            new Vector2(1f, 0.10f),
+            Vector2.zero,
+            Vector2.zero,
+            new Color(0.20f, 0.58f, 0.86f, 1f),
+            Color.white,
+            28f);
+        checkoutLoginButton.onClick.AddListener(() => StartCoroutine(VerifyMayaCheckoutAndGrant(itemKey, quantity, price)));
+
+        checkoutStatusText = null;
+        checkoutPayButton = null;
+        checkoutOpenHostedButton = null;
+    }
+
+    private void ShowMayaSuccessScreen(decimal price)
+    {
+        if (checkoutPanelInstance == null) return;
+        ClearCheckoutChildren();
+
+        GameObject shell = CreateCheckoutBlock(
+            checkoutPanelInstance.transform,
+            "SuccessShell",
+            new Color(0.90f, 0.90f, 0.90f, 1f),
+            new Vector2(0.05f, 0.06f),
+            new Vector2(0.95f, 0.94f),
+            Vector2.zero,
+            Vector2.zero);
+
+        CreateCheckoutBlock(
+            shell.transform,
+            "SuccessDivider",
+            new Color(0.84f, 0.84f, 0.84f, 1f),
+            new Vector2(0.48f, 0.02f),
+            new Vector2(0.52f, 0.98f),
+            Vector2.zero,
+            Vector2.zero);
+
+        GameObject leftPane = CreateCheckoutBlock(
+            shell.transform,
+            "SuccessLeft",
+            new Color(0f, 0f, 0f, 0f),
+            new Vector2(0.04f, 0.05f),
+            new Vector2(0.46f, 0.95f),
+            Vector2.zero,
+            Vector2.zero);
+
+        GameObject rightPane = CreateCheckoutBlock(
+            shell.transform,
+            "SuccessRight",
+            new Color(0f, 0f, 0f, 0f),
+            new Vector2(0.54f, 0.05f),
+            new Vector2(0.96f, 0.95f),
+            Vector2.zero,
+            Vector2.zero);
+
+        TextMeshProUGUI successLabel = CreateCheckoutText(leftPane.transform, "Payment Successful", 30, FontStyles.Bold);
+        successLabel.color = new Color(0.15f, 0.15f, 0.15f, 1f);
+        successLabel.alignment = TextAlignmentOptions.Center;
+        SetAnchors(successLabel.rectTransform, new Vector2(0f, 0.88f), new Vector2(1f, 0.98f));
+
+        TextMeshProUGUI successAmount = CreateCheckoutText(leftPane.transform, $"PHP {price:0.00}", 78, FontStyles.Bold);
+        successAmount.color = new Color(0.12f, 0.14f, 0.18f, 1f);
+        successAmount.alignment = TextAlignmentOptions.Center;
+        SetAnchors(successAmount.rectTransform, new Vector2(0f, 0.70f), new Vector2(1f, 0.86f));
+
+        TextMeshProUGUI merchant = CreateCheckoutText(leftPane.transform, "DEV PORTAL", 24, FontStyles.Normal);
+        merchant.color = new Color(0.35f, 0.35f, 0.35f, 1f);
+        merchant.alignment = TextAlignmentOptions.Center;
+        SetAnchors(merchant.rectTransform, new Vector2(0f, 0.64f), new Vector2(1f, 0.72f));
+
+        GameObject detailsCard = CreateCheckoutBlock(
+            leftPane.transform,
+            "TransactionDetails",
+            new Color(0.93f, 0.93f, 0.94f, 1f),
+            new Vector2(0.03f, 0.31f),
+            new Vector2(0.97f, 0.62f),
+            Vector2.zero,
+            Vector2.zero);
+
+        TextMeshProUGUI txTitle = CreateCheckoutText(detailsCard.transform, "TRANSACTION DETAILS", 18, FontStyles.Bold);
+        txTitle.color = new Color(0.26f, 0.26f, 0.26f, 1f);
+        txTitle.alignment = TextAlignmentOptions.Left;
+        SetAnchors(txTitle.rectTransform, new Vector2(0.04f, 0.82f), new Vector2(0.80f, 0.96f));
+
+        TextMeshProUGUI txLines = CreateCheckoutText(
+            detailsCard.transform,
+            "Transaction ID\nPayment Date\nPayment Method",
+            18,
+            FontStyles.Normal);
+        txLines.color = new Color(0.35f, 0.35f, 0.35f, 1f);
+        txLines.alignment = TextAlignmentOptions.Left;
+        SetAnchors(txLines.rectTransform, new Vector2(0.06f, 0.18f), new Vector2(0.42f, 0.80f));
+
+        TextMeshProUGUI txValues = CreateCheckoutText(
+            detailsCard.transform,
+            $"{Guid.NewGuid().ToString().Substring(0, 24)}\n{DateTime.Now:dd MMM yyyy}\nVISA 4443",
+            18,
+            FontStyles.Bold);
+        txValues.color = new Color(0.18f, 0.18f, 0.18f, 1f);
+        txValues.alignment = TextAlignmentOptions.Right;
+        SetAnchors(txValues.rectTransform, new Vector2(0.42f, 0.18f), new Vector2(0.94f, 0.80f));
+
+        GameObject payCard = CreateCheckoutBlock(
+            leftPane.transform,
+            "PaymentDetails",
+            new Color(0.93f, 0.93f, 0.94f, 1f),
+            new Vector2(0.03f, 0.14f),
+            new Vector2(0.97f, 0.28f),
+            Vector2.zero,
+            Vector2.zero);
+
+        TextMeshProUGUI payDetails = CreateCheckoutText(payCard.transform, $"PAYMENT DETAILS\nTotal Amount Paid            PHP {price:0.00}", 18, FontStyles.Bold);
+        payDetails.color = new Color(0.22f, 0.22f, 0.22f, 1f);
+        payDetails.alignment = TextAlignmentOptions.Left;
+        SetAnchors(payDetails.rectTransform, new Vector2(0.04f, 0.08f), new Vector2(0.95f, 0.92f));
+
+        TextMeshProUGUI receiptMsg = CreateCheckoutText(rightPane.transform, "Conveniently receive your receipts by Email or SMS.", 34, FontStyles.Bold);
+        receiptMsg.color = new Color(0.15f, 0.15f, 0.15f, 1f);
+        receiptMsg.alignment = TextAlignmentOptions.Center;
+        SetAnchors(receiptMsg.rectTransform, new Vector2(0.02f, 0.52f), new Vector2(0.98f, 0.72f));
+
+        GameObject receiptInput = CreateCheckoutBlock(
+            rightPane.transform,
+            "ReceiptInput",
+            Color.white,
+            new Vector2(0.05f, 0.39f),
+            new Vector2(0.80f, 0.48f),
+            Vector2.zero,
+            Vector2.zero);
+        TextMeshProUGUI receiptPlaceholder = CreateCheckoutText(receiptInput.transform, "Email / PH Mobile", 24, FontStyles.Normal);
+        receiptPlaceholder.color = new Color(0.62f, 0.62f, 0.62f, 1f);
+        receiptPlaceholder.alignment = TextAlignmentOptions.Left;
+        SetAnchors(receiptPlaceholder.rectTransform, new Vector2(0.06f, 0.12f), new Vector2(0.92f, 0.88f));
+
+        Button sendReceipt = CreateCheckoutButton(
+            rightPane.transform,
+            "->",
+            new Vector2(0.80f, 0.39f),
+            new Vector2(0.95f, 0.48f),
+            Vector2.zero,
+            Vector2.zero,
+            new Color(0.07f, 0.66f, 0.37f, 1f),
+            Color.white,
+            32f);
+        sendReceipt.onClick.AddListener(CloseCheckoutPanel);
+
+        TextMeshProUGUI mayaBusiness = CreateCheckoutText(rightPane.transform, "maya BUSINESS", 40, FontStyles.Bold);
+        mayaBusiness.color = new Color(0.05f, 0.82f, 0.52f, 1f);
+        mayaBusiness.alignment = TextAlignmentOptions.Center;
+        SetAnchors(mayaBusiness.rectTransform, new Vector2(0.15f, 0.16f), new Vector2(0.85f, 0.24f));
+
+        checkoutStatusText = null;
+        checkoutPayButton = null;
+        checkoutLoginButton = null;
+        checkoutOpenHostedButton = null;
+    }
+
+    private void ClearCheckoutChildren()
+    {
+        if (checkoutPanelInstance == null) return;
+        for (int i = checkoutPanelInstance.transform.childCount - 1; i >= 0; i--)
+        {
+            Destroy(checkoutPanelInstance.transform.GetChild(i).gameObject);
+        }
+    }
+
+    private GameObject CreateCheckoutBlock(
+        Transform parent,
+        string name,
+        Color color,
+        Vector2 anchorMin,
+        Vector2 anchorMax,
+        Vector2 offsetMin,
+        Vector2 offsetMax)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        go.transform.SetParent(parent, false);
+        var img = go.GetComponent<Image>();
+        img.color = color;
+
+        var rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = anchorMin;
+        rt.anchorMax = anchorMax;
+        rt.offsetMin = offsetMin;
+        rt.offsetMax = offsetMax;
+
+        return go;
+    }
+
+    private void CreateCheckoutInputStub(Transform parent, string placeholder, Vector2 anchorMin, Vector2 anchorMax)
+    {
+        GameObject box = CreateCheckoutBlock(
+            parent,
+            placeholder + "Field",
+            new Color(0.98f, 0.98f, 0.99f, 1f),
+            anchorMin,
+            anchorMax,
+            Vector2.zero,
+            Vector2.zero);
+
+        Image outline = box.GetComponent<Image>();
+        outline.color = new Color(0.97f, 0.98f, 1f, 1f);
+
+        var label = CreateCheckoutText(box.transform, placeholder, 16, FontStyles.Normal);
+        label.color = new Color(0.52f, 0.55f, 0.63f, 1f);
+        label.alignment = TextAlignmentOptions.Left;
+        SetAnchors(label.rectTransform, new Vector2(0.05f, 0.12f), new Vector2(0.95f, 0.88f));
+    }
+
+    private void CreateDarkInputStub(Transform parent, string placeholder, Vector2 anchorMin, Vector2 anchorMax)
+    {
+        GameObject box = CreateCheckoutBlock(
+            parent,
+            placeholder + "DarkField",
+            new Color(0.10f, 0.12f, 0.16f, 1f),
+            anchorMin,
+            anchorMax,
+            Vector2.zero,
+            Vector2.zero);
+
+        var label = CreateCheckoutText(box.transform, placeholder, 26, FontStyles.Normal);
+        label.color = new Color(0.40f, 0.44f, 0.50f, 1f);
+        label.alignment = TextAlignmentOptions.Left;
+        SetAnchors(label.rectTransform, new Vector2(0.08f, 0.12f), new Vector2(0.92f, 0.88f));
+    }
+
+    private TMPro.TextMeshProUGUI CreateCheckoutText(Transform parent, string text, float fontSize, FontStyles style)
+    {
+        GameObject go = new GameObject("Text", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var tmp = go.AddComponent<TextMeshProUGUI>();
+        tmp.font = TMP_Settings.defaultFontAsset;
+        tmp.text = text;
+        tmp.fontSize = fontSize;
+        tmp.fontStyle = style;
+        tmp.color = new Color(0.95f, 0.90f, 0.72f, 1f);
+        tmp.enableWordWrapping = true;
+        return tmp;
+    }
+
+    private Button CreateCheckoutButton(
+        Transform parent,
+        string label,
+        Vector2 anchorMin,
+        Vector2 anchorMax,
+        Vector2 offsetMin,
+        Vector2 offsetMax,
+        Color backgroundColor,
+        Color textColor,
+        float fontSize)
+    {
+        GameObject btnGO = new GameObject(label + "Button", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
+        btnGO.transform.SetParent(parent, false);
+
+        RectTransform rt = btnGO.GetComponent<RectTransform>();
+        rt.anchorMin = anchorMin;
+        rt.anchorMax = anchorMax;
+        rt.offsetMin = offsetMin;
+        rt.offsetMax = offsetMax;
+
+        Image image = btnGO.GetComponent<Image>();
+        image.color = backgroundColor;
+
+        Button button = btnGO.GetComponent<Button>();
+        var colors = button.colors;
+        colors.highlightedColor = Color.Lerp(backgroundColor, Color.white, 0.10f);
+        colors.pressedColor = Color.Lerp(backgroundColor, Color.black, 0.12f);
+        button.colors = colors;
+
+        TextMeshProUGUI txt = CreateCheckoutText(btnGO.transform, label, fontSize, FontStyles.Bold);
+        txt.color = textColor;
+        txt.alignment = TextAlignmentOptions.Center;
+        SetAnchors(txt.rectTransform, Vector2.zero, Vector2.one);
+        return button;
+    }
+
+    private static void SetAnchors(RectTransform rt, Vector2 min, Vector2 max)
+    {
+        if (rt == null) return;
+        rt.anchorMin = min;
+        rt.anchorMax = max;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+    }
+
+    private System.Collections.IEnumerator CreateMayaCheckoutAndOpen(string itemKey, int quantity, decimal price, string reference)
+    {
+        if (checkoutInProgress) yield break;
+        checkoutInProgress = true;
+
+        if (AccountManager.Instance == null || AccountManager.Instance.GetCurrentPlayer() == null)
+        {
+            checkoutInProgress = false;
+            if (checkoutStatusText != null)
+            {
+                checkoutStatusText.text = "Please log in before starting checkout.";
+                checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
+            }
+            yield break;
+        }
+
+        if (checkoutPayButton != null) checkoutPayButton.interactable = false;
+        if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = false;
+
+        if (checkoutStatusText != null)
+        {
+            checkoutStatusText.text = "Creating checkout via backend...";
+            checkoutStatusText.color = new Color(0.70f, 0.84f, 1f, 1f);
+        }
+
+        string baseUrl = string.IsNullOrWhiteSpace(mayaBackendBaseUrl)
+            ? "http://localhost:8787"
+            : mayaBackendBaseUrl.TrimEnd('/');
+        string createUrl = baseUrl + "/api/maya/create-checkout";
+
+        string successUrl = mayaReturnBaseUrl.TrimEnd('/') + "/success";
+        string failureUrl = mayaReturnBaseUrl.TrimEnd('/') + "/failure";
+        string cancelUrl = mayaReturnBaseUrl.TrimEnd('/') + "/cancel";
+
+        string firstName = "Test";
+        string lastName = "User";
+        var player = AccountManager.Instance.GetCurrentPlayer();
+        if (player != null && !string.IsNullOrWhiteSpace(player.displayName))
+        {
+            string[] nameParts = player.displayName.Trim().Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (nameParts.Length > 0) firstName = nameParts[0];
+            if (nameParts.Length > 1) lastName = nameParts[nameParts.Length - 1];
+        }
+
+        var req = new MayaCreateCheckoutRequest
+        {
+            totalAmount = new MayaAmount { value = (float)price, currency = "PHP" },
+            buyer = new MayaBuyer { firstName = firstName, lastName = lastName },
+            redirectUrl = new MayaRedirectUrls { success = successUrl, failure = failureUrl, cancel = cancelUrl },
+            requestReferenceNumber = reference,
+            items = new MayaItem[]
+            {
+                new MayaItem
+                {
+                    name = itemKey,
+                    quantity = Mathf.Max(1, quantity),
+                    totalAmount = new MayaAmount { value = (float)price, currency = "PHP" }
+                }
+            }
+        };
+
+        string payload = JsonUtility.ToJson(req);
+        using (var request = new UnityWebRequest(createUrl, UnityWebRequest.kHttpVerbPOST))
+        {
+            byte[] body = Encoding.UTF8.GetBytes(payload);
+            request.uploadHandler = new UploadHandlerRaw(body);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+            request.SetRequestHeader("Accept", "application/json");
+
+            yield return request.SendWebRequest();
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                if (checkoutStatusText != null)
+                {
+                    checkoutStatusText.text = "Checkout create failed. Is backend running?";
+                    checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
+                }
+
+                if (checkoutPayButton != null) checkoutPayButton.interactable = true;
+                if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
+                checkoutInProgress = false;
+                yield break;
+            }
+
+            string json = request.downloadHandler.text;
+            MayaCreateCheckoutResponse response = null;
+            try { response = JsonUtility.FromJson<MayaCreateCheckoutResponse>(json); }
+            catch { }
+
+            if (response == null || string.IsNullOrWhiteSpace(response.redirectUrl) || string.IsNullOrWhiteSpace(response.checkoutId))
+            {
+                if (checkoutStatusText != null)
+                {
+                    checkoutStatusText.text = "Invalid create-checkout response from backend.";
+                    checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
+                }
+
+                if (checkoutPayButton != null) checkoutPayButton.interactable = true;
+                if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
+                checkoutInProgress = false;
+                yield break;
+            }
+
+            pendingCheckoutId = response.checkoutId;
+            pendingCheckoutRedirectUrl = response.redirectUrl;
+
+            Application.OpenURL(pendingCheckoutRedirectUrl);
+            ShowAwaitingVerificationScreen(itemKey, quantity, price, reference);
+            checkoutInProgress = false;
+        }
+    }
+
+    private void ShowAwaitingVerificationScreen(string itemKey, int quantity, decimal price, string reference)
+    {
+        if (checkoutPanelInstance == null) return;
+        ClearCheckoutChildren();
+
+        GameObject stage = CreateCheckoutBlock(
+            checkoutPanelInstance.transform,
+            "AwaitVerificationStage",
+            new Color(0.08f, 0.10f, 0.13f, 1f),
+            new Vector2(0.12f, 0.20f),
+            new Vector2(0.88f, 0.80f),
+            Vector2.zero,
+            Vector2.zero);
+
+        TextMeshProUGUI title = CreateCheckoutText(stage.transform, "Maya Hosted Checkout Opened", 42, FontStyles.Bold);
+        title.color = new Color(0.92f, 0.92f, 0.92f, 1f);
+        title.alignment = TextAlignmentOptions.Center;
+        SetAnchors(title.rectTransform, new Vector2(0.05f, 0.76f), new Vector2(0.95f, 0.95f));
+
+        checkoutStatusText = CreateCheckoutText(
+            stage.transform,
+            $"checkoutId: {pendingCheckoutId}\nReference: {reference}\nComplete payment in browser, then verify below.",
+            24,
+            FontStyles.Normal);
+        checkoutStatusText.color = new Color(0.75f, 0.80f, 0.88f, 1f);
+        checkoutStatusText.alignment = TextAlignmentOptions.Center;
+        SetAnchors(checkoutStatusText.rectTransform, new Vector2(0.08f, 0.44f), new Vector2(0.92f, 0.72f));
+
+        checkoutOpenHostedButton = CreateCheckoutButton(
+            stage.transform,
+            "Open Hosted Checkout Again",
+            new Vector2(0.16f, 0.26f),
+            new Vector2(0.84f, 0.38f),
+            Vector2.zero,
+            Vector2.zero,
+            new Color(0.14f, 0.31f, 0.62f, 1f),
+            Color.white,
+            24f);
+        checkoutOpenHostedButton.onClick.AddListener(() =>
+        {
+            if (!string.IsNullOrWhiteSpace(pendingCheckoutRedirectUrl))
+                Application.OpenURL(pendingCheckoutRedirectUrl);
+        });
+
+        checkoutLoginButton = CreateCheckoutButton(
+            stage.transform,
+            "I Completed Payment - Verify",
+            new Vector2(0.16f, 0.10f),
+            new Vector2(0.84f, 0.22f),
+            Vector2.zero,
+            Vector2.zero,
+            new Color(0.07f, 0.66f, 0.37f, 1f),
+            Color.white,
+            24f);
+        checkoutLoginButton.onClick.AddListener(() => StartCoroutine(VerifyMayaCheckoutAndGrant(itemKey, quantity, price)));
+
+        checkoutPayButton = null;
+    }
+
+    private System.Collections.IEnumerator VerifyMayaCheckoutAndGrant(string itemKey, int quantity, decimal price)
+    {
+        if (checkoutInProgress) yield break;
+        checkoutInProgress = true;
+
+        if (checkoutLoginButton != null) checkoutLoginButton.interactable = false;
+        if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = false;
+
+        if (checkoutStatusText != null)
+        {
+            checkoutStatusText.text = "Verifying payment status from backend...";
+            checkoutStatusText.color = new Color(0.70f, 0.84f, 1f, 1f);
+        }
+
+        if (string.IsNullOrWhiteSpace(pendingCheckoutId))
+        {
+            if (checkoutStatusText != null)
+            {
+                checkoutStatusText.text = "Missing checkoutId. Please create checkout again.";
+                checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
+            }
+            checkoutInProgress = false;
+            if (checkoutLoginButton != null) checkoutLoginButton.interactable = true;
+            if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
+            yield break;
+        }
+
+        string baseUrl = string.IsNullOrWhiteSpace(mayaBackendBaseUrl)
+            ? "http://localhost:8787"
+            : mayaBackendBaseUrl.TrimEnd('/');
+        string statusUrl = baseUrl + "/api/maya/checkout-status/" + UnityWebRequest.EscapeURL(pendingCheckoutId);
+
+        using (var request = UnityWebRequest.Get(statusUrl))
+        {
+            request.SetRequestHeader("Accept", "application/json");
+            yield return request.SendWebRequest();
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                if (checkoutStatusText != null)
+                {
+                    checkoutStatusText.text = "Status check failed. Please verify backend and try again.";
+                    checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
+                }
+                checkoutInProgress = false;
+                if (checkoutLoginButton != null) checkoutLoginButton.interactable = true;
+                if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
+                yield break;
+            }
+
+            string json = request.downloadHandler.text;
+            MayaCheckoutStatusResponse statusResp = null;
+            try { statusResp = JsonUtility.FromJson<MayaCheckoutStatusResponse>(json); }
+            catch { }
+
+            if (statusResp == null)
+            {
+                if (checkoutStatusText != null)
+                {
+                    checkoutStatusText.text = "Could not parse status response from backend.";
+                    checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
+                }
+                checkoutInProgress = false;
+                if (checkoutLoginButton != null) checkoutLoginButton.interactable = true;
+                if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
+                yield break;
+            }
+
+            if (!statusResp.paid)
+            {
+                if (checkoutStatusText != null)
+                {
+                    string statusValue = string.IsNullOrWhiteSpace(statusResp.status) ? "PENDING" : statusResp.status;
+                    checkoutStatusText.text = "Payment not completed yet. Current status: " + statusValue;
+                    checkoutStatusText.color = new Color(1f, 0.88f, 0.55f, 1f);
+                }
+                checkoutInProgress = false;
+                if (checkoutLoginButton != null) checkoutLoginButton.interactable = true;
+                if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
+                yield break;
+            }
+
+            AccountManager.Instance.GrantStoreItem(itemKey, quantity);
+            checkoutInProgress = false;
+            ShowMayaSuccessScreen(price);
+        }
+    }
+
+    private void CloseCheckoutPanel()
+    {
+        checkoutInProgress = false;
+        pendingCheckoutItemKey = null;
+        checkoutStatusText = null;
+        checkoutPayButton = null;
+        checkoutLoginButton = null;
+        checkoutOpenHostedButton = null;
+        pendingCheckoutRedirectUrl = null;
+        pendingCheckoutId = null;
+
+        if (checkoutQrPopupInstance != null)
+        {
+            Destroy(checkoutQrPopupInstance);
+            checkoutQrPopupInstance = null;
+        }
+
+        if (checkoutPanelInstance != null)
+        {
+            Destroy(checkoutPanelInstance);
+            checkoutPanelInstance = null;
+        }
+    }
+
+    private decimal GetStorePrice(string itemKey)
+    {
+        if (string.IsNullOrWhiteSpace(itemKey)) return 0m;
+        return storeItemPricesPhp.TryGetValue(itemKey, out var value) ? value : 0m;
+    }
+
+    private int GetStoreQuantity(string itemKey)
+    {
+        if (string.IsNullOrWhiteSpace(itemKey)) return 1;
+        return storeItemQuantities.TryGetValue(itemKey, out var value) ? Mathf.Max(1, value) : 1;
+    }
+
+    private void CacheStoreDescriptionPanels()
+    {
+        storeDescriptionPanels.Clear();
+        if (storeDescriptionRoot == null) return;
+
+        foreach (var key in storeItemDescriptions.Keys)
+        {
+            Transform panel = DeepFind(storeDescriptionRoot, key);
+            if (panel != null)
+                storeDescriptionPanels[key] = panel.gameObject;
+        }
+
+        Debug.Log($"[PauseMenu] Store description panels found: {storeDescriptionPanels.Count}");
+
+        // Hide all description panels by default; hover will show one.
+        foreach (var p in storeDescriptionPanels.Values)
+            if (p != null) p.SetActive(false);
+    }
+
+    private void ShowStoreDescriptionForItem(string itemKey, string text)
+    {
+        // Freeze selected description while hovering this item.
+        activeStoreHoverItemKey = itemKey;
+
+        bool shownPanel = false;
+        foreach (var kv in storeDescriptionPanels)
+        {
+            if (kv.Value == null) continue;
+            bool isMatch = string.Equals(kv.Key, itemKey, StringComparison.OrdinalIgnoreCase);
+            kv.Value.SetActive(isMatch);
+            if (isMatch) shownPanel = true;
+        }
+
+        // Fallback for prefabs that use a single text field instead of per-item panels.
+        if (!shownPanel)
+            ShowStoreDescription(text);
+    }
+
+    private void ResetStoreDescription()
+    {
+        foreach (var kv in storeDescriptionPanels)
+            if (kv.Value != null) kv.Value.SetActive(false);
+
+        if (storeDescriptionText != null)
+            storeDescriptionText.text = storeDefaultDescription;
+    }
+
+    private void ShowStoreDescription(string text)
+    {
+        if (storeDescriptionText == null) return;
+        if (!storeDescriptionText.gameObject.activeSelf)
+            storeDescriptionText.gameObject.SetActive(true);
+        if (!storeDescriptionText.enabled)
+            storeDescriptionText.enabled = true;
+        storeDescriptionText.text = text;
     }
 
     private void CacheStoreItemVisuals(string itemKey, Transform itemRoot)
@@ -460,11 +1533,49 @@ public class PauseMenuController : MonoBehaviour
         foreach (var g in allGraphics)
         {
             if (g == null) continue;
-            // Keep root graphic active for event detection; hide only child visuals.
             if (rootGraphic != null && g == rootGraphic) continue;
             visuals.Add(g);
         }
         storeItemVisuals[itemKey] = visuals;
+    }
+
+    private bool IsPointerOverAnyStoreItem()
+    {
+        foreach (var kv in storeItemHoverRects)
+        {
+            RectTransform rt = kv.Value;
+            if (rt == null || !rt.gameObject.activeInHierarchy) continue;
+            if (RectTransformUtility.RectangleContainsScreenPoint(rt, Input.mousePosition, null))
+                return true;
+        }
+        return false;
+    }
+
+    private void OnStoreItemHoverEnter(string itemKey, string description)
+    {
+        storeHoverEventToken++;
+        ShowStoreDescriptionForItem(itemKey, description);
+    }
+
+    private void OnStoreItemHoverExit(string itemKey)
+    {
+        int token = ++storeHoverEventToken;
+        StartCoroutine(HandleStoreHoverExit(token));
+    }
+
+    private System.Collections.IEnumerator HandleStoreHoverExit(int token)
+    {
+        // Wait one frame so enter-from-adjacent-item can fire first.
+        yield return null;
+
+        if (storeInstance == null) yield break;
+        if (token != storeHoverEventToken) yield break;
+
+        // If pointer is still over any item card, keep the current description frozen.
+        if (IsPointerOverAnyStoreItem()) yield break;
+
+        activeStoreHoverItemKey = null;
+        ResetStoreDescription();
     }
 
     private void WireStoreHoverTarget(GameObject target, string itemKey, string description)
@@ -483,61 +1594,31 @@ public class PauseMenuController : MonoBehaviour
             graphic.raycastTarget = true;
         }
 
+        var rt = target.GetComponent<RectTransform>();
+        if (rt != null)
+            storeItemHoverRects[itemKey] = rt;
+
+        var childGraphics = target.GetComponentsInChildren<Graphic>(true);
+        foreach (var g in childGraphics)
+        {
+            if (g == null) continue;
+            if (g.gameObject == target) continue;
+            g.raycastTarget = false;
+        }
+
         var trigger = target.GetComponent<EventTrigger>();
         if (trigger == null) trigger = target.AddComponent<EventTrigger>();
         trigger.triggers.Clear();
 
-        // Pointer enter
         var enter = new EventTrigger.Entry();
         enter.eventID = EventTriggerType.PointerEnter;
-        enter.callback.AddListener((_) => ShowStoreDescriptionForItem(itemKey, description));
+        enter.callback.AddListener((_) => OnStoreItemHoverEnter(itemKey, description));
         trigger.triggers.Add(enter);
 
-        // Pointer exit
         var exit = new EventTrigger.Entry();
         exit.eventID = EventTriggerType.PointerExit;
-        exit.callback.AddListener((_) => ResetStoreDescription());
+        exit.callback.AddListener((_) => OnStoreItemHoverExit(itemKey));
         trigger.triggers.Add(exit);
-    }
-
-    private void ShowStoreDescriptionForItem(string itemKey, string text)
-    {
-        ShowAllStoreItemVisuals();
-        HideStoreItemVisuals(itemKey);
-        ShowStoreDescription(text);
-    }
-
-    private void ShowStoreDescription(string text)
-    {
-        if (storeDescriptionText != null) storeDescriptionText.text = text;
-    }
-
-    private void ResetStoreDescription()
-    {
-        ShowAllStoreItemVisuals();
-        if (storeDescriptionText != null) storeDescriptionText.text = storeDefaultDescription;
-    }
-
-    private void HideStoreItemVisuals(string itemKey)
-    {
-        if (!storeItemVisuals.TryGetValue(itemKey, out var visuals)) return;
-        foreach (var g in visuals)
-        {
-            if (g != null) g.enabled = false;
-        }
-    }
-
-    private void ShowAllStoreItemVisuals()
-    {
-        foreach (var pair in storeItemVisuals)
-        {
-            var visuals = pair.Value;
-            if (visuals == null) continue;
-            foreach (var g in visuals)
-            {
-                if (g != null) g.enabled = true;
-            }
-        }
     }
 
     // ============================
@@ -1805,5 +2886,31 @@ public class PauseMenuController : MonoBehaviour
             if (result != null) return result;
         }
         return null;
+    }
+
+    private void HideStoreItemVisuals(string itemKey)
+    {
+        if (!storeItemVisuals.TryGetValue(itemKey, out var visuals)) return;
+        foreach (var g in visuals)
+        {
+            if (g == null) continue;
+            if (storeDescriptionText != null && g == storeDescriptionText) continue;
+            g.enabled = false;
+        }
+    }
+
+    private void ShowAllStoreItemVisuals()
+    {
+        foreach (var pair in storeItemVisuals)
+        {
+            var visuals = pair.Value;
+            if (visuals == null) continue;
+            foreach (var g in visuals)
+            {
+                if (g == null) continue;
+                if (storeDescriptionText != null && g == storeDescriptionText) continue;
+                g.enabled = true;
+            }
+        }
     }
 }
