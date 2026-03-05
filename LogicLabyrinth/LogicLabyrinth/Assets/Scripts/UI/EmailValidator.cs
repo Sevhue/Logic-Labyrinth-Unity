@@ -65,6 +65,9 @@ public class EmailValidator : MonoBehaviour
 
     public bool IsEmailValid()
     {
+        if (emailField == null)
+            return false;
+
         return IsValidEmail(emailField.text);
     }
 }

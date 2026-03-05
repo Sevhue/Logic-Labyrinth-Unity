@@ -88,6 +88,98 @@ public class AccountManager : MonoBehaviour
     private string lastUsernameLookupError = "";
 
     private const string InternalEmailSuffix = "@logic.com";
+    private const string SessionLoggedOutKey = "LL_EXPLICIT_LOGOUT";
+    private const string SessionPlayerJsonKey = "LL_LAST_PLAYER_JSON";
+    private const string SessionPendingCloudSyncKey = "LL_PENDING_CLOUD_SYNC";
+    private static bool offlineSaveWarningShown = false;
+
+    private void MarkPendingCloudSync(bool pending)
+    {
+        PlayerPrefs.SetInt(SessionPendingCloudSyncKey, pending ? 1 : 0);
+        PlayerPrefs.Save();
+    }
+
+    private bool HasPendingCloudSync()
+    {
+        return PlayerPrefs.GetInt(SessionPendingCloudSyncKey, 0) == 1;
+    }
+
+    private void TryFlushPendingCloudSync(string reason)
+    {
+        if (!HasPendingCloudSync()) return;
+
+        if (currentPlayer == null)
+            TryRestoreLocalSessionSnapshot();
+
+        if (currentPlayer == null) return;
+        if (!TryGetAuth(out var auth) || dbRef == null || auth == null || auth.CurrentUser == null) return;
+
+        Debug.Log($"[AccountManager] Pending cloud sync detected ({reason}). Uploading local progress to Firebase/leaderboard...");
+        SavePlayerProgress(success =>
+        {
+            if (success)
+            {
+                MarkPendingCloudSync(false);
+                offlineSaveWarningShown = false;
+                Debug.Log("[AccountManager] Pending cloud sync completed.");
+            }
+            else
+            {
+                MarkPendingCloudSync(true);
+                Debug.LogWarning("[AccountManager] Pending cloud sync failed. Will retry next authenticated session.");
+            }
+        });
+    }
+
+    private void MarkExplicitLogout(bool loggedOut)
+    {
+        PlayerPrefs.SetInt(SessionLoggedOutKey, loggedOut ? 1 : 0);
+        PlayerPrefs.Save();
+    }
+
+    private bool WasExplicitlyLoggedOut()
+    {
+        return PlayerPrefs.GetInt(SessionLoggedOutKey, 0) == 1;
+    }
+
+    private void PersistLocalSessionSnapshot()
+    {
+        if (currentPlayer == null) return;
+        string json = JsonUtility.ToJson(currentPlayer);
+        if (string.IsNullOrEmpty(json)) return;
+
+        PlayerPrefs.SetString(SessionPlayerJsonKey, json);
+        MarkExplicitLogout(false);
+    }
+
+    private bool TryRestoreLocalSessionSnapshot()
+    {
+        string json = PlayerPrefs.GetString(SessionPlayerJsonKey, "");
+        if (string.IsNullOrWhiteSpace(json)) return false;
+
+        try
+        {
+            var restored = JsonUtility.FromJson<PlayerData>(json);
+            if (restored == null || string.IsNullOrWhiteSpace(restored.username))
+                return false;
+
+            currentPlayer = restored;
+            NormalizePlayerIdentityFields(currentPlayer);
+            Debug.Log("[AccountManager] Restored local session snapshot.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning("[AccountManager] Failed to restore local session snapshot: " + ex.Message);
+            return false;
+        }
+    }
+
+    private void ClearLocalSessionSnapshot()
+    {
+        PlayerPrefs.DeleteKey(SessionPlayerJsonKey);
+        PlayerPrefs.Save();
+    }
 
     private static string BuildLookupErrorMessage(Exception ex)
     {
@@ -406,20 +498,22 @@ public class AccountManager : MonoBehaviour
     }
     void Start()
     {
-        // 1. Show Main Login (Landing Page) first
-        if (UIManager.Instance != null)
-        {
-            UIManager.Instance.ShowMainLoginPanel();
-        }
-
         if (!TryGetAuth(out var auth) || auth == null)
         {
+            // No auth service available; keep prior local session unless user explicitly logged out.
+            if (!WasExplicitlyLoggedOut() && TryRestoreLocalSessionSnapshot())
+            {
+                TryFlushPendingCloudSync("startup-local-restore");
+                if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                return;
+            }
+
             EnsureOfflineGuestPlayer();
-            if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+            if (UIManager.Instance != null) UIManager.Instance.ShowMainLoginPanel();
             return;
         }
 
-        // 2. AUTO-LOGIN CHECK: Only if there is a session
+        // AUTO-LOGIN CHECK: Firebase session first
         if (auth.CurrentUser != null)
         {
             string userId = auth.CurrentUser.UserId;
@@ -428,6 +522,8 @@ public class AccountManager : MonoBehaviour
                 {
                     currentPlayer = JsonUtility.FromJson<PlayerData>(task.Result.GetRawJsonValue());
                     NormalizePlayerIdentityFields(currentPlayer);
+                    PersistLocalSessionSnapshot();
+                    TryFlushPendingCloudSync("startup-auto-login");
                     Debug.Log("Auto-login: Session found.");
                     Debug.Log($"Auto-login: Loaded gates - AND: {currentPlayer.andGatesCollected}, OR: {currentPlayer.orGatesCollected}, NOT: {currentPlayer.notGatesCollected}");
 
@@ -450,8 +546,32 @@ public class AccountManager : MonoBehaviour
                         if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
                     }
                 }
+                else
+                {
+                    if (!WasExplicitlyLoggedOut() && TryRestoreLocalSessionSnapshot())
+                    {
+                        TryFlushPendingCloudSync("startup-fallback-local");
+                        if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                    }
+                    else if (UIManager.Instance != null)
+                    {
+                        UIManager.Instance.ShowMainLoginPanel();
+                    }
+                }
             });
+            return;
         }
+
+        // No Firebase session; if user did not log out explicitly, restore local snapshot.
+        if (!WasExplicitlyLoggedOut() && TryRestoreLocalSessionSnapshot())
+        {
+            TryFlushPendingCloudSync("startup-no-firebase-session");
+            if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+            return;
+        }
+
+        if (UIManager.Instance != null)
+            UIManager.Instance.ShowMainLoginPanel();
     }
 
     /// <summary>
@@ -485,6 +605,7 @@ public class AccountManager : MonoBehaviour
 
                 currentPlayer = JsonUtility.FromJson<PlayerData>(rawJson);
                 NormalizePlayerIdentityFields(currentPlayer);
+                TryFlushPendingCloudSync("refresh-player-data");
 
                 Debug.Log($"[RefreshPlayerData] Deserialized: gates AND={currentPlayer.andGatesCollected}, OR={currentPlayer.orGatesCollected}, NOT={currentPlayer.notGatesCollected}");
                 Debug.Log($"[RefreshPlayerData] Deserialized: savedLevel={currentPlayer.savedLevel}, pos=({currentPlayer.savedPosX:F2},{currentPlayer.savedPosY:F2},{currentPlayer.savedPosZ:F2}), rotY={currentPlayer.savedRotY:F1}");
@@ -533,11 +654,22 @@ public class AccountManager : MonoBehaviour
 
     public void Login(string user, string pass, System.Action<bool> onResult)
     {
+        Login(user, pass, (success, _message) => onResult?.Invoke(success));
+    }
+
+    public void Login(string user, string pass, System.Action<bool, string> onResult)
+    {
         if (!TryGetAuth(out var auth) || dbRef == null)
         {
-            EnsureOfflineGuestPlayer();
-            if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
-            onResult?.Invoke(true);
+            if (!WasExplicitlyLoggedOut() && TryRestoreLocalSessionSnapshot())
+            {
+                TryFlushPendingCloudSync("login-local-restore");
+                if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
+                onResult?.Invoke(true, "Welcome back!");
+                return;
+            }
+
+            onResult?.Invoke(false, "Login service unavailable. Please try again.");
             return;
         }
 
@@ -561,6 +693,9 @@ public class AccountManager : MonoBehaviour
                     {
                         currentPlayer = JsonUtility.FromJson<PlayerData>(dbTask.Result.GetRawJsonValue());
                         NormalizePlayerIdentityFields(currentPlayer);
+                        MarkExplicitLogout(false);
+                        PersistLocalSessionSnapshot();
+                        TryFlushPendingCloudSync("login-success");
                         Debug.Log($"Login: Loaded gates - AND: {currentPlayer.andGatesCollected}, OR: {currentPlayer.orGatesCollected}, NOT: {currentPlayer.notGatesCollected}");
 
                         // Check if profile is incomplete (missing name/gender/age)
@@ -576,12 +711,12 @@ public class AccountManager : MonoBehaviour
                         {
                             if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
                         }
-                        onResult?.Invoke(true);
+                        onResult?.Invoke(true, "Welcome back!");
                     }
                     else
                     {
                         Debug.LogWarning("No DB record found for: " + userId);
-                        onResult?.Invoke(false);
+                        onResult?.Invoke(false, "Login failed. Player profile was not found.");
                     }
                 });
             }
@@ -596,12 +731,15 @@ public class AccountManager : MonoBehaviour
                     if (!success)
                     {
                         Debug.LogError("Firebase Auth Error: " + firebaseError);
-                        onResult?.Invoke(false);
+                        onResult?.Invoke(false, "Incorrect username or password.");
                     }
                     else
                     {
                         Debug.LogWarning("Firebase Auth sign-in failed, but DB fallback login succeeded.");
-                        onResult?.Invoke(true);
+                        MarkExplicitLogout(false);
+                        PersistLocalSessionSnapshot();
+                        TryFlushPendingCloudSync("login-db-fallback-success");
+                        onResult?.Invoke(true, "Welcome back!");
                     }
                 });
             }
@@ -646,6 +784,7 @@ public class AccountManager : MonoBehaviour
 
             NormalizePlayerIdentityFields(data);
             currentPlayer = data;
+            TryFlushPendingCloudSync("login-db-credential-fallback");
             Debug.Log("[AccountManager] Login fallback succeeded via DB password hash verification.");
 
             if (NewPlayerSetupUI.IsProfileIncomplete())
@@ -963,7 +1102,13 @@ public class AccountManager : MonoBehaviour
         if (!TryGetAuth(out var auth) || dbRef == null || auth.CurrentUser == null)
         {
             // Offline/local mode: keep gameplay functional without cloud persistence.
-            Debug.LogWarning("[AccountManager] Cloud save skipped (offline/local mode).");
+            PersistLocalSessionSnapshot();
+            MarkPendingCloudSync(true);
+            if (!offlineSaveWarningShown)
+            {
+                Debug.LogWarning("[AccountManager] Cloud save skipped (offline/local mode). Progress is saved locally; leaderboard/cloud sync will resume when authenticated online.");
+                offlineSaveWarningShown = true;
+            }
             onComplete?.Invoke(true);
             return;
         }
@@ -973,17 +1118,21 @@ public class AccountManager : MonoBehaviour
             string userId = auth.CurrentUser.UserId;
             NormalizePlayerIdentityFields(currentPlayer);
             string json = JsonUtility.ToJson(currentPlayer);
+            PersistLocalSessionSnapshot();
 
             Debug.Log($"[AccountManager] Saving to Firebase: {json}");
 
             dbRef.Child("users").Child(userId).SetRawJsonValueAsync(json).ContinueWithOnMainThread(task => {
                 if (task.IsCompleted && !task.IsFaulted && !task.IsCanceled)
                 {
+                    MarkPendingCloudSync(false);
+                    offlineSaveWarningShown = false;
                     Debug.Log("Cloud Update Success!");
                     onComplete?.Invoke(true);
                 }
                 else
                 {
+                    MarkPendingCloudSync(true);
                     Debug.LogError("Cloud Update Failed: " + task.Exception);
                     onComplete?.Invoke(false);
                 }
@@ -1058,6 +1207,7 @@ public class AccountManager : MonoBehaviour
             {
                 currentPlayer = JsonUtility.FromJson<PlayerData>(task.Result.GetRawJsonValue());
                 NormalizePlayerIdentityFields(currentPlayer);
+                TryFlushPendingCloudSync("link-google-existing-user");
                 Debug.Log("Google Login: Existing user found. Loading progress...");
 
                 // Check if profile is incomplete (missing name/gender/age)
@@ -1100,6 +1250,9 @@ public class AccountManager : MonoBehaviour
         // 1. Firebase Sign Out
         if (TryGetAuth(out var auth) && auth != null)
             auth.SignOut();
+
+        MarkExplicitLogout(true);
+        ClearLocalSessionSnapshot();
 
         // 2. Clear local player data
         currentPlayer = null;
@@ -1478,6 +1631,23 @@ public class AccountManager : MonoBehaviour
         }
     }
 
+    public int GetAdrenalineCount()
+    {
+        return currentPlayer != null ? Mathf.Max(0, currentPlayer.adrenalineCount) : 0;
+    }
+
+    public bool ConsumeAdrenaline(int quantity = 1)
+    {
+        if (currentPlayer == null) return false;
+
+        int amount = Mathf.Max(1, quantity);
+        if (currentPlayer.adrenalineCount < amount) return false;
+
+        currentPlayer.adrenalineCount -= amount;
+        SavePlayerProgress();
+        return true;
+    }
+
     public void GrantStoreItem(string itemId, int quantity = 1)
     {
         if (currentPlayer == null || string.IsNullOrWhiteSpace(itemId)) return;
@@ -1509,6 +1679,10 @@ public class AccountManager : MonoBehaviour
         }
 
         SavePlayerProgress();
+
+        if (GameInventoryUI.Instance != null)
+            GameInventoryUI.Instance.RefreshFromInventory();
+
         Debug.Log($"[AccountManager] Granted store item '{itemId}' x{Mathf.Max(1, quantity)}.");
     }
 }

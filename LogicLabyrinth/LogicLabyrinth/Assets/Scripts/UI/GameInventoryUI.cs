@@ -20,7 +20,7 @@ public class GameInventoryUI : MonoBehaviour
     public const int SLOT_COUNT = 8;
 
     /// <summary>Type of item that can occupy a hotbar slot.</summary>
-    public enum ItemType { None, AND, OR, NOT, Key, Candle }
+    public enum ItemType { None, AND, OR, NOT, Key, Candle, Adrenaline }
 
     private ItemType[] slotItems = new ItemType[SLOT_COUNT];
     private int selectedSlot = 0; // 0-based index of the currently selected slot
@@ -56,6 +56,7 @@ public class GameInventoryUI : MonoBehaviour
     private Color notColor    = new Color(0.78f, 0.22f, 0.22f, 1f);
     private Color keyColor    = new Color(0.95f, 0.82f, 0.30f, 1f);
     private Color candleColor = new Color(1f, 0.85f, 0.55f, 1f);
+    private Color adrenalineColor = new Color(0.95f, 0.30f, 0.30f, 1f);
 
     // Notification
     private Color notifBGColor = new Color(0.14f, 0.11f, 0.06f, 0.93f);
@@ -262,6 +263,24 @@ public class GameInventoryUI : MonoBehaviour
             slot++;
         }
 
+        // Fill Adrenaline if player has at least one from the store
+        bool hasAdrenaline = (AccountManager.Instance != null && AccountManager.Instance.GetAdrenalineCount() > 0);
+        if (hasAdrenaline && slot < SLOT_COUNT)
+        {
+            slotItems[slot] = ItemType.Adrenaline;
+            slot++;
+        }
+        else if (hasAdrenaline && slot >= SLOT_COUNT)
+        {
+            Debug.LogWarning("[Hotbar] Adrenaline available but hotbar is full, so ADR cannot be shown.");
+        }
+
+        if (hasAdrenaline)
+        {
+            int adrCount = AccountManager.Instance != null ? AccountManager.Instance.GetAdrenalineCount() : 0;
+            Debug.Log($"[Hotbar] RebuildSlots -> adrenalineCount={adrCount}, hasAdrenaline={hasAdrenaline}, usedSlots={slot}/{SLOT_COUNT}");
+        }
+
         UpdateSlotVisuals();
     }
 
@@ -282,6 +301,7 @@ public class GameInventoryUI : MonoBehaviour
             case "NOT":    return ItemType.NOT;
             case "KEY":    return ItemType.Key;
             case "CANDLE": return ItemType.Candle;
+            case "ADRENALINE": return ItemType.Adrenaline;
             default:       return ItemType.None;
         }
     }
@@ -517,6 +537,7 @@ public class GameInventoryUI : MonoBehaviour
             case ItemType.NOT:    return notColor;
             case ItemType.Key:    return keyColor;
             case ItemType.Candle: return candleColor;
+            case ItemType.Adrenaline: return adrenalineColor;
             default:              return creamText;
         }
     }
@@ -530,6 +551,7 @@ public class GameInventoryUI : MonoBehaviour
             case ItemType.NOT:    return "NOT";
             case ItemType.Key:    return "KEY";
             case ItemType.Candle: return "CDL";
+            case ItemType.Adrenaline: return "ADR";
             default:              return "";
         }
     }
@@ -543,6 +565,7 @@ public class GameInventoryUI : MonoBehaviour
             case ItemType.NOT:    return "!";
             case ItemType.Key:    return "\u26BF"; // key symbol
             case ItemType.Candle: return "\u2602"; // candle/umbrella symbol as fallback
+            case ItemType.Adrenaline: return "+";
             default:              return "";
         }
     }
@@ -590,6 +613,7 @@ public class GameInventoryUI : MonoBehaviour
             case "NOT":    accentColor = notColor;    label = "+ NOT Gate Collected!"; break;
             case "KEY":    accentColor = keyColor;    label = "+ Key Collected!";      break;
             case "CANDLE": accentColor = candleColor; label = "+ Candle Collected!";   break;
+            case "ADRENALINE": accentColor = adrenalineColor; label = "+ Adrenaline Acquired!"; break;
             default:       accentColor = goldText;    label = $"+ {itemType} Collected!"; break;
         }
 

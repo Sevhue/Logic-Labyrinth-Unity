@@ -14,8 +14,11 @@ public class CompleteProfilePanel : MonoBehaviour
 
     void Start()
     {
-        createAccountButton.onClick.AddListener(OnCreateAccountClicked);
-        cancelButton.onClick.AddListener(OnCancelClicked);
+        if (createAccountButton != null)
+            createAccountButton.onClick.AddListener(OnCreateAccountClicked);
+
+        if (cancelButton != null)
+            cancelButton.onClick.AddListener(OnCancelClicked);
 
         // Auto-fill with Google info if available
         AutoFillGoogleInfo();
@@ -23,11 +26,14 @@ public class CompleteProfilePanel : MonoBehaviour
 
     private void AutoFillGoogleInfo()
     {
-        var currentPlayer = AccountManager.Instance.GetCurrentPlayer();
+        var currentPlayer = AccountManager.Instance != null ? AccountManager.Instance.GetCurrentPlayer() : null;
         if (currentPlayer != null && !string.IsNullOrEmpty(currentPlayer.displayName))
         {
             // You can auto-fill username or show welcome message
             Debug.Log($"Completing profile for Google user: {currentPlayer.displayName}");
+
+            if (usernameField != null && string.IsNullOrWhiteSpace(usernameField.text))
+                usernameField.text = currentPlayer.displayName;
         }
     }
 
@@ -64,27 +70,41 @@ public class CompleteProfilePanel : MonoBehaviour
 
     void OnCancelClicked()
     {
-        // Optional: Delete the temporary Google account if canceled
-        AccountManager.Instance.Logout();
-        UIManager.Instance.ShowMainMenu();
+        // Non-destructive cancel: keep current session and return to menu.
+        if (UIManager.Instance != null)
+            UIManager.Instance.ShowMainMenu();
     }
 
     private void SaveProfileData()
     {
-        var player = AccountManager.Instance.GetCurrentPlayer();
-        if (player != null)
+        if (AccountManager.Instance == null)
         {
-            // Save the profile data from the form
-            player.username = usernameField.text;
-
-            if (ageDropdown != null)
-                // You might want to store age as string or int
-
-                if (genderDropdown != null)
-                    // Store gender selection
-
-                    AccountManager.Instance.SavePlayerProgress();
+            ShowMessage("Profile service unavailable.", true);
+            return;
         }
+
+        var player = AccountManager.Instance.GetCurrentPlayer();
+        if (player == null)
+        {
+            ShowMessage("No active profile found.", true);
+            return;
+        }
+
+        // Save the profile data from the form
+        if (usernameField != null)
+            player.username = usernameField.text.Trim();
+
+        if (ageDropdown != null && ageDropdown.value > 0)
+            player.age = ageDropdown.options[ageDropdown.value].text;
+
+        if (genderDropdown != null && genderDropdown.value > 0)
+            player.gender = genderDropdown.options[genderDropdown.value].text;
+
+        AccountManager.Instance.SavePlayerProgress(success =>
+        {
+            if (!success)
+                ShowMessage("Profile saved locally. Cloud sync will retry later.", false);
+        });
     }
 
     private bool IsValidDropdownSelection(TMP_Dropdown dropdown, string defaultText)
@@ -101,7 +121,8 @@ public class CompleteProfilePanel : MonoBehaviour
 
     void GoToMainMenu()
     {
-        UIManager.Instance.ShowMainMenu();
+        if (UIManager.Instance != null)
+            UIManager.Instance.ShowMainMenu();
     }
 
     void ShowMessage(string message, bool isError)

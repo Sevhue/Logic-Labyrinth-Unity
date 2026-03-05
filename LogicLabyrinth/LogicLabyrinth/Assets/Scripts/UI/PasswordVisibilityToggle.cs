@@ -21,7 +21,14 @@ public class PasswordVisibilityToggle : MonoBehaviour
             toggleButton = GetComponent<Button>();
 
         // Add click listener
-        toggleButton.onClick.AddListener(TogglePasswordVisibility);
+        if (toggleButton != null)
+        {
+            toggleButton.onClick.AddListener(TogglePasswordVisibility);
+        }
+        else
+        {
+            Debug.LogWarning("[PasswordVisibilityToggle] Toggle button not assigned/found.");
+        }
 
         // Set initial state
         UpdatePasswordVisibility();

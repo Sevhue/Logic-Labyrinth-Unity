@@ -26,10 +26,18 @@ public class CreateAccountPanel : MonoBehaviour
     void Start()
     {
         // Replace entire onClick to clear any Inspector-wired persistent listeners (e.g. ExecuteFinalSignUp)
-        createButton.onClick = new Button.ButtonClickedEvent();
-        createButton.onClick.AddListener(OnCreateClicked);
+        if (createButton != null)
+        {
+            createButton.onClick = new Button.ButtonClickedEvent();
+            createButton.onClick.AddListener(OnCreateClicked);
+        }
+        else
+        {
+            Debug.LogWarning("[CreateAccountPanel] createButton is not assigned.");
+        }
 
-        backButton.onClick.AddListener(OnBackClicked);
+        if (backButton != null)
+            backButton.onClick.AddListener(OnBackClicked);
 
         InitializeSecurityQuestions();
     }
@@ -144,6 +152,12 @@ public class CreateAccountPanel : MonoBehaviour
 
         Debug.Log("ALL VALIDATIONS PASSED - Calling AccountManager");
 
+        if (AccountManager.Instance == null)
+        {
+            ShowValidationPopup("Account service unavailable. Please retry.");
+            return;
+        }
+
         // Collect all fields
         string secQuestion = (securityQuestionDropdown != null && securityQuestionDropdown.value > 0)
             ? securityQuestionDropdown.options[securityQuestionDropdown.value].text
@@ -208,19 +222,22 @@ public class CreateAccountPanel : MonoBehaviour
 
     void OnBackClicked()
     {
-        UIManager.Instance.ShowMainMenu();
+        if (UIManager.Instance != null)
+            UIManager.Instance.ShowMainMenu();
         ClearFields();
     }
 
     void GoToMainMenu()
     {
-        UIManager.Instance.ShowMainMenu();
+        if (UIManager.Instance != null)
+            UIManager.Instance.ShowMainMenu();
         ClearFields();
     }
 
     void GoToLogin()
     {
-        UIManager.Instance.ShowLoginPanel();
+        if (UIManager.Instance != null)
+            UIManager.Instance.ShowLoginPanel();
         ClearFields();
     }
 

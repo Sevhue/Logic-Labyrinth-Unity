@@ -14,10 +14,16 @@ public class LoginPanel : MonoBehaviour
 
     void Start()
     {
-        
-        loginButton.onClick.AddListener(OnLoginClicked);
-        backButton.onClick.AddListener(OnBackClicked);
-        forgotPasswordButton.onClick.AddListener(OnForgotPasswordClicked); 
+        if (loginButton != null)
+            loginButton.onClick.AddListener(OnLoginClicked);
+        else
+            Debug.LogWarning("[LoginPanel] loginButton is not assigned.");
+
+        if (backButton != null)
+            backButton.onClick.AddListener(OnBackClicked);
+
+        if (forgotPasswordButton != null)
+            forgotPasswordButton.onClick.AddListener(OnForgotPasswordClicked); 
 
         if (messageText != null)
             messageText.gameObject.SetActive(false);
@@ -26,6 +32,15 @@ public class LoginPanel : MonoBehaviour
 
     public void OnLoginClicked()
     {
+        if (AccountManager.Instance == null)
+        {
+            ShowMessage("Login service unavailable. Please retry.", true);
+            return;
+        }
+
+        if (loginButton != null && !loginButton.interactable)
+            return;
+
         string username = usernameField.text;
         string password = passwordField.text;
 
@@ -37,36 +52,44 @@ public class LoginPanel : MonoBehaviour
             return;
         }
 
-       
-        AccountManager.Instance.Login(username, password, (success) => {
+        if (loginButton != null) loginButton.interactable = false;
+
+        AccountManager.Instance.Login(username, password, (success, message) => {
+            if (loginButton != null) loginButton.interactable = true;
+
             if (success)
             {
-                ShowMessage($"Welcome back, {username}!", false);
+                ShowMessage(string.IsNullOrWhiteSpace(message) ? $"Welcome back, {username}!" : message, false);
                 Invoke("GoToMainMenu", 1.5f);
             }
             else
             {
-                ShowMessage("Login failed! Check username/password or create an account.", true);
+                ShowMessage(string.IsNullOrWhiteSpace(message)
+                    ? "Login failed! Check username/password or create an account."
+                    : message, true);
             }
         });
     }
 
     public void OnBackClicked()
     {
-        UIManager.Instance.ShowMainMenu();
+        if (UIManager.Instance != null)
+            UIManager.Instance.ShowMainMenu();
         ClearFields();
     }
 
     
     public void OnForgotPasswordClicked()
     {
-        UIManager.Instance.ShowForgotPasswordPanel();
+        if (UIManager.Instance != null)
+            UIManager.Instance.ShowForgotPasswordPanel();
         ClearFields();
     }
 
     void GoToMainMenu()
     {
-        UIManager.Instance.ShowMainMenu();
+        if (UIManager.Instance != null)
+            UIManager.Instance.ShowMainMenu();
         ClearFields();
     }
 

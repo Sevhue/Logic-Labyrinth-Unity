@@ -1401,9 +1401,15 @@ public class UIManager : MonoBehaviour
     }
     public void LinkWithGoogle(string email, string gid, string name)
     {
+        if (AccountManager.Instance == null)
+        {
+            Debug.LogWarning("[UIManager] AccountManager not found. Cannot link Google account.");
+            UpdateFeedback("Login service unavailable. Please retry.", Color.red);
+            return;
+        }
 
         AccountManager.Instance.LinkWithGoogle(email, gid, name);
-        UIManager.Instance.ShowMainMenu();
+        ShowMainMenu();
     }
 
     public void OnSignUpEnterPressed(string dummy)
@@ -1864,7 +1870,13 @@ public class UIManager : MonoBehaviour
             return;
         }
 
-        if (string.IsNullOrEmpty(signUpUsername.text)) return;
+        if (string.IsNullOrEmpty(signUpUsername.text))
+        {
+            UpdateFeedback("Please enter a username.", Color.red);
+            if (confirmSignUpButton != null)
+                confirmSignUpButton.interactable = true;
+            return;
+        }
 
         string cleanUsername = signUpUsername.text.Trim();
         string emailForAuth = cleanUsername + "@logic.com";
@@ -1874,6 +1886,14 @@ public class UIManager : MonoBehaviour
         // Disable confirm button to prevent double-clicks
         if (confirmSignUpButton != null)
             confirmSignUpButton.interactable = false;
+
+        if (AccountManager.Instance == null)
+        {
+            UpdateFeedback("Account service unavailable. Please retry.", Color.red);
+            if (confirmSignUpButton != null)
+                confirmSignUpButton.interactable = true;
+            return;
+        }
 
         AccountManager.Instance.CreateFullAccount(
             emailForAuth, 
