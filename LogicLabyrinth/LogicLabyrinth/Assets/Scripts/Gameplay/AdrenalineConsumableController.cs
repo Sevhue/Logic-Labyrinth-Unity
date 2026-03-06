@@ -38,9 +38,21 @@ public class AdrenalineConsumableController : MonoBehaviour
     private const string PrefCamRotZ = "LL_ADR_CAM_ROT_Z";
 
     private const string ObjMeshPath = "Assets/Store/Purchase/Adrenaline/source/model/base.obj";
-    private const string DiffuseTexPath = "Assets/Store/Purchase/Adrenaline/source/model/texture_diffuse.png";
-    private const string NormalTexPath = "Assets/Store/Purchase/Adrenaline/source/model/texture_normal.png";
-    private const string MetallicTexPath = "Assets/Store/Purchase/Adrenaline/source/model/texture_metallic.png";
+    private static readonly string[] DiffuseTexPaths =
+    {
+        "Assets/Store/Purchase/Adrenaline/textures/texture_diffuse.png",
+        "Assets/Store/Purchase/Adrenaline/source/model/texture_diffuse.png"
+    };
+    private static readonly string[] NormalTexPaths =
+    {
+        "Assets/Store/Purchase/Adrenaline/textures/texture_normal.png",
+        "Assets/Store/Purchase/Adrenaline/source/model/texture_normal.png"
+    };
+    private static readonly string[] MetallicTexPaths =
+    {
+        "Assets/Store/Purchase/Adrenaline/textures/texture_metallic.png",
+        "Assets/Store/Purchase/Adrenaline/source/model/texture_metallic.png"
+    };
 
     [Header("Input")]
     public KeyCode consumeKey = KeyCode.F;
@@ -556,27 +568,56 @@ public class AdrenalineConsumableController : MonoBehaviour
 
         Material mat = new Material(shader);
 
-        Texture2D diffuse = AssetDatabase.LoadAssetAtPath<Texture2D>(DiffuseTexPath);
+        Texture2D diffuse = LoadTextureFromAny(DiffuseTexPaths);
         if (diffuse != null)
-            mat.SetTexture("_BaseMap", diffuse);
+        {
+            if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", diffuse);
+            if (mat.HasProperty("_MainTex")) mat.SetTexture("_MainTex", diffuse);
+        }
 
-        Texture2D normal = AssetDatabase.LoadAssetAtPath<Texture2D>(NormalTexPath);
+        Texture2D normal = LoadTextureFromAny(NormalTexPaths);
         if (normal != null)
         {
-            mat.SetTexture("_BumpMap", normal);
-            mat.EnableKeyword("_NORMALMAP");
+            if (mat.HasProperty("_BumpMap"))
+            {
+                mat.SetTexture("_BumpMap", normal);
+                mat.EnableKeyword("_NORMALMAP");
+            }
         }
 
-        Texture2D metallic = AssetDatabase.LoadAssetAtPath<Texture2D>(MetallicTexPath);
+        Texture2D metallic = LoadTextureFromAny(MetallicTexPaths);
         if (metallic != null)
         {
-            mat.SetTexture("_MetallicGlossMap", metallic);
-            mat.SetFloat("_Metallic", 1f);
+            if (mat.HasProperty("_MetallicGlossMap"))
+            {
+                mat.SetTexture("_MetallicGlossMap", metallic);
+                mat.EnableKeyword("_METALLICSPECGLOSSMAP");
+            }
+            if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", 0.25f);
         }
+        else if (mat.HasProperty("_Metallic"))
+        {
+            mat.SetFloat("_Metallic", 0.05f);
+        }
+
+        if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", 0.3f);
+        if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", Color.white);
+        if (mat.HasProperty("_Color")) mat.SetColor("_Color", Color.white);
 
         mr.sharedMaterial = mat;
         go.transform.localScale = Vector3.one * 0.28f;
         return go;
+    }
+
+    private static Texture2D LoadTextureFromAny(string[] paths)
+    {
+        if (paths == null) return null;
+        for (int i = 0; i < paths.Length; i++)
+        {
+            Texture2D tex = AssetDatabase.LoadAssetAtPath<Texture2D>(paths[i]);
+            if (tex != null) return tex;
+        }
+        return null;
     }
 #endif
 

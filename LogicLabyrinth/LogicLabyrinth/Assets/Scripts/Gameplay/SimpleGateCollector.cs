@@ -71,11 +71,6 @@ public class SimpleGateCollector : MonoBehaviour
             {
                 TryCollectGate();
             }
-            else if (currentTable != null)
-            {
-                Debug.Log($"[SGC] Opening puzzle table: {currentTable.gameObject.name}");
-                currentTable.OpenPuzzleInterface();
-            }
             else if (currentKey != null)
             {
                 Debug.Log("[SGC] Collecting key.");
@@ -87,6 +82,11 @@ public class SimpleGateCollector : MonoBehaviour
                 Debug.Log("[SGC] Collecting candle.");
                 currentCandle.CollectCandle();
                 currentCandle = null;
+            }
+            else if (currentTable != null)
+            {
+                Debug.Log($"[SGC] Opening puzzle table: {currentTable.gameObject.name}");
+                currentTable.OpenPuzzleInterface();
             }
             else if (currentDoor != null)
             {
@@ -107,45 +107,44 @@ public class SimpleGateCollector : MonoBehaviour
                     RaycastHit directHit;
                     if (Physics.Raycast(directRay, out directHit, interactDistance))
                     {
-                        InteractiveTable directTable = directHit.collider.GetComponent<InteractiveTable>();
-                        if (directTable == null)
-                            directTable = directHit.collider.GetComponentInParent<InteractiveTable>();
-                        if (directTable != null && !directTable.IsSolved)
+                        CollectibleKey directKey = directHit.collider.GetComponent<CollectibleKey>();
+                        if (directKey == null) directKey = directHit.collider.GetComponentInParent<CollectibleKey>();
+                        if (directKey != null && !directKey.IsCollected)
                         {
-                            directTable.OpenPuzzleInterface();
+                            directKey.CollectKey();
                         }
                         else
                         {
-                            // Also try key, candle, and door via direct raycast
-                            CollectibleKey directKey = directHit.collider.GetComponent<CollectibleKey>();
-                            if (directKey == null) directKey = directHit.collider.GetComponentInParent<CollectibleKey>();
-                            if (directKey != null && !directKey.IsCollected)
+                            CollectibleCandle directCandle = directHit.collider.GetComponent<CollectibleCandle>();
+                            if (directCandle == null) directCandle = directHit.collider.GetComponentInParent<CollectibleCandle>();
+                            if (directCandle != null && !directCandle.IsCollected)
                             {
-                                directKey.CollectKey();
+                                directCandle.CollectCandle();
                             }
                             else
                             {
-                                CollectibleCandle directCandle = directHit.collider.GetComponent<CollectibleCandle>();
-                                if (directCandle == null) directCandle = directHit.collider.GetComponentInParent<CollectibleCandle>();
-                                if (directCandle != null && !directCandle.IsCollected)
+                                TutorialDoor directDoor = directHit.collider.GetComponent<TutorialDoor>();
+                                if (directDoor == null) directDoor = directHit.collider.GetComponentInParent<TutorialDoor>();
+                                if (directDoor != null && !directDoor.IsDoorOpen)
                                 {
-                                    directCandle.CollectCandle();
+                                    directDoor.TryInteract();
                                 }
                                 else
                                 {
-                                    TutorialDoor directDoor = directHit.collider.GetComponent<TutorialDoor>();
-                                    if (directDoor == null) directDoor = directHit.collider.GetComponentInParent<TutorialDoor>();
-                                    if (directDoor != null && !directDoor.IsDoorOpen)
+                                    SuccessDoor directSuccessDoor = directHit.collider.GetComponent<SuccessDoor>();
+                                    if (directSuccessDoor == null) directSuccessDoor = directHit.collider.GetComponentInParent<SuccessDoor>();
+                                    if (directSuccessDoor != null && !directSuccessDoor.IsDoorOpen)
                                     {
-                                        directDoor.TryInteract();
+                                        directSuccessDoor.TryInteract();
                                     }
                                     else
                                     {
-                                        SuccessDoor directSuccessDoor = directHit.collider.GetComponent<SuccessDoor>();
-                                        if (directSuccessDoor == null) directSuccessDoor = directHit.collider.GetComponentInParent<SuccessDoor>();
-                                        if (directSuccessDoor != null && !directSuccessDoor.IsDoorOpen)
+                                        InteractiveTable directTable = directHit.collider.GetComponent<InteractiveTable>();
+                                        if (directTable == null)
+                                            directTable = directHit.collider.GetComponentInParent<InteractiveTable>();
+                                        if (directTable != null && !directTable.IsSolved)
                                         {
-                                            directSuccessDoor.TryInteract();
+                                            directTable.OpenPuzzleInterface();
                                         }
                                     }
                                 }
@@ -412,7 +411,7 @@ public class SimpleGateCollector : MonoBehaviour
         }
 
         // ═══════════════════════════════════════════════
-        //  Update prompts — priority: gate > table > key > door
+        //  Update prompts — priority: gate > key > candle > table > doors
         // ═══════════════════════════════════════════════
         if (bestInteractable != null)
         {
@@ -436,16 +435,6 @@ public class SimpleGateCollector : MonoBehaviour
             }
             ShowPrompt(promptText);
         }
-        else if (bestTable != null)
-        {
-            currentInteractable = null;
-            currentTable = bestTable;
-            currentKey = null;
-            currentCandle = null;
-            currentDoor = null;
-            currentSuccessDoor = null;
-            ShowPrompt("Press E to open Puzzle Table");
-        }
         else if (bestKey != null)
         {
             currentInteractable = null;
@@ -465,6 +454,16 @@ public class SimpleGateCollector : MonoBehaviour
             currentDoor = null;
             currentSuccessDoor = null;
             ShowPrompt("Press E to pick up candle");
+        }
+        else if (bestTable != null)
+        {
+            currentInteractable = null;
+            currentTable = bestTable;
+            currentKey = null;
+            currentCandle = null;
+            currentDoor = null;
+            currentSuccessDoor = null;
+            ShowPrompt("Press E to open Puzzle Table");
         }
         else if (bestDoor != null)
         {

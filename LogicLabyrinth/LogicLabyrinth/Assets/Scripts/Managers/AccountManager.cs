@@ -739,6 +739,7 @@ public class AccountManager : MonoBehaviour
                         MarkExplicitLogout(false);
                         PersistLocalSessionSnapshot();
                         TryFlushPendingCloudSync("login-db-fallback-success");
+                        TryRecoverFirebaseAuthSessionFromFallback(cleanUser, pass);
                         onResult?.Invoke(true, "Welcome back!");
                     }
                 });
@@ -801,6 +802,84 @@ public class AccountManager : MonoBehaviour
 
             onResult?.Invoke(true);
         });
+    }
+
+    private void TryRecoverFirebaseAuthSessionFromFallback(string normalizedUsername, string password)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedUsername) || string.IsNullOrWhiteSpace(password)) return;
+        if (!TryGetAuth(out var auth) || auth == null || dbRef == null) return;
+        if (auth.CurrentUser != null)
+        {
+            PromoteCurrentSessionToUidSync(auth.CurrentUser.UserId, "fallback-recover-existing-auth");
+            return;
+        }
+
+        string email = normalizedUsername.Contains("@")
+            ? normalizedUsername.Trim().ToLowerInvariant()
+            : (normalizedUsername.Trim().ToLowerInvariant() + InternalEmailSuffix);
+
+        auth.SignInWithEmailAndPasswordAsync(email, password).ContinueWithOnMainThread(signInTask =>
+        {
+            if (signInTask.IsCompleted && !signInTask.IsFaulted && !signInTask.IsCanceled)
+            {
+                string uid = signInTask.Result.User.UserId;
+                PromoteCurrentSessionToUidSync(uid, "fallback-recover-signin-success");
+                return;
+            }
+
+            if (!IsAuthUserNotFound(signInTask.Exception))
+            {
+                Debug.LogWarning("[AccountManager] Fallback auth recovery sign-in failed (non-user-not-found). Continuing in fallback mode.");
+                return;
+            }
+
+            auth.CreateUserWithEmailAndPasswordAsync(email, password).ContinueWithOnMainThread(createTask =>
+            {
+                if (createTask.IsCompleted && !createTask.IsFaulted && !createTask.IsCanceled)
+                {
+                    string uid = createTask.Result.User.UserId;
+                    PromoteCurrentSessionToUidSync(uid, "fallback-recover-create-success");
+                }
+                else
+                {
+                    Debug.LogWarning("[AccountManager] Fallback auth recovery create-user failed. Continuing in fallback mode. " + createTask.Exception);
+                }
+            });
+        });
+    }
+
+    private void PromoteCurrentSessionToUidSync(string userId, string reason)
+    {
+        if (currentPlayer == null || dbRef == null || string.IsNullOrWhiteSpace(userId)) return;
+
+        NormalizePlayerIdentityFields(currentPlayer);
+        string json = JsonUtility.ToJson(currentPlayer);
+
+        dbRef.Child("users").Child(userId).SetRawJsonValueAsync(json).ContinueWithOnMainThread(task =>
+        {
+            if (task.IsCompleted && !task.IsFaulted && !task.IsCanceled)
+            {
+                MarkPendingCloudSync(false);
+                offlineSaveWarningShown = false;
+                PersistLocalSessionSnapshot();
+                UpdateLeaderboardEntry(userId);
+                RemoveLegacyPublicLeaderboardEntry(userId);
+                Debug.Log($"[AccountManager] Promoted fallback session to Firebase Auth UID sync ({reason}).");
+            }
+            else
+            {
+                Debug.LogWarning("[AccountManager] Failed to promote fallback session to UID sync: " + task.Exception);
+            }
+        });
+    }
+
+    private static bool IsAuthUserNotFound(Exception ex)
+    {
+        if (ex == null) return false;
+        string msg = ex.ToString();
+        return msg.IndexOf("no user record", StringComparison.OrdinalIgnoreCase) >= 0
+            || msg.IndexOf("user-not-found", StringComparison.OrdinalIgnoreCase) >= 0
+            || msg.IndexOf("email_not_found", StringComparison.OrdinalIgnoreCase) >= 0;
     }
     public void CreateAccountWithSecurity(string user, string pass, string q, string a, string gender = "", string age = "", System.Action<bool, string> onResult = null)
     {
@@ -1104,6 +1183,15 @@ public class AccountManager : MonoBehaviour
             // Offline/local mode: keep gameplay functional without cloud persistence.
             PersistLocalSessionSnapshot();
             MarkPendingCloudSync(true);
+
+            // Best-effort public leaderboard sync so profile/time changes are still visible globally.
+            if (dbRef != null)
+            {
+                string publicKey = BuildPublicLeaderboardKey(currentPlayer);
+                UpdateLeaderboardEntry(publicKey);
+                Debug.Log($"[AccountManager] Offline/local mode: attempted public leaderboard sync using key '{publicKey}'.");
+            }
+
             if (!offlineSaveWarningShown)
             {
                 Debug.LogWarning("[AccountManager] Cloud save skipped (offline/local mode). Progress is saved locally; leaderboard/cloud sync will resume when authenticated online.");
@@ -1140,6 +1228,7 @@ public class AccountManager : MonoBehaviour
 
             // Also update the public leaderboard node (safe data only)
             UpdateLeaderboardEntry(userId);
+            RemoveLegacyPublicLeaderboardEntry(userId);
         }
         else
         {
@@ -1188,6 +1277,33 @@ public class AccountManager : MonoBehaviour
         dbRef.Child("leaderboard").Child(userId).UpdateChildrenAsync(leaderboardData).ContinueWithOnMainThread(task => {
             if (task.IsCompleted) Debug.Log("[Leaderboard] Public entry updated.");
             else Debug.LogWarning("[Leaderboard] Failed to update entry: " + task.Exception);
+        });
+    }
+
+    private static string BuildPublicLeaderboardKey(PlayerData player)
+    {
+        if (player == null) return "public_guest";
+
+        string normalized = NormalizeUsernameForLookup(player.username);
+        if (string.IsNullOrWhiteSpace(normalized))
+            normalized = NormalizeUsernameForLookup(player.displayName);
+        if (string.IsNullOrWhiteSpace(normalized))
+            normalized = "guest";
+
+        return "public_" + normalized;
+    }
+
+    private void RemoveLegacyPublicLeaderboardEntry(string authenticatedUserId)
+    {
+        if (dbRef == null || currentPlayer == null) return;
+
+        string publicKey = BuildPublicLeaderboardKey(currentPlayer);
+        if (string.IsNullOrWhiteSpace(publicKey) || publicKey == authenticatedUserId) return;
+
+        dbRef.Child("leaderboard").Child(publicKey).RemoveValueAsync().ContinueWithOnMainThread(task =>
+        {
+            if (task.IsCompleted && !task.IsFaulted && !task.IsCanceled)
+                Debug.Log($"[Leaderboard] Removed legacy public fallback entry '{publicKey}'.");
         });
     }
 

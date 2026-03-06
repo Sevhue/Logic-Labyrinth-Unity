@@ -80,21 +80,38 @@ public class LeaderboardPanel : MonoBehaviour
 
     private List<LeaderboardEntry> allEntries = new List<LeaderboardEntry>();
     private bool showingGlobal = true;
+    private bool isFetchInProgress;
+    private bool queuedRefresh;
+    private bool permissionDeniedLockout;
+    private DatabaseReference leaderboardRef;
+    private bool realtimeListenerAttached;
 
     void OnEnable()
     {
+        permissionDeniedLockout = false;
+        queuedRefresh = false;
+        isFetchInProgress = false;
+
         LoadProfilePictures();
         BuildUI();
+        AttachRealtimeListener();
         FetchLeaderboard();
     }
 
     void OnDisable()
     {
+        DetachRealtimeListener();
+
         if (contentParent != null)
         {
             foreach (Transform child in contentParent)
                 Destroy(child.gameObject);
         }
+    }
+
+    void OnDestroy()
+    {
+        DetachRealtimeListener();
     }
 
     // ===================== UI BUILDING =====================
@@ -503,10 +520,30 @@ public class LeaderboardPanel : MonoBehaviour
 
     private void FetchLeaderboard()
     {
-        if (loadingIndicator != null) loadingIndicator.SetActive(true);
-        if (statusText != null) statusText.text = "Fetching rankings...";
+        FetchLeaderboard(true);
+    }
 
-        if (contentParent != null)
+    private void FetchLeaderboard(bool showLoading)
+    {
+        if (permissionDeniedLockout)
+        {
+            if (showLoading)
+                ShowPermissionDeniedState();
+            return;
+        }
+
+        if (isFetchInProgress)
+        {
+            queuedRefresh = true;
+            return;
+        }
+
+        isFetchInProgress = true;
+
+        if (showLoading && loadingIndicator != null) loadingIndicator.SetActive(true);
+        if (showLoading && statusText != null) statusText.text = "Fetching rankings...";
+
+        if (showLoading && contentParent != null)
         {
             foreach (Transform child in contentParent)
                 Destroy(child.gameObject);
@@ -515,86 +552,247 @@ public class LeaderboardPanel : MonoBehaviour
         DatabaseReference dbRef = FirebaseDatabase.GetInstance(RealtimeDatabaseUrl).RootReference;
         dbRef.Child("leaderboard").GetValueAsync().ContinueWithOnMainThread(task =>
         {
+            isFetchInProgress = false;
+
             if (task.IsFaulted || task.IsCanceled)
             {
                 Debug.LogError("[Leaderboard] Failed to fetch data: " + task.Exception);
-                if (statusText != null) statusText.text = "Failed to load leaderboard.";
-                return;
-            }
-
-            if (!task.Result.Exists || !task.Result.HasChildren)
-            {
-                if (statusText != null) statusText.text = "No players found yet. Play the game!";
-                return;
-            }
-
-            allEntries.Clear();
-
-            foreach (DataSnapshot userSnap in task.Result.Children)
-            {
-                LeaderboardEntry entry = new LeaderboardEntry();
-                entry.uid = userSnap.Key;
-
-                if (userSnap.HasChild("username"))
-                    entry.username = userSnap.Child("username").Value?.ToString() ?? "Unknown";
-                else
-                    entry.username = "Unknown";
-
-                if (userSnap.HasChild("lastCompletedLevel"))
-                    int.TryParse(userSnap.Child("lastCompletedLevel").Value?.ToString(), out entry.lastCompletedLevel);
-
-                if (userSnap.HasChild("puzzlesCompleted"))
-                    int.TryParse(userSnap.Child("puzzlesCompleted").Value?.ToString(), out entry.puzzlesCompleted);
-
-                if (userSnap.HasChild("profilePicture"))
-                    entry.profilePicture = userSnap.Child("profilePicture").Value?.ToString() ?? DEFAULT_PROFILE_PIC;
-                else
-                    entry.profilePicture = DEFAULT_PROFILE_PIC;
-
-                // Parse best times
-                if (userSnap.HasChild("bestLevelTimes"))
+                bool permissionDenied = IsPermissionDenied(task.Exception);
+                if (permissionDenied)
                 {
-                    string timesStr = userSnap.Child("bestLevelTimes").Value?.ToString() ?? "";
-                    entry.bestTimes = AccountManager.ParseBestTimes(timesStr);
+                    permissionDeniedLockout = true;
+                    DetachRealtimeListener();
+                    ShowPermissionDeniedState();
                 }
-
-                if (userSnap.HasChild("totalBestTime"))
-                    float.TryParse(userSnap.Child("totalBestTime").Value?.ToString(),
-                        System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        out entry.totalBestTime);
-                else
-                    entry.totalBestTime = -1f;
-
-                if (userSnap.HasChild("fastestLevelTime"))
-                    float.TryParse(userSnap.Child("fastestLevelTime").Value?.ToString(),
-                        System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        out entry.fastestLevelTime);
-                else
-                    entry.fastestLevelTime = -1f;
-
-                if (userSnap.HasChild("levelsCompleted"))
-                    int.TryParse(userSnap.Child("levelsCompleted").Value?.ToString(), out entry.levelsCompleted);
-
-                // Fallback for players who haven't replayed since the timing update:
-                // use lastCompletedLevel if levelsCompleted is 0
-                if (entry.levelsCompleted == 0 && entry.lastCompletedLevel > 0)
-                    entry.levelsCompleted = entry.lastCompletedLevel;
-
-                if (userSnap.HasChild("totalPlayedSeconds"))
-                    float.TryParse(userSnap.Child("totalPlayedSeconds").Value?.ToString(),
-                        System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        out entry.totalPlayedSeconds);
-
-                allEntries.Add(entry);
+                else if (showLoading && statusText != null)
+                {
+                    statusText.text = "Failed to load leaderboard.";
+                }
+                RunQueuedRefreshIfNeeded();
+                return;
             }
 
-            if (loadingIndicator != null) loadingIndicator.SetActive(false);
-            DisplayCurrentView();
-            Debug.Log($"[Leaderboard] Loaded {allEntries.Count} entries.");
+            ApplySnapshot(task.Result, showLoading);
+            RunQueuedRefreshIfNeeded();
         });
+    }
+
+    private void AttachRealtimeListener()
+    {
+        DetachRealtimeListener();
+        leaderboardRef = FirebaseDatabase.GetInstance(RealtimeDatabaseUrl).RootReference.Child("leaderboard");
+        leaderboardRef.ValueChanged += OnLeaderboardValueChanged;
+        realtimeListenerAttached = true;
+    }
+
+    private void DetachRealtimeListener()
+    {
+        if (!realtimeListenerAttached || leaderboardRef == null) return;
+        leaderboardRef.ValueChanged -= OnLeaderboardValueChanged;
+        realtimeListenerAttached = false;
+        leaderboardRef = null;
+    }
+
+    private void OnLeaderboardValueChanged(object sender, ValueChangedEventArgs args)
+    {
+        if (permissionDeniedLockout) return;
+
+        if (args.DatabaseError != null)
+        {
+            Debug.LogError("[Leaderboard] Realtime listener failed: " + args.DatabaseError.Message);
+            if (IsPermissionDenied(args.DatabaseError.Message))
+            {
+                permissionDeniedLockout = true;
+                DetachRealtimeListener();
+                ShowPermissionDeniedState();
+            }
+            return;
+        }
+
+        ApplySnapshot(args.Snapshot, false);
+    }
+
+    private void ApplySnapshot(DataSnapshot snapshot, bool showEmptyStatus)
+    {
+        if (snapshot == null || !snapshot.Exists || !snapshot.HasChildren)
+        {
+            allEntries.Clear();
+            if (showEmptyStatus && statusText != null)
+                statusText.text = "No players found yet. Play the game!";
+            if (loadingIndicator != null)
+                loadingIndicator.SetActive(showEmptyStatus);
+            DisplayCurrentView();
+            return;
+        }
+
+        allEntries.Clear();
+
+        foreach (DataSnapshot userSnap in snapshot.Children)
+        {
+            LeaderboardEntry entry = new LeaderboardEntry();
+            entry.uid = userSnap.Key;
+
+            if (userSnap.HasChild("username"))
+                entry.username = userSnap.Child("username").Value?.ToString() ?? "Unknown";
+            else
+                entry.username = "Unknown";
+
+            if (userSnap.HasChild("lastCompletedLevel"))
+                int.TryParse(userSnap.Child("lastCompletedLevel").Value?.ToString(), out entry.lastCompletedLevel);
+
+            if (userSnap.HasChild("puzzlesCompleted"))
+                int.TryParse(userSnap.Child("puzzlesCompleted").Value?.ToString(), out entry.puzzlesCompleted);
+
+            if (userSnap.HasChild("profilePicture"))
+                entry.profilePicture = userSnap.Child("profilePicture").Value?.ToString() ?? DEFAULT_PROFILE_PIC;
+            else
+                entry.profilePicture = DEFAULT_PROFILE_PIC;
+
+            if (userSnap.HasChild("bestLevelTimes"))
+            {
+                string timesStr = userSnap.Child("bestLevelTimes").Value?.ToString() ?? "";
+                entry.bestTimes = AccountManager.ParseBestTimes(timesStr);
+            }
+
+            if (userSnap.HasChild("totalBestTime"))
+                float.TryParse(userSnap.Child("totalBestTime").Value?.ToString(),
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out entry.totalBestTime);
+            else
+                entry.totalBestTime = -1f;
+
+            if (userSnap.HasChild("fastestLevelTime"))
+                float.TryParse(userSnap.Child("fastestLevelTime").Value?.ToString(),
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out entry.fastestLevelTime);
+            else
+                entry.fastestLevelTime = -1f;
+
+            if (userSnap.HasChild("levelsCompleted"))
+                int.TryParse(userSnap.Child("levelsCompleted").Value?.ToString(), out entry.levelsCompleted);
+
+            if (entry.levelsCompleted == 0 && entry.lastCompletedLevel > 0)
+                entry.levelsCompleted = entry.lastCompletedLevel;
+
+            if (userSnap.HasChild("totalPlayedSeconds"))
+                float.TryParse(userSnap.Child("totalPlayedSeconds").Value?.ToString(),
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out entry.totalPlayedSeconds);
+
+            // Keep this client's own avatar current even when cloud sync is temporarily unavailable.
+            string localPic = ResolveLocalProfilePictureOverride(entry);
+            if (!string.IsNullOrWhiteSpace(localPic))
+                entry.profilePicture = localPic;
+
+            allEntries.Add(entry);
+        }
+
+        if (loadingIndicator != null) loadingIndicator.SetActive(false);
+        DisplayCurrentView();
+        Debug.Log($"[Leaderboard] Loaded {allEntries.Count} entries.");
+    }
+
+    private void RunQueuedRefreshIfNeeded()
+    {
+        if (permissionDeniedLockout)
+        {
+            queuedRefresh = false;
+            return;
+        }
+
+        if (!queuedRefresh) return;
+        queuedRefresh = false;
+        FetchLeaderboard(false);
+    }
+
+    private bool IsPermissionDenied(System.Exception ex)
+    {
+        if (ex == null) return false;
+        string msg = ex.ToString();
+        return IsPermissionDenied(msg);
+    }
+
+    private bool IsPermissionDenied(string msg)
+    {
+        if (string.IsNullOrEmpty(msg)) return false;
+        return msg.IndexOf("permission denied", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || msg.IndexOf("does not have permission", System.StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private void ShowPermissionDeniedState()
+    {
+        allEntries.Clear();
+        TryAddLocalFallbackEntry();
+
+        if (loadingIndicator != null)
+            loadingIndicator.SetActive(true);
+
+        if (statusText != null)
+        {
+            statusText.text = "Leaderboard blocked by Firebase Rules.\nLogin again or allow read access to /leaderboard.";
+        }
+
+        DisplayCurrentView();
+    }
+
+    private void TryAddLocalFallbackEntry()
+    {
+        if (AccountManager.Instance == null) return;
+        var player = AccountManager.Instance.GetCurrentPlayer();
+        if (player == null) return;
+
+        var entry = new LeaderboardEntry();
+        entry.uid = GetCurrentUid();
+        entry.username = !string.IsNullOrWhiteSpace(player.displayName)
+            ? player.displayName
+            : (player.username ?? "You");
+        entry.lastCompletedLevel = player.lastCompletedLevel;
+        entry.puzzlesCompleted = player.completedPuzzles != null ? player.completedPuzzles.Count : 0;
+        entry.profilePicture = string.IsNullOrWhiteSpace(player.profilePicture) ? DEFAULT_PROFILE_PIC : player.profilePicture;
+        entry.bestTimes = AccountManager.ParseBestTimes(player.bestLevelTimes ?? "");
+
+        float totalBest = 0f;
+        float fastest = -1f;
+        foreach (var kvp in entry.bestTimes)
+        {
+            totalBest += kvp.Value;
+            if (fastest < 0f || kvp.Value < fastest)
+                fastest = kvp.Value;
+        }
+        entry.totalBestTime = entry.bestTimes.Count > 0 ? totalBest : -1f;
+        entry.fastestLevelTime = fastest;
+        entry.levelsCompleted = entry.bestTimes.Count > 0 ? entry.bestTimes.Count : player.lastCompletedLevel;
+        entry.totalPlayedSeconds = player.totalPlayedSeconds;
+
+        allEntries.Add(entry);
+    }
+
+    private string ResolveLocalProfilePictureOverride(LeaderboardEntry entry)
+    {
+        if (entry == null || AccountManager.Instance == null) return null;
+        var player = AccountManager.Instance.GetCurrentPlayer();
+        if (player == null) return null;
+
+        string currentUid = GetCurrentUid();
+        if (!string.IsNullOrWhiteSpace(currentUid) && currentUid == entry.uid)
+            return player.profilePicture;
+
+        // Fallback match when session is local/offline and UID is unavailable.
+        string entryName = (entry.username ?? string.Empty).Trim();
+        string localDisplay = (player.displayName ?? string.Empty).Trim();
+        string localUser = (player.username ?? string.Empty).Trim();
+
+        if (!string.IsNullOrWhiteSpace(entryName) &&
+            (entryName.Equals(localDisplay, System.StringComparison.OrdinalIgnoreCase) ||
+             entryName.Equals(localUser, System.StringComparison.OrdinalIgnoreCase)))
+        {
+            return player.profilePicture;
+        }
+
+        return null;
     }
 
     // ===================== DISPLAY =====================

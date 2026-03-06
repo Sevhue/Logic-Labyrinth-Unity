@@ -511,9 +511,10 @@ public class UIManager : MonoBehaviour
                 if (inputT != null) inputT.gameObject.SetActive(false);
             }
 
-            // Also try TMP_InputField on the container itself (some setups use this)
-            TMP_InputField inputField = container.GetComponent<TMP_InputField>();
-            if (inputField != null) inputField.text = hasValue ? value : "";
+            // Some prefab variants nest TMP_InputField deeper than the container.
+            TMP_InputField[] inputFields = container.GetComponentsInChildren<TMP_InputField>(true);
+            foreach (var field in inputFields)
+                field.text = hasValue ? value : "";
         }
 
         // Gather values
@@ -655,9 +656,13 @@ public class UIManager : MonoBehaviour
             Transform container = FindChildRecursive(accountProfilePanel.transform, containerName);
             if (container == null) return null;
 
-            // Try TMP_InputField first (if one was added dynamically)
-            TMP_InputField inputField = container.GetComponent<TMP_InputField>();
-            if (inputField != null) return inputField.text;
+            // Prefer TMP_InputField text from any nested layout variant.
+            TMP_InputField[] inputFields = container.GetComponentsInChildren<TMP_InputField>(true);
+            foreach (var field in inputFields)
+            {
+                if (!string.IsNullOrWhiteSpace(field.text))
+                    return field.text;
+            }
 
             // Read from the Input TMP child (active when a value is set)
             Transform inputT = container.Find("Input");
@@ -710,8 +715,24 @@ public class UIManager : MonoBehaviour
 
         if (changed)
         {
-            AccountManager.Instance.SavePlayerProgress();
-            Debug.Log("[UIManager] Profile fields saved to Firebase.");
+            AccountManager.Instance.SavePlayerProgress(success =>
+            {
+                if (!success)
+                {
+                    Debug.LogWarning("[UIManager] Profile save failed.");
+                    return;
+                }
+
+                // Keep this screen in sync immediately after save.
+                PopulateAccountProfileFields();
+                if (ProfileManager.Instance != null)
+                {
+                    ProfileManager.Instance.LoadCurrentProfileFromPlayer();
+                    ProfileManager.Instance.RefreshProfileDisplay();
+                }
+
+                Debug.Log("[UIManager] Profile fields saved to Firebase.");
+            });
         }
     }
 

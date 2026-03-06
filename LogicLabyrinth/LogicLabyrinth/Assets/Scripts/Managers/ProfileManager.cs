@@ -397,8 +397,17 @@ public class ProfileManager : MonoBehaviour
                 if (player != null)
                 {
                     player.profilePicture = currentSelectedName;
-                    AccountManager.Instance.SavePlayerProgress();
-                    Debug.Log($"[ProfileManager] Profile picture saved to '{currentSelectedName}' and synced to Firebase.");
+                    AccountManager.Instance.SavePlayerProgress(success =>
+                    {
+                        if (success)
+                        {
+                            Debug.Log($"[ProfileManager] Profile picture saved to '{currentSelectedName}' and cloud sync completed.");
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"[ProfileManager] Profile picture saved locally to '{currentSelectedName}', but cloud sync did not complete (no authenticated Firebase session).");
+                        }
+                    });
                 }
             }
         }
