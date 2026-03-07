@@ -3,6 +3,8 @@ using UnityEngine.UI;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Attaches to the Door_Tutorial GameObject to:
@@ -31,8 +33,17 @@ public class TutorialDoor : MonoBehaviour
     private bool isHighlighting = false;
     private List<Light> highlightLights = new List<Light>();
     private GameObject lockedMessageUI;
+    private GameObject runHintUI;
     private Coroutine pulseCoroutine;
     private Coroutine lockedMessageRoutine;
+    private Coroutine runHintRoutine;
+
+    [Header("Level 1 Run Hint")]
+    [SerializeField] private bool enableRunHint = true;
+    [SerializeField] private float runHintDelaySeconds = 4f;
+    [SerializeField] private float minWalkDistanceForHint = 1.5f;
+
+    private static bool runHintShownThisSession = false;
 
     void Start()
     {
@@ -230,12 +241,157 @@ public class TutorialDoor : MonoBehaviour
         yield return StartCoroutine(AnimateDoorOpen());
     }
 
+    private void OnTriggerEnter(Collider other)
+    {
+        TryStartRunHintFromCollider(other);
+    }
+
+    private void OnTriggerStay(Collider other)
+    {
+        // Fallback: if the player was already overlapping when the door opened,
+        // OnTriggerEnter may not run, so keep checking while inside.
+        TryStartRunHintFromCollider(other);
+    }
+
+    private void TryStartRunHintFromCollider(Collider other)
+    {
+        if (!ShouldEvaluateRunHint()) return;
+        if (!IsPlayerCollider(other)) return;
+        if (runHintRoutine != null) return;
+
+        runHintRoutine = StartCoroutine(EvaluateRunHintAfterDelay(other.transform));
+    }
+
+    private bool ShouldEvaluateRunHint()
+    {
+        if (!enableRunHint || runHintShownThisSession) return false;
+        if (!IsDoorOpen) return false;
+
+        Scene activeScene = SceneManager.GetActiveScene();
+        return activeScene.name == "Level1";
+    }
+
+    private static bool IsPlayerCollider(Collider other)
+    {
+        if (other == null) return false;
+        if (other.CompareTag("Player")) return true;
+        if (other.GetComponentInParent<CharacterController>() != null) return true;
+        return false;
+    }
+
+    private IEnumerator EvaluateRunHintAfterDelay(Transform playerTransform)
+    {
+        if (playerTransform == null)
+        {
+            runHintRoutine = null;
+            yield break;
+        }
+
+        Vector3 startPosition = playerTransform.position;
+        float elapsed = 0f;
+        bool shiftUsed = false;
+
+        while (elapsed < runHintDelaySeconds)
+        {
+            Keyboard keyboard = Keyboard.current;
+            if (keyboard != null && (keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed))
+            {
+                shiftUsed = true;
+                break;
+            }
+
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        runHintRoutine = null;
+
+        if (runHintShownThisSession || shiftUsed || playerTransform == null)
+            yield break;
+
+        if (!ShouldEvaluateRunHint())
+            yield break;
+
+        float walkedDistance = Vector3.Distance(startPosition, playerTransform.position);
+        if (walkedDistance < minWalkDistanceForHint)
+            yield break;
+
+        runHintShownThisSession = true;
+        StartCoroutine(ShowRunHintRoutine());
+    }
+
+    private IEnumerator ShowRunHintRoutine()
+    {
+        if (runHintUI != null) yield break;
+
+        runHintUI = new GameObject("RunHintMessage");
+        Canvas canvas = runHintUI.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 590;
+
+        CanvasScaler scaler = runHintUI.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+
+        GameObject panelGO = new GameObject("Panel");
+        panelGO.transform.SetParent(runHintUI.transform, false);
+        RectTransform panelRT = panelGO.AddComponent<RectTransform>();
+        panelRT.anchorMin = new Vector2(0.58f, 0.84f);
+        panelRT.anchorMax = new Vector2(0.98f, 0.95f);
+        panelRT.offsetMin = Vector2.zero;
+        panelRT.offsetMax = Vector2.zero;
+
+        Image bg = panelGO.AddComponent<Image>();
+        bg.color = new Color(0.08f, 0.05f, 0.02f, 0.9f);
+        bg.raycastTarget = false;
+
+        Outline outline = panelGO.AddComponent<Outline>();
+        outline.effectColor = new Color(0.85f, 0.7f, 0.35f, 0.8f);
+        outline.effectDistance = new Vector2(2f, 2f);
+
+        GameObject textGO = new GameObject("Text");
+        textGO.transform.SetParent(panelGO.transform, false);
+        RectTransform textRT = textGO.AddComponent<RectTransform>();
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.offsetMin = new Vector2(15f, 8f);
+        textRT.offsetMax = new Vector2(-15f, -8f);
+
+        TextMeshProUGUI textTMP = textGO.AddComponent<TextMeshProUGUI>();
+        textTMP.text = "Hold Shift to run faster.";
+        textTMP.fontSize = 20;
+        textTMP.alignment = TextAlignmentOptions.Center;
+        textTMP.color = new Color(1f, 0.9f, 0.6f, 1f);
+        textTMP.fontStyle = FontStyles.Italic;
+        textTMP.enableWordWrapping = true;
+        textTMP.raycastTarget = false;
+
+        yield return new WaitForSeconds(4f);
+
+        CanvasGroup cg = runHintUI.AddComponent<CanvasGroup>();
+        float fadeTime = 0.5f;
+        float elapsed = 0f;
+        while (elapsed < fadeTime)
+        {
+            elapsed += Time.deltaTime;
+            cg.alpha = 1f - (elapsed / fadeTime);
+            yield return null;
+        }
+
+        Destroy(runHintUI);
+        runHintUI = null;
+    }
+
     private IEnumerator AnimateDoorOpen()
     {
-        // Disable ALL colliders so the rotating door doesn't push the player
+        // Disable only solid colliders so the rotating door doesn't push the player.
+        // Keep trigger colliders active for tutorial hint detection.
         Collider[] colliders = GetComponents<Collider>();
         foreach (var col in colliders)
-            col.enabled = false;
+        {
+            if (col != null && !col.isTrigger)
+                col.enabled = false;
+        }
 
         Quaternion startRot = transform.localRotation;
         Quaternion endRot = startRot * Quaternion.Euler(0f, 90f, 0f);
@@ -316,11 +472,15 @@ public class TutorialDoor : MonoBehaviour
 
     void OnDestroy()
     {
+        if (runHintRoutine != null)
+            StopCoroutine(runHintRoutine);
+
         foreach (var light in highlightLights)
         {
             if (light != null) Destroy(light.gameObject);
         }
         highlightLights.Clear();
         if (lockedMessageUI != null) Destroy(lockedMessageUI);
+        if (runHintUI != null) Destroy(runHintUI);
     }
 }

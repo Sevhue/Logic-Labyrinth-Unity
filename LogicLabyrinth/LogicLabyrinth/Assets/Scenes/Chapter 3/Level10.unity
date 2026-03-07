@@ -1886,6 +1886,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::InteractiveTable
   puzzleUIPrefab: {fileID: 4625769815249094943, guid: d5cc8a5dfc763f542ab4e490217b23d4, type: 3}
   answerKey: 0100000001000000010000000000000000000000
+  questionAnswerKeys: []
   maxAttempts: 3
   successKeyObject: {fileID: 0}
   highlightMaterial: {fileID: 0}
@@ -7279,14 +7280,28 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4e010a1ae25eced4d8ac4c830ed0c2b6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DungeonLightingManager
+  forceLabyrinthPreset: 1
+  useSpotlight: 1
   playerLightRange: 6
   playerLightIntensity: 1.2
   playerLightColor: {r: 1, g: 0.85, b: 0.6, a: 1}
+  playerSpotAngle: 54
+  playerInnerSpotAngle: 30
+  playerSpotPitch: 10
+  useFloorFillLight: 1
+  floorFillRange: 2
+  floorFillIntensity: 1.1
   ambientColor: {r: 0.02, g: 0.02, b: 0.04, a: 1}
   enableFog: 1
   fogColor: {r: 0.01, g: 0.01, b: 0.02, a: 1}
   fogDensity: 0.12
   directionalLightIntensity: 0.02
+  forceOnlyTorchLights: 1
+  torchNameKeywords:
+  - torch
+  - brazi
+  - sconce
+  - flame
   torchLightBoost: 1.5
   torchExtraRange: 5
 --- !u!4 &406540035
@@ -46932,6 +46947,10 @@ PrefabInstance:
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
       objectReference: {fileID: 2100000, guid: c0df91a37fabb7548be678ae26e60c30, type: 2}
+    - target: {fileID: 1835304425027332999, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
+      propertyPath: m_Intensity
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 1867335463817285718, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
@@ -47260,6 +47279,10 @@ PrefabInstance:
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
       objectReference: {fileID: 2100000, guid: c0df91a37fabb7548be678ae26e60c30, type: 2}
+    - target: {fileID: 4441921791465987428, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
+      propertyPath: m_Intensity
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 4460546738105854375, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
@@ -53469,6 +53492,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::InteractiveTable
   puzzleUIPrefab: {fileID: 0}
   answerKey: 0100000001000000010000000000000000000000
+  questionAnswerKeys: []
   maxAttempts: 3
   successKeyObject: {fileID: 0}
   highlightMaterial: {fileID: 0}

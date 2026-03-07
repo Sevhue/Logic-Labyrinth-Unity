@@ -1,8 +1,10 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
+using System;
 
 /// <summary>
 /// Attach to the key GameObject in the scene.
@@ -26,10 +28,17 @@ public class CollectibleKey : MonoBehaviour
     public float shinePulseSpeed = 2.5f;
     public float shineIntensity = 3f;
     public float shineRange = 4f;
+    [Tooltip("How long the success-key glow should stay visible after spawn.")]
+    public float successGlowDuration = 1f;
 
     [Header("UI")]
     [Tooltip("Legacy popup message. Keep false to avoid duplicate stacked key messages.")]
     public bool showLegacyPickupPopup = false;
+
+    [Header("Success Key Hint")]
+    [SerializeField] private bool showSuccessKeyDoorHint = true;
+    [SerializeField] private float successKeyHintDelay = 0.2f;
+    [SerializeField] private float successKeyHintVisibleTime = 1.5f;
 
     /// <summary>True after the player picks up the key.</summary>
     public bool IsCollected { get; private set; } = false;
@@ -39,9 +48,9 @@ public class CollectibleKey : MonoBehaviour
 
     private Vector3 startLocalPos;
     private List<Light> shineLights = new List<Light>();
-    private Coroutine shinePulseCoroutine;
     private Coroutine shineSpawnCoroutine;
     private Coroutine bobRoutine;
+    private static readonly HashSet<string> successHintShownByLevel = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     void Awake()
     {
@@ -155,7 +164,82 @@ public class CollectibleKey : MonoBehaviour
         if (FirstPersonArmAnimator.Instance != null)
             FirstPersonArmAnimator.Instance.PlayCollectAnimation();
 
+        if (ShouldShowSuccessDoorHint())
+            ShowSuccessDoorHint();
+
         StartCoroutine(PickupAnimation());
+    }
+
+    private bool ShouldShowSuccessDoorHint()
+    {
+        if (!showSuccessKeyDoorHint || keyType != KeyType.Success) return false;
+
+        string sceneName = SceneManager.GetActiveScene().name;
+        bool isLevelOneOrTwo = sceneName.Equals("Level1", StringComparison.OrdinalIgnoreCase) ||
+                               sceneName.Equals("Level2", StringComparison.OrdinalIgnoreCase);
+        if (!isLevelOneOrTwo) return false;
+
+        if (successHintShownByLevel.Contains(sceneName)) return false;
+        successHintShownByLevel.Add(sceneName);
+        return true;
+    }
+
+    private void ShowSuccessDoorHint()
+    {
+        GameObject hintUI = new GameObject("SuccessKeyDoorHintMessage");
+        Canvas canvas = hintUI.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 620;
+
+        CanvasScaler scaler = hintUI.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+
+        GameObject panelGO = new GameObject("Panel");
+        panelGO.transform.SetParent(hintUI.transform, false);
+
+        RectTransform panelRT = panelGO.AddComponent<RectTransform>();
+        panelRT.anchorMin = new Vector2(0.32f, 0.68f);
+        panelRT.anchorMax = new Vector2(0.68f, 0.78f);
+        panelRT.offsetMin = Vector2.zero;
+        panelRT.offsetMax = Vector2.zero;
+
+        Image bg = panelGO.AddComponent<Image>();
+        bg.color = new Color(0.09f, 0.08f, 0.02f, 0.88f);
+        bg.raycastTarget = false;
+
+        Outline outline = panelGO.AddComponent<Outline>();
+        outline.effectColor = new Color(1f, 0.85f, 0.35f, 0.95f);
+        outline.effectDistance = new Vector2(2f, 2f);
+
+        GameObject textGO = new GameObject("Text");
+        textGO.transform.SetParent(panelGO.transform, false);
+
+        RectTransform textRT = textGO.AddComponent<RectTransform>();
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.offsetMin = new Vector2(18f, 8f);
+        textRT.offsetMax = new Vector2(-18f, -8f);
+
+        TextMeshProUGUI tmp = textGO.AddComponent<TextMeshProUGUI>();
+        tmp.text = "Use this key to unlock the exit door.";
+        tmp.fontSize = 30;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color = new Color(1f, 0.92f, 0.62f, 1f);
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.enableWordWrapping = true;
+        tmp.raycastTarget = false;
+
+        CanvasGroup cg = hintUI.AddComponent<CanvasGroup>();
+        cg.alpha = 0f;
+
+        SuccessKeyHintAutoFade fader = hintUI.AddComponent<SuccessKeyHintAutoFade>();
+        fader.Begin(
+            cg,
+            Mathf.Max(0f, successKeyHintDelay),
+            Mathf.Max(0.1f, successKeyHintVisibleTime),
+            0.2f,
+            0.35f);
     }
 
     private IEnumerator PickupAnimation()
@@ -287,8 +371,32 @@ public class CollectibleKey : MonoBehaviour
             yield return null;
         }
 
-        // ── Phase 2: Continuous gentle pulse ──
-        shinePulseCoroutine = StartCoroutine(PulseShineLights());
+        // ── Phase 2: Keep a short pulse window, then turn off ──
+        float glowTime = 0f;
+        while (glowTime < Mathf.Max(0.05f, successGlowDuration) && !IsCollected)
+        {
+            glowTime += Time.deltaTime;
+            float pulse = (Mathf.Sin(glowTime * shinePulseSpeed * 3f) + 1f) / 2f;
+            float intensity = Mathf.Lerp(shineIntensity * 0.5f, shineIntensity, pulse);
+            float range = Mathf.Lerp(shineRange * 0.7f, shineRange, pulse);
+
+            foreach (var light in shineLights)
+            {
+                if (light != null)
+                {
+                    light.intensity = intensity;
+                    light.range = range;
+                }
+            }
+            yield return null;
+        }
+
+        // Requested behavior: success-key light shows briefly, then turns off.
+        foreach (var light in shineLights)
+        {
+            if (light != null) Destroy(light.gameObject);
+        }
+        shineLights.Clear();
     }
 
     private void CreateShineLights()
@@ -329,36 +437,8 @@ public class CollectibleKey : MonoBehaviour
         Debug.Log("[CollectibleKey] Shine lights created for Success key.");
     }
 
-    private IEnumerator PulseShineLights()
-    {
-        float timer = 0f;
-        while (!IsCollected)
-        {
-            timer += Time.deltaTime * shinePulseSpeed;
-            float t = (Mathf.Sin(timer) + 1f) / 2f; // 0 → 1 wave
-
-            float intensity = Mathf.Lerp(shineIntensity * 0.4f, shineIntensity, t);
-            float range = Mathf.Lerp(shineRange * 0.6f, shineRange, t);
-
-            foreach (var light in shineLights)
-            {
-                if (light != null)
-                {
-                    light.intensity = intensity;
-                    light.range = range;
-                }
-            }
-            yield return null;
-        }
-    }
-
     private void CleanupShine()
     {
-        if (shinePulseCoroutine != null)
-        {
-            StopCoroutine(shinePulseCoroutine);
-            shinePulseCoroutine = null;
-        }
         if (shineSpawnCoroutine != null)
         {
             StopCoroutine(shineSpawnCoroutine);
@@ -417,5 +497,57 @@ public class CollectibleKey : MonoBehaviour
             bobRoutine = null;
         }
         CleanupShine();
+    }
+}
+
+internal sealed class SuccessKeyHintAutoFade : MonoBehaviour
+{
+    private CanvasGroup canvasGroup;
+    private float initialDelay;
+    private float holdSeconds;
+    private float fadeInSeconds;
+    private float fadeOutSeconds;
+
+    public void Begin(CanvasGroup targetCanvasGroup, float delay, float hold, float fadeIn, float fadeOut)
+    {
+        canvasGroup = targetCanvasGroup;
+        initialDelay = Mathf.Max(0f, delay);
+        holdSeconds = Mathf.Max(0f, hold);
+        fadeInSeconds = Mathf.Max(0.01f, fadeIn);
+        fadeOutSeconds = Mathf.Max(0.01f, fadeOut);
+        StartCoroutine(Run());
+    }
+
+    private IEnumerator Run()
+    {
+        if (canvasGroup == null)
+        {
+            Destroy(gameObject);
+            yield break;
+        }
+
+        if (initialDelay > 0f)
+            yield return new WaitForSecondsRealtime(initialDelay);
+
+        float t = 0f;
+        while (t < fadeInSeconds)
+        {
+            t += Time.unscaledDeltaTime;
+            canvasGroup.alpha = Mathf.Clamp01(t / fadeInSeconds);
+            yield return null;
+        }
+
+        if (holdSeconds > 0f)
+            yield return new WaitForSecondsRealtime(holdSeconds);
+
+        t = 0f;
+        while (t < fadeOutSeconds)
+        {
+            t += Time.unscaledDeltaTime;
+            canvasGroup.alpha = 1f - Mathf.Clamp01(t / fadeOutSeconds);
+            yield return null;
+        }
+
+        Destroy(gameObject);
     }
 }

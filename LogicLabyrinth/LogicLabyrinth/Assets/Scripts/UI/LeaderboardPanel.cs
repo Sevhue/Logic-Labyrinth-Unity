@@ -72,6 +72,7 @@ public class LeaderboardPanel : MonoBehaviour
         public int puzzlesCompleted;
         public string profilePicture;
         public Dictionary<int, float> bestTimes = new Dictionary<int, float>();
+        public Dictionary<int, int> attemptCounts = new Dictionary<int, int>();
         public float totalBestTime;
         public float fastestLevelTime;
         public int levelsCompleted;
@@ -338,7 +339,7 @@ public class LeaderboardPanel : MonoBehaviour
         else
         {
             CreateHeaderCell(headerRow.transform, "BEST TIME", 120f);
-            CreateHeaderCell(headerRow.transform, "LEVEL", 70f);
+            CreateHeaderCell(headerRow.transform, "ATTEMPTS", 90f);
         }
     }
 
@@ -654,6 +655,12 @@ public class LeaderboardPanel : MonoBehaviour
                 entry.bestTimes = AccountManager.ParseBestTimes(timesStr);
             }
 
+            if (userSnap.HasChild("levelAttemptCounts"))
+            {
+                string attemptsStr = userSnap.Child("levelAttemptCounts").Value?.ToString() ?? "";
+                entry.attemptCounts = AccountManager.ParseAttemptCounts(attemptsStr);
+            }
+
             if (userSnap.HasChild("totalBestTime"))
                 float.TryParse(userSnap.Child("totalBestTime").Value?.ToString(),
                     System.Globalization.NumberStyles.Float,
@@ -753,6 +760,7 @@ public class LeaderboardPanel : MonoBehaviour
         entry.puzzlesCompleted = player.completedPuzzles != null ? player.completedPuzzles.Count : 0;
         entry.profilePicture = string.IsNullOrWhiteSpace(player.profilePicture) ? DEFAULT_PROFILE_PIC : player.profilePicture;
         entry.bestTimes = AccountManager.ParseBestTimes(player.bestLevelTimes ?? "");
+        entry.attemptCounts = AccountManager.ParseAttemptCounts(player.levelAttemptCounts ?? "");
 
         float totalBest = 0f;
         float fastest = -1f;
@@ -812,8 +820,10 @@ public class LeaderboardPanel : MonoBehaviour
 
     private void DisplayGlobalRanking()
     {
+        var deduped = BuildDedupedEntries();
+
         // Sort by: most levels completed (desc), then lowest total best time (asc), then name
-        var sorted = allEntries
+        var sorted = deduped
             .OrderByDescending(e => e.levelsCompleted)
             .ThenBy(e => e.totalBestTime > 0 ? e.totalBestTime : float.MaxValue)
             .ThenBy(e => e.username)
@@ -821,12 +831,13 @@ public class LeaderboardPanel : MonoBehaviour
             .ToList();
 
         string currentUid = GetCurrentUid();
+        var currentPlayer = AccountManager.Instance != null ? AccountManager.Instance.GetCurrentPlayer() : null;
 
         for (int i = 0; i < sorted.Count; i++)
         {
             var entry = sorted[i];
             int rank = i + 1;
-            bool isCurrent = entry.uid == currentUid;
+            bool isCurrent = IsCurrentPlayerEntry(entry, currentUid, currentPlayer);
             CreateGlobalRow(rank, entry, isCurrent, i % 2 == 0);
         }
 
@@ -839,8 +850,10 @@ public class LeaderboardPanel : MonoBehaviour
 
     private void DisplayLevelRanking()
     {
+        var deduped = BuildDedupedEntries();
+
         // Filter entries that have a time for the selected level
-        var withTime = allEntries
+        var withTime = deduped
             .Where(e => e.bestTimes.ContainsKey(selectedLevel))
             .OrderBy(e => e.bestTimes[selectedLevel])
             .ThenBy(e => e.username)
@@ -848,12 +861,13 @@ public class LeaderboardPanel : MonoBehaviour
             .ToList();
 
         string currentUid = GetCurrentUid();
+        var currentPlayer = AccountManager.Instance != null ? AccountManager.Instance.GetCurrentPlayer() : null;
 
         for (int i = 0; i < withTime.Count; i++)
         {
             var entry = withTime[i];
             int rank = i + 1;
-            bool isCurrent = entry.uid == currentUid;
+            bool isCurrent = IsCurrentPlayerEntry(entry, currentUid, currentPlayer);
             CreateLevelRow(rank, entry, isCurrent, i % 2 == 0);
         }
 
@@ -875,6 +889,109 @@ public class LeaderboardPanel : MonoBehaviour
     }
 
     // ===================== ROW CREATION =====================
+
+    private List<LeaderboardEntry> BuildDedupedEntries()
+    {
+        var byIdentity = new Dictionary<string, LeaderboardEntry>();
+
+        foreach (var entry in allEntries)
+        {
+            if (entry == null) continue;
+
+            string key = BuildIdentityKey(entry);
+            if (string.IsNullOrWhiteSpace(key)) continue;
+
+            if (!byIdentity.TryGetValue(key, out var existing) || IsBetterEntryCandidate(entry, existing))
+                byIdentity[key] = entry;
+        }
+
+        return byIdentity.Values.ToList();
+    }
+
+    private string BuildIdentityKey(LeaderboardEntry entry)
+    {
+        string nameKey = NormalizeIdentityText(entry != null ? entry.username : null);
+        if (!string.IsNullOrWhiteSpace(nameKey))
+            return "name:" + nameKey;
+
+        string uidKey = NormalizeIdentityText(entry != null ? entry.uid : null);
+        if (!string.IsNullOrWhiteSpace(uidKey))
+            return "uid:" + uidKey;
+
+        return string.Empty;
+    }
+
+    private bool IsBetterEntryCandidate(LeaderboardEntry candidate, LeaderboardEntry existing)
+    {
+        if (candidate == null) return false;
+        if (existing == null) return true;
+
+        bool candidateIsPublic = IsPublicFallbackId(candidate.uid);
+        bool existingIsPublic = IsPublicFallbackId(existing.uid);
+        if (candidateIsPublic != existingIsPublic)
+            return !candidateIsPublic;
+
+        if (candidate.levelsCompleted != existing.levelsCompleted)
+            return candidate.levelsCompleted > existing.levelsCompleted;
+
+        if (candidate.totalBestTime > 0f || existing.totalBestTime > 0f)
+        {
+            float candidateTime = candidate.totalBestTime > 0f ? candidate.totalBestTime : float.MaxValue;
+            float existingTime = existing.totalBestTime > 0f ? existing.totalBestTime : float.MaxValue;
+            if (candidateTime != existingTime)
+                return candidateTime < existingTime;
+        }
+
+        if (candidate.lastCompletedLevel != existing.lastCompletedLevel)
+            return candidate.lastCompletedLevel > existing.lastCompletedLevel;
+
+        return false;
+    }
+
+    private bool IsCurrentPlayerEntry(LeaderboardEntry entry, string currentUid, AccountManager.PlayerData currentPlayer)
+    {
+        if (entry == null || currentPlayer == null) return false;
+
+        if (!string.IsNullOrWhiteSpace(currentUid) && entry.uid == currentUid)
+            return true;
+
+        string normalizedEntryName = NormalizeIdentityText(entry.username);
+        string normalizedDisplay = NormalizeIdentityText(currentPlayer.displayName);
+        string normalizedUser = NormalizeIdentityText(currentPlayer.username);
+
+        if (!string.IsNullOrWhiteSpace(normalizedEntryName) &&
+            (normalizedEntryName == normalizedDisplay || normalizedEntryName == normalizedUser))
+        {
+            return true;
+        }
+
+        if (IsPublicFallbackId(entry.uid))
+        {
+            string normalizedPublicUid = NormalizeIdentityText(entry.uid.Substring("public_".Length));
+            if (!string.IsNullOrWhiteSpace(normalizedPublicUid) &&
+                (normalizedPublicUid == normalizedDisplay || normalizedPublicUid == normalizedUser))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsPublicFallbackId(string uid)
+    {
+        return !string.IsNullOrWhiteSpace(uid)
+            && uid.StartsWith("public_", System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeIdentityText(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+
+        string trimmed = raw.Trim().ToLowerInvariant();
+        var chars = trimmed.Where(System.Char.IsLetterOrDigit).ToArray();
+        return new string(chars);
+    }
 
     private void CreateGlobalRow(int rank, LeaderboardEntry entry, bool isCurrentPlayer, bool evenRow)
     {
@@ -934,8 +1051,10 @@ public class LeaderboardPanel : MonoBehaviour
         string timeStr = levelTime > 0 ? LevelTimer.FormatTime(levelTime) : "--:--";
         CreateCell(rowGO.transform, timeStr, 120f, creamText, FontStyles.Normal, TextAlignmentOptions.Center);
 
-        // Level completed
-        CreateCell(rowGO.transform, entry.lastCompletedLevel.ToString(), 70f, creamText, FontStyles.Normal, TextAlignmentOptions.Center);
+        // Attempts for this level
+        int attempts = entry.attemptCounts.ContainsKey(selectedLevel) ? entry.attemptCounts[selectedLevel] : 0;
+        string attemptsText = attempts > 0 ? attempts.ToString() : "--";
+        CreateCell(rowGO.transform, attemptsText, 90f, creamText, FontStyles.Normal, TextAlignmentOptions.Center);
 
         AddTopRankAccent(rowGO, rank, rankColor);
     }

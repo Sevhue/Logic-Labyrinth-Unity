@@ -482,6 +482,7 @@ public class PauseMenuController : MonoBehaviour
 
         // Prepare hover descriptions.
         SetupStoreDescriptionHover();
+        EnsureStoreCloseButton();
 
         // Make sure player can interact with store UI.
         Cursor.lockState = CursorLockMode.None;
@@ -560,6 +561,72 @@ public class PauseMenuController : MonoBehaviour
             WireStoreHoverTarget(item.gameObject, kv.Key, kv.Value);
             WireStorePurchaseTarget(item.gameObject, kv.Key);
         }
+    }
+
+    private void EnsureStoreCloseButton()
+    {
+        if (storeInstance == null) return;
+
+        Transform existing = DeepFind(storeInstance.transform, "StoreCloseButton_Runtime");
+        if (existing != null)
+        {
+            Button existingButton = existing.GetComponent<Button>();
+            if (existingButton != null)
+            {
+                existingButton.onClick.RemoveAllListeners();
+                existingButton.onClick.AddListener(CloseStoreOverlay);
+            }
+            return;
+        }
+
+        Transform panelTransform = DeepFind(storeInstance.transform, "Panel");
+        RectTransform parentRect = panelTransform as RectTransform;
+        if (parentRect == null)
+            parentRect = storeInstance.GetComponent<RectTransform>();
+        if (parentRect == null)
+            return;
+
+        GameObject closeButtonGO = new GameObject("StoreCloseButton_Runtime", typeof(RectTransform), typeof(Image), typeof(Button));
+        closeButtonGO.transform.SetParent(parentRect, false);
+        closeButtonGO.transform.SetAsLastSibling();
+
+        RectTransform closeRT = closeButtonGO.GetComponent<RectTransform>();
+        closeRT.anchorMin = new Vector2(1f, 1f);
+        closeRT.anchorMax = new Vector2(1f, 1f);
+        closeRT.pivot = new Vector2(1f, 1f);
+        closeRT.anchoredPosition = new Vector2(-12f, -12f);
+        closeRT.sizeDelta = new Vector2(42f, 42f);
+
+        Image closeBg = closeButtonGO.GetComponent<Image>();
+        closeBg.color = new Color(0.25f, 0.12f, 0.08f, 0.95f);
+
+        Button closeButton = closeButtonGO.GetComponent<Button>();
+        closeButton.targetGraphic = closeBg;
+        ColorBlock closeColors = closeButton.colors;
+        closeColors.normalColor = closeBg.color;
+        closeColors.highlightedColor = new Color(0.35f, 0.18f, 0.11f, 1f);
+        closeColors.pressedColor = new Color(0.20f, 0.08f, 0.05f, 1f);
+        closeColors.selectedColor = closeColors.highlightedColor;
+        closeColors.disabledColor = new Color(0.15f, 0.10f, 0.08f, 0.5f);
+        closeButton.colors = closeColors;
+        closeButton.onClick.AddListener(CloseStoreOverlay);
+
+        GameObject labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(closeButtonGO.transform, false);
+
+        RectTransform labelRT = labelGO.GetComponent<RectTransform>();
+        labelRT.anchorMin = Vector2.zero;
+        labelRT.anchorMax = Vector2.one;
+        labelRT.offsetMin = Vector2.zero;
+        labelRT.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI label = labelGO.AddComponent<TextMeshProUGUI>();
+        label.raycastTarget = false;
+        label.text = "X";
+        label.fontSize = 28f;
+        label.alignment = TextAlignmentOptions.Center;
+        label.color = new Color(0.95f, 0.87f, 0.60f, 1f);
+        label.fontStyle = FontStyles.Bold;
     }
 
     private void WireStorePurchaseTarget(GameObject target, string itemKey)

@@ -5725,14 +5725,30 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4e010a1ae25eced4d8ac4c830ed0c2b6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::DungeonLightingManager
+  forceLabyrinthPreset: 1
+  useSpotlight: 1
   playerLightRange: 12
   playerLightIntensity: 2
   playerLightColor: {r: 1, g: 0.85, b: 0.6, a: 1}
+  playerSpotAngle: 54
+  playerInnerSpotAngle: 30
+  playerSpotPitch: 10
+  useFloorFillLight: 1
+  floorFillRange: 2
+  floorFillIntensity: 1.1
   ambientColor: {r: 0.15, g: 0.12, b: 0.1, a: 1}
   enableFog: 1
   fogColor: {r: 0.05, g: 0.04, b: 0.03, a: 1}
   fogDensity: 0.04
   directionalLightIntensity: 0.4
+  forceOnlyTorchLights: 1
+  torchNameKeywords:
+  - torch
+  - brazi
+  - sconce
+  - flame
+  torchLightBoost: 1
+  torchExtraRange: 0.3
 --- !u!4 &406540035
 Transform:
   m_ObjectHideFlags: 0
@@ -20484,6 +20500,10 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4441921791465987428, guid: 2cbab00f7b2835846aab9d05a266d842, type: 3}
       propertyPath: m_Enabled
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4441921791465987428, guid: 2cbab00f7b2835846aab9d05a266d842, type: 3}
+      propertyPath: m_Intensity
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 6774368082290624232, guid: 2cbab00f7b2835846aab9d05a266d842, type: 3}

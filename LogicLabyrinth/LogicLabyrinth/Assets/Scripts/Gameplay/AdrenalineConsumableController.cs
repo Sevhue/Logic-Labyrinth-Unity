@@ -2,6 +2,8 @@ using System.Collections;
 using StarterAssets;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
@@ -106,6 +108,9 @@ public class AdrenalineConsumableController : MonoBehaviour
 
     private void Update()
     {
+        if (!IsGameplayLevelScene() || IsTypingIntoInputField())
+            return;
+
         if (PauseMenuController.IsPaused || PuzzleTableController.IsOpen || CutsceneController.IsPlaying)
             return;
 
@@ -307,6 +312,25 @@ public class AdrenalineConsumableController : MonoBehaviour
             pressed = Keyboard.current.fKey.wasPressedThisFrame;
 #endif
         return pressed;
+    }
+
+    private static bool IsGameplayLevelScene()
+    {
+        string sceneName = SceneManager.GetActiveScene().name;
+        return !string.IsNullOrEmpty(sceneName) && sceneName.StartsWith("Level");
+    }
+
+    private static bool IsTypingIntoInputField()
+    {
+        if (EventSystem.current == null) return false;
+
+        GameObject selected = EventSystem.current.currentSelectedGameObject;
+        if (selected == null) return false;
+
+        if (selected.GetComponent<TMP_InputField>() != null) return true;
+        if (selected.GetComponentInParent<TMP_InputField>() != null) return true;
+
+        return false;
     }
 
     private bool WasSavePosePressed()

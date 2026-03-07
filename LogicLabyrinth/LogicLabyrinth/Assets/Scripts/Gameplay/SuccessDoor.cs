@@ -33,6 +33,11 @@ public class SuccessDoor : MonoBehaviour
     private GameObject lockedMessageUI;
     private Coroutine pulseCoroutine;
     private Coroutine lockedMessageRoutine;
+    private bool waitingForPlayerEntryAfterOpen;
+    private bool transitionStarted;
+    private int playersInsideTrigger;
+    private float openedAtTime;
+    [SerializeField] private float minSecondsAfterOpenBeforeTransition = 0.15f;
 
     void Start()
     {
@@ -65,6 +70,46 @@ public class SuccessDoor : MonoBehaviour
         {
             ShowLockedMessage();
         }
+    }
+
+    private static bool IsPlayerCollider(Collider other)
+    {
+        if (other == null) return false;
+        if (other.CompareTag("Player")) return true;
+        if (other.GetComponentInParent<CharacterController>() != null) return true;
+        return false;
+    }
+
+    private void OnTriggerEnter(Collider other)
+    {
+        if (!IsPlayerCollider(other)) return;
+        playersInsideTrigger = Mathf.Max(1, playersInsideTrigger + 1);
+        TryStartTransitionAfterEntry();
+    }
+
+    private void OnTriggerStay(Collider other)
+    {
+        if (!IsPlayerCollider(other)) return;
+        if (playersInsideTrigger <= 0) playersInsideTrigger = 1;
+        TryStartTransitionAfterEntry();
+    }
+
+    private void OnTriggerExit(Collider other)
+    {
+        if (!IsPlayerCollider(other)) return;
+        playersInsideTrigger = Mathf.Max(0, playersInsideTrigger - 1);
+    }
+
+    private void TryStartTransitionAfterEntry()
+    {
+        if (!waitingForPlayerEntryAfterOpen) return;
+        if (transitionStarted) return;
+        if (Time.time - openedAtTime < Mathf.Max(0f, minSecondsAfterOpenBeforeTransition)) return;
+
+        transitionStarted = true;
+        int sceneLevelForLoad = GetSceneLevelNumber();
+        int targetLevelForTransition = GetNextLevelNumber(sceneLevelForLoad);
+        StartCoroutine(RunLevelTransition(sceneLevelForLoad, targetLevelForTransition));
     }
 
     // ═══════════════════════════════════════════════
@@ -184,7 +229,7 @@ public class SuccessDoor : MonoBehaviour
             GameInventoryUI.Instance.RefreshFromInventory();
 
         StopHighlight();
-        StartCoroutine(AnimateDoorOpenAndTransition());
+        StartCoroutine(AnimateDoorOpenOnly());
     }
 
     private void ShowLockedMessage()
@@ -218,12 +263,16 @@ public class SuccessDoor : MonoBehaviour
         }
     }
 
-    private IEnumerator AnimateDoorOpenAndTransition()
+    private IEnumerator AnimateDoorOpenOnly()
     {
-        // Disable ALL colliders so the rotating door doesn't push the player
+        // Disable only solid colliders so the rotating door doesn't push the player.
+        // Keep triggers enabled so we can detect player entry through the doorway.
         Collider[] colliders = GetComponents<Collider>();
         foreach (var col in colliders)
-            col.enabled = false;
+        {
+            if (col != null && !col.isTrigger)
+                col.enabled = false;
+        }
 
         // ── 1. Swing the door open ──
         Quaternion startRot = transform.localRotation;
@@ -241,10 +290,33 @@ public class SuccessDoor : MonoBehaviour
         transform.localRotation = endRot;
         Debug.Log("[SuccessDoor] Door opened!");
 
+        waitingForPlayerEntryAfterOpen = true;
+        openedAtTime = Time.time;
+
+        Debug.Log("[SuccessDoor] Door is open. Enter/stand in doorway to transition.");
+
+        // If player is already in the trigger when the door opens, allow transition quickly.
+        if (playersInsideTrigger > 0)
+            StartCoroutine(TryStartTransitionAfterShortDelay());
+    }
+
+    private IEnumerator TryStartTransitionAfterShortDelay()
+    {
+        yield return new WaitForSeconds(Mathf.Max(0f, minSecondsAfterOpenBeforeTransition));
+        TryStartTransitionAfterEntry();
+    }
+
+    private IEnumerator RunLevelTransition(int sceneLevelForLoad, int targetLevelForTransition)
+    {
+        Debug.Log("[SuccessDoor] Player entered success doorway. Starting level transition...");
+
         // ── 2. Create full-screen fade overlay ──
         GameObject fadeGO = CreateFadeOverlay();
         CanvasGroup fadeCG = fadeGO.GetComponent<CanvasGroup>();
         fadeCG.alpha = 0f;
+
+        if (targetLevelForTransition > 0)
+            AddLevelTransitionText(fadeGO.transform, targetLevelForTransition);
 
         // Keep the overlay alive across scene loads so the new scene fades in from black
         Object.DontDestroyOnLoad(fadeGO);
@@ -254,7 +326,7 @@ public class SuccessDoor : MonoBehaviour
 
         // ── 3. Slowly fade the screen to black ──
         float fadeDuration = 2f;
-        elapsed = 0f;
+        float elapsed = 0f;
         while (elapsed < fadeDuration)
         {
             elapsed += Time.deltaTime;
@@ -308,16 +380,14 @@ public class SuccessDoor : MonoBehaviour
         if (fadeGO != null)
             fadeGO.AddComponent<FadeOverlayAutoDestroy>();
 
-        int sceneLevelForLoad = GetSceneLevelNumber();
         if (LevelManager.Instance != null)
         {
             // Prefer scene-derived next level so direct scene testing still advances correctly
             // (e.g., Level3 -> Level4 even if LevelManager currentLevel was not initialized).
             if (sceneLevelForLoad > 0)
             {
-                int targetLevel = sceneLevelForLoad + 1;
-                Debug.Log($"[SuccessDoor] Triggering scene-derived transition: Level {sceneLevelForLoad} -> Level {targetLevel}");
-                LevelManager.Instance.LoadLevel(targetLevel);
+                Debug.Log($"[SuccessDoor] Triggering scene-derived transition: Level {sceneLevelForLoad} -> Level {targetLevelForTransition}");
+                LevelManager.Instance.LoadLevel(targetLevelForTransition);
             }
             else
             {
@@ -327,28 +397,56 @@ public class SuccessDoor : MonoBehaviour
         }
         else
         {
-            // Fallback: LevelManager may not exist when testing a scene directly.
-            int nextLevel = 2;
-            if (AccountManager.Instance != null)
-            {
-                var player = AccountManager.Instance.GetCurrentPlayer();
-                if (player != null)
-                    nextLevel = player.lastCompletedLevel + 1;
-            }
-            else
-            {
-                string sceneName = SceneManager.GetActiveScene().name;
-                if (sceneName.StartsWith("Level") && int.TryParse(sceneName.Substring(5), out int cur))
-                    nextLevel = cur + 1;
-            }
-
             if (InventoryManager.Instance != null)
                 InventoryManager.Instance.ResetInventory();
 
-            string nextScene = $"Level{nextLevel}";
+            string nextScene = $"Level{targetLevelForTransition}";
             Debug.Log($"[SuccessDoor] LevelManager not found — loading '{nextScene}' via SceneManager.");
             SceneManager.LoadScene(nextScene);
         }
+    }
+
+    private int GetNextLevelNumber(int sceneLevel)
+    {
+        if (sceneLevel > 0)
+            return sceneLevel + 1;
+
+        if (AccountManager.Instance != null)
+        {
+            var player = AccountManager.Instance.GetCurrentPlayer();
+            if (player != null)
+                return Mathf.Max(2, player.lastCompletedLevel + 1);
+        }
+
+        return 2;
+    }
+
+    private void AddLevelTransitionText(Transform parent, int levelNumber)
+    {
+        if (parent == null || levelNumber <= 0) return;
+
+        GameObject textGO = new GameObject("LevelTransitionText");
+        textGO.transform.SetParent(parent, false);
+
+        RectTransform rt = textGO.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.1f, 0.35f);
+        rt.anchorMax = new Vector2(0.9f, 0.65f);
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI tmp = textGO.AddComponent<TextMeshProUGUI>();
+        tmp.text = $"LEVEL {levelNumber}";
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.enableAutoSizing = true;
+        tmp.fontSizeMin = 64;
+        tmp.fontSizeMax = 180;
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.color = new Color(0.95f, 0.87f, 0.62f, 1f);
+        tmp.raycastTarget = false;
+
+        Outline outline = textGO.AddComponent<Outline>();
+        outline.effectColor = new Color(0.15f, 0.1f, 0.05f, 0.95f);
+        outline.effectDistance = new Vector2(4f, 4f);
     }
 
     private int GetSceneLevelNumber()

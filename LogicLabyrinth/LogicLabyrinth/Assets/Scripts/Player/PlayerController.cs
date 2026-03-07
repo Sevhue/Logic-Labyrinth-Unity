@@ -214,4 +214,5 @@ public class PlayerController : MonoBehaviour
             UIManager.Instance.ShowInteractPrompt(false);
         }
     }
+
 }

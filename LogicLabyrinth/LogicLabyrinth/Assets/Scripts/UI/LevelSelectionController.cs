@@ -1,15 +1,38 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using System.Collections;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 /// <summary>
 /// Controls the chapter → level selection flow using the LevelSelection2.0 prefab.
-/// Each chapter panel shows its levels (Problem1, Problem2, etc.) with locked/unlocked states.
+/// Each chapter panel shows its levels with locked/unlocked states.
 /// Attach to the LevelSelection2.0 prefab instance in the scene.
 /// </summary>
 public class LevelSelectionController : MonoBehaviour
 {
     public static LevelSelectionController Instance { get; private set; }
+
+    private TextMeshProUGUI globalChapterTitle;
+    private TextMeshProUGUI levelLockWarningText;
+    private Coroutine hideWarningCoroutine;
+
+    [Header("Lock Visuals")]
+    [Tooltip("Assign your medieval lock icon sprite here.")]
+    [SerializeField] private Sprite lockedLevelIcon;
+    [SerializeField] private Vector2 lockIconSize = new Vector2(64f, 64f);
+
+    private static readonly string[] lockSpriteCandidatePaths =
+    {
+        "Assets/Models/lock.png",
+        "Assets/Models/Lock.png",
+        "Assets/Models/lock.PNG",
+        "Assets/Models/Lock.PNG",
+        "Assets/Models/lock.avif",
+        "Assets/Models/Lock.avif"
+    };
 
     [Header("Chapter Panels (auto-found from children)")]
     public GameObject chapter1Panel;
@@ -22,16 +45,23 @@ public class LevelSelectionController : MonoBehaviour
     private static readonly int[] chapterStartLevel = { 1, 5, 9, 13 };
     private static readonly int[] chapterLevelCount = { 4, 4, 4, 4 };
 
-    // Colors
-    private readonly Color unlockedColor = new Color(0.85f, 0.75f, 0.55f, 1f); // Gold/parchment
-    private readonly Color lockedColor = new Color(0.4f, 0.35f, 0.3f, 0.7f);   // Dim grey
-    private readonly Color completedColor = new Color(0.4f, 0.7f, 0.3f, 1f);   // Green
+    // Temporary product request: keep Chapter 2 Level 5 and 6 locked.
+    private static bool IsForceLockedLevel(int chapterNumber, int levelNumber)
+    {
+        return chapterNumber == 2 && (levelNumber == 5 || levelNumber == 6);
+    }
 
     void Awake()
     {
         Instance = this;
+        EnsureLockedIconAssigned();
         AutoFindChapterPanels();
         CreateBackButton();
+    }
+
+    private void OnValidate()
+    {
+        EnsureLockedIconAssigned();
     }
 
     void OnDestroy()
@@ -67,6 +97,7 @@ public class LevelSelectionController : MonoBehaviour
         if (chapterPanel != null)
         {
             chapterPanel.SetActive(true);
+            EnsureGlobalChapterTitle(chapterNumber);
             SetupChapterLevels(chapterNumber, chapterPanel);
             Debug.Log($"[LevelSelection] Showing Chapter {chapterNumber}");
         }
@@ -77,7 +108,7 @@ public class LevelSelectionController : MonoBehaviour
     }
 
     /// <summary>
-    /// Sets up all level buttons (Problem1, Problem2, etc.) within a chapter panel.
+    /// Sets up all level buttons within a chapter panel.
     /// Wires onClick, shows locked/unlocked/completed states.
     /// </summary>
     private void SetupChapterLevels(int chapterNumber, GameObject chapterPanel)
@@ -86,32 +117,27 @@ public class LevelSelectionController : MonoBehaviour
         int startLevel = chapterStartLevel[chapterIndex];
         int levelCount = chapterLevelCount[chapterIndex];
 
-        // DEV MODE: All levels unlocked for testing
-        int unlockedLevels = 99;
+        // Use persisted progression so reopening the panel reflects saved state.
         int lastCompletedLevel = 0;
-
-        // Update the chapter title text (first direct child Text (TMP))
-        Transform titleTransform = chapterPanel.transform.Find("Text (TMP)");
-        if (titleTransform != null)
+        var player = AccountManager.Instance != null ? AccountManager.Instance.GetCurrentPlayer() : null;
+        if (player != null)
         {
-            TextMeshProUGUI titleText = titleTransform.GetComponent<TextMeshProUGUI>();
-            if (titleText != null)
-            {
-                titleText.text = $"Chapter {chapterNumber}";
-                titleText.color = new Color(0.25f, 0.2f, 0.12f, 1f); // Dark brown for parchment
-            }
+            lastCompletedLevel = Mathf.Max(0, player.lastCompletedLevel);
         }
 
-        // Setup each Problem button
+        int nextPlayableLevel = Mathf.Max(1, lastCompletedLevel + 1);
+
+        HideChapterLocalTitles(chapterPanel);
+
+        // Setup each level button
         for (int i = 0; i < levelCount; i++)
         {
             int levelNumber = startLevel + i;
-            string problemName = $"Problem{i + 1}";
-            Transform problemTransform = chapterPanel.transform.Find(problemName);
+            Transform problemTransform = ResolveLevelButtonTransform(chapterPanel.transform, i + 1, levelNumber);
 
             if (problemTransform == null)
             {
-                Debug.LogWarning($"[LevelSelection] {problemName} not found in Chapter {chapterNumber}");
+                Debug.LogWarning($"[LevelSelection] Level node not found for level {levelNumber} in Chapter {chapterNumber}");
                 continue;
             }
 
@@ -124,51 +150,61 @@ public class LevelSelectionController : MonoBehaviour
             TextMeshProUGUI label = problemTransform.GetComponentInChildren<TextMeshProUGUI>();
 
             // Determine level state
-            bool isUnlocked = levelNumber <= unlockedLevels;
+            bool isForceLocked = IsForceLockedLevel(chapterNumber, levelNumber);
+            bool isUnlocked = !isForceLocked && levelNumber <= nextPlayableLevel;
             bool isCompleted = levelNumber <= lastCompletedLevel;
 
-            // Update visual state
+            // Update visual state.
+            // Keep prefab-authored look for both unlocked and locked levels (no gray tint).
             Image problemImage = problemTransform.GetComponent<Image>();
             if (problemImage != null)
-            {
-                if (isCompleted)
-                    problemImage.color = completedColor;
-                else if (isUnlocked)
-                    problemImage.color = unlockedColor;
-                else
-                    problemImage.color = lockedColor;
-            }
+                problemImage.color = Color.white;
 
             // Update label
             if (label != null)
             {
-                if (isCompleted)
-                    label.text = $"Level {levelNumber} ✓";
-                else if (isUnlocked)
-                    label.text = $"Level {levelNumber}";
-                else
-                    label.text = $"Level {levelNumber} 🔒";
-
-                // Dark text for parchment background
-                label.color = isUnlocked ? new Color(0.2f, 0.15f, 0.1f, 1f) : new Color(0.5f, 0.45f, 0.4f, 0.7f);
+                // Keep clean label in play mode while preserving prefab styling.
+                label.text = $"LEVEL {levelNumber}";
             }
+
+            UpdateLockIcon(problemTransform, !isUnlocked);
 
             // Wire button
             btn.onClick.RemoveAllListeners();
-            btn.interactable = isUnlocked;
+            btn.interactable = true;
 
-            if (isUnlocked)
-            {
-                int capturedLevel = levelNumber; // Capture for closure
-                btn.onClick.AddListener(() => OnLevelClicked(capturedLevel));
-            }
+            // Keep locked buttons from turning gray when non-interactable.
+            ColorBlock colors = btn.colors;
+            colors.disabledColor = Color.white;
+            btn.colors = colors;
+
+            int capturedLevel = levelNumber; // Capture for closure
+            bool capturedIsForceLocked = isForceLocked;
+            btn.onClick.AddListener(() => OnLevelButtonPressed(capturedLevel, nextPlayableLevel, capturedIsForceLocked));
 
             // Set button color transitions
             if (btn.targetGraphic == null && problemImage != null)
                 btn.targetGraphic = problemImage;
 
-            Debug.Log($"[LevelSelection] {problemName} → Level {levelNumber} (unlocked={isUnlocked}, completed={isCompleted})");
+            Debug.Log($"[LevelSelection] {problemTransform.name} → Level {levelNumber} (unlocked={isUnlocked}, completed={isCompleted})");
         }
+    }
+
+    private void OnLevelButtonPressed(int levelNumber, int nextPlayableLevel, bool isForceLocked)
+    {
+        if (isForceLocked)
+        {
+            ShowLockedLevelWarning(levelNumber, true);
+            return;
+        }
+
+        if (levelNumber <= nextPlayableLevel)
+        {
+            OnLevelClicked(levelNumber);
+            return;
+        }
+
+        ShowLockedLevelWarning(levelNumber, false);
     }
 
     /// <summary>
@@ -195,6 +231,7 @@ public class LevelSelectionController : MonoBehaviour
     public void GoBack()
     {
         gameObject.SetActive(false);
+        HideLockedLevelWarning();
 
         if (UIManager.Instance != null)
         {
@@ -302,5 +339,279 @@ public class LevelSelectionController : MonoBehaviour
             if (found != null) return found;
         }
         return null;
+    }
+
+    private Transform ResolveLevelButtonTransform(Transform chapterRoot, int problemIndex, int levelNumber)
+    {
+        if (chapterRoot == null) return null;
+
+        string[] candidates =
+        {
+            $"Problem{problemIndex}",
+            $"Problem {problemIndex}",
+            $"Level{levelNumber}Button",
+            $"Level {levelNumber}Button",
+            $"Level{levelNumber}Button ",
+            $"Level{levelNumber}",
+            $"Level {levelNumber}"
+        };
+
+        foreach (string candidate in candidates)
+        {
+            Transform direct = chapterRoot.Find(candidate);
+            if (direct != null) return direct;
+        }
+
+        foreach (string candidate in candidates)
+        {
+            Transform deep = FindDeepChildRecursive(chapterRoot, candidate);
+            if (deep != null) return deep;
+        }
+
+        return null;
+    }
+
+    private void EnsureGlobalChapterTitle(int chapterNumber)
+    {
+        if (globalChapterTitle == null)
+        {
+            Transform existing = transform.Find("ChapterHeader");
+            if (existing != null)
+                globalChapterTitle = existing.GetComponent<TextMeshProUGUI>();
+
+            if (globalChapterTitle == null)
+            {
+                GameObject titleGO = new GameObject("ChapterHeader", typeof(RectTransform));
+                titleGO.transform.SetParent(transform, false);
+
+                RectTransform rt = titleGO.GetComponent<RectTransform>();
+                rt.anchorMin = new Vector2(0.5f, 1f);
+                rt.anchorMax = new Vector2(0.5f, 1f);
+                rt.pivot = new Vector2(0.5f, 1f);
+                rt.anchoredPosition = new Vector2(0f, -22f);
+                rt.sizeDelta = new Vector2(520f, 90f);
+
+                globalChapterTitle = titleGO.AddComponent<TextMeshProUGUI>();
+                globalChapterTitle.alignment = TextAlignmentOptions.Center;
+                globalChapterTitle.fontStyle = FontStyles.Bold;
+                globalChapterTitle.enableAutoSizing = true;
+                globalChapterTitle.fontSizeMin = 24;
+                globalChapterTitle.fontSizeMax = 64;
+
+                // Reuse any existing TMP font from this panel for visual consistency.
+                TextMeshProUGUI anyLabel = GetComponentInChildren<TextMeshProUGUI>(true);
+                if (anyLabel != null)
+                    globalChapterTitle.font = anyLabel.font;
+            }
+        }
+
+        if (globalChapterTitle == null) return;
+
+        globalChapterTitle.gameObject.SetActive(true);
+        globalChapterTitle.text = $"CHAPTER {chapterNumber}";
+        globalChapterTitle.color = new Color(0.85f, 0.82f, 0.6f, 1f);
+    }
+
+    private void ShowLockedLevelWarning(int levelNumber, bool isForceLocked)
+    {
+        EnsureLockedLevelWarningText();
+        if (levelLockWarningText == null) return;
+
+        if (isForceLocked)
+        {
+            levelLockWarningText.text = $"Level {levelNumber} is currently locked.";
+        }
+        else
+        {
+            int requiredLevel = Mathf.Max(1, levelNumber - 1);
+            levelLockWarningText.text = $"Finish Level {requiredLevel} first.";
+        }
+        levelLockWarningText.gameObject.SetActive(true);
+
+        if (hideWarningCoroutine != null)
+            StopCoroutine(hideWarningCoroutine);
+
+        hideWarningCoroutine = StartCoroutine(HideLockedLevelWarningAfterDelay(2f));
+    }
+
+    private IEnumerator HideLockedLevelWarningAfterDelay(float delay)
+    {
+        yield return new WaitForSecondsRealtime(delay);
+        HideLockedLevelWarning();
+        hideWarningCoroutine = null;
+    }
+
+    private void HideLockedLevelWarning()
+    {
+        if (levelLockWarningText != null)
+            levelLockWarningText.gameObject.SetActive(false);
+    }
+
+    private void EnsureLockedLevelWarningText()
+    {
+        if (levelLockWarningText != null) return;
+
+        Transform existing = transform.Find("LockedLevelWarning");
+        if (existing != null)
+            levelLockWarningText = existing.GetComponent<TextMeshProUGUI>();
+
+        if (levelLockWarningText != null) return;
+
+        GameObject warningGO = new GameObject("LockedLevelWarning", typeof(RectTransform));
+        warningGO.transform.SetParent(transform, false);
+
+        RectTransform rt = warningGO.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0f);
+        rt.anchorMax = new Vector2(0.5f, 0f);
+        rt.pivot = new Vector2(0.5f, 0f);
+        rt.anchoredPosition = new Vector2(0f, 40f);
+        rt.sizeDelta = new Vector2(520f, 56f);
+
+        levelLockWarningText = warningGO.AddComponent<TextMeshProUGUI>();
+        levelLockWarningText.alignment = TextAlignmentOptions.Center;
+        levelLockWarningText.enableAutoSizing = true;
+        levelLockWarningText.fontSizeMin = 16;
+        levelLockWarningText.fontSizeMax = 30;
+        levelLockWarningText.color = new Color(0.95f, 0.78f, 0.5f, 1f);
+        levelLockWarningText.fontStyle = FontStyles.Bold;
+        levelLockWarningText.text = string.Empty;
+        levelLockWarningText.gameObject.SetActive(false);
+
+        TextMeshProUGUI anyLabel = GetComponentInChildren<TextMeshProUGUI>(true);
+        if (anyLabel != null)
+            levelLockWarningText.font = anyLabel.font;
+    }
+
+    private static void HideChapterLocalTitles(GameObject chapterPanel)
+    {
+        if (chapterPanel == null) return;
+
+        // Hide legacy per-chapter title texts to avoid faint duplicate title behind the global header.
+        foreach (Transform child in chapterPanel.transform)
+        {
+            if (child == null) continue;
+            TextMeshProUGUI localTitle = child.GetComponent<TextMeshProUGUI>();
+            if (localTitle != null)
+                localTitle.gameObject.SetActive(false);
+        }
+    }
+
+    private void UpdateLockIcon(Transform problemTransform, bool showLocked)
+    {
+        if (problemTransform == null) return;
+
+        Transform iconRoot = problemTransform.Find("LockIcon");
+        Transform fallbackRoot = problemTransform.Find("LockFallback");
+        Image iconImage;
+
+        if (iconRoot == null)
+        {
+            GameObject iconGO = new GameObject("LockIcon", typeof(RectTransform), typeof(Image));
+            iconGO.transform.SetParent(problemTransform, false);
+            iconRoot = iconGO.transform;
+
+            RectTransform iconRT = iconGO.GetComponent<RectTransform>();
+            iconRT.anchorMin = new Vector2(0.5f, 0.5f);
+            iconRT.anchorMax = new Vector2(0.5f, 0.5f);
+            iconRT.pivot = new Vector2(0.5f, 0.5f);
+            iconRT.anchoredPosition = Vector2.zero;
+            iconRT.sizeDelta = lockIconSize;
+
+            iconImage = iconGO.GetComponent<Image>();
+            iconImage.raycastTarget = false;
+            iconImage.preserveAspect = true;
+        }
+        else
+        {
+            iconImage = iconRoot.GetComponent<Image>();
+            if (iconImage == null)
+                iconImage = iconRoot.gameObject.AddComponent<Image>();
+        }
+
+        iconImage.sprite = lockedLevelIcon;
+        bool useSpriteIcon = showLocked && lockedLevelIcon != null;
+        iconImage.enabled = useSpriteIcon;
+
+        // If no sprite icon is available, render a lock shape using UI Images.
+        if (fallbackRoot == null)
+        {
+            GameObject rootGO = new GameObject("LockFallback", typeof(RectTransform));
+            rootGO.transform.SetParent(problemTransform, false);
+            fallbackRoot = rootGO.transform;
+
+            RectTransform rootRT = rootGO.GetComponent<RectTransform>();
+            rootRT.anchorMin = new Vector2(0.5f, 0.5f);
+            rootRT.anchorMax = new Vector2(0.5f, 0.5f);
+            rootRT.pivot = new Vector2(0.5f, 0.5f);
+            rootRT.anchoredPosition = Vector2.zero;
+            rootRT.sizeDelta = lockIconSize;
+
+            // Shackle
+            GameObject shackleGO = new GameObject("Shackle", typeof(RectTransform), typeof(Image));
+            shackleGO.transform.SetParent(rootGO.transform, false);
+            RectTransform shackleRT = shackleGO.GetComponent<RectTransform>();
+            shackleRT.anchorMin = new Vector2(0.5f, 0.5f);
+            shackleRT.anchorMax = new Vector2(0.5f, 0.5f);
+            shackleRT.pivot = new Vector2(0.5f, 0.5f);
+            shackleRT.anchoredPosition = new Vector2(0f, 12f);
+            shackleRT.sizeDelta = new Vector2(24f, 22f);
+
+            Image shackleImage = shackleGO.GetComponent<Image>();
+            shackleImage.type = Image.Type.Simple;
+            shackleImage.color = new Color(0.18f, 0.12f, 0.07f, 0.95f);
+
+            // Body
+            GameObject bodyGO = new GameObject("Body", typeof(RectTransform), typeof(Image));
+            bodyGO.transform.SetParent(rootGO.transform, false);
+            RectTransform bodyRT = bodyGO.GetComponent<RectTransform>();
+            bodyRT.anchorMin = new Vector2(0.5f, 0.5f);
+            bodyRT.anchorMax = new Vector2(0.5f, 0.5f);
+            bodyRT.pivot = new Vector2(0.5f, 0.5f);
+            bodyRT.anchoredPosition = new Vector2(0f, -4f);
+            bodyRT.sizeDelta = new Vector2(34f, 24f);
+
+            Image bodyImage = bodyGO.GetComponent<Image>();
+            bodyImage.type = Image.Type.Simple;
+            bodyImage.color = new Color(0.4f, 0.25f, 0.11f, 0.95f);
+
+            // Keyhole
+            GameObject keyholeGO = new GameObject("Keyhole", typeof(RectTransform), typeof(Image));
+            keyholeGO.transform.SetParent(bodyGO.transform, false);
+            RectTransform keyholeRT = keyholeGO.GetComponent<RectTransform>();
+            keyholeRT.anchorMin = new Vector2(0.5f, 0.5f);
+            keyholeRT.anchorMax = new Vector2(0.5f, 0.5f);
+            keyholeRT.pivot = new Vector2(0.5f, 0.5f);
+            keyholeRT.anchoredPosition = new Vector2(0f, -1f);
+            keyholeRT.sizeDelta = new Vector2(5f, 10f);
+
+            Image keyholeImage = keyholeGO.GetComponent<Image>();
+            keyholeImage.type = Image.Type.Simple;
+            keyholeImage.color = new Color(0.08f, 0.05f, 0.03f, 1f);
+        }
+
+        bool useGlyphFallback = showLocked && lockedLevelIcon == null;
+        fallbackRoot.gameObject.SetActive(useGlyphFallback);
+
+        // Only show image object when sprite icon is available.
+        iconRoot.gameObject.SetActive(useSpriteIcon);
+    }
+
+
+    private void EnsureLockedIconAssigned()
+    {
+        if (lockedLevelIcon != null) return;
+
+#if UNITY_EDITOR
+        foreach (string candidatePath in lockSpriteCandidatePaths)
+        {
+            Sprite candidateSprite = AssetDatabase.LoadAssetAtPath<Sprite>(candidatePath);
+            if (candidateSprite != null)
+            {
+                lockedLevelIcon = candidateSprite;
+                EditorUtility.SetDirty(this);
+                break;
+            }
+        }
+#endif
     }
 }

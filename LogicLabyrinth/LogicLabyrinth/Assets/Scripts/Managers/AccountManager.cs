@@ -7,7 +7,6 @@ using Firebase.Extensions;
 public class AccountManager : MonoBehaviour
 {
     public static AccountManager Instance;
-    private bool cloudServicesAvailable = true;
     private const string RealtimeDatabaseUrl = "https://logiclabyrinth-auth-default-rtdb.asia-southeast1.firebasedatabase.app";
     private const string SecurityAnswerIndexSalt = "logiclabyrinth-security-answer-v1";
 
@@ -59,6 +58,10 @@ public class AccountManager : MonoBehaviour
         // Per-level best times stored as "level:seconds" pairs.
         // Format: "1:45.23,2:120.5,3:88.1" — comma-separated, level:bestTimeInSeconds
         public string bestLevelTimes = "";
+
+        // Per-level completion attempts stored as "level:count" pairs.
+        // Format: "2:4,3:2" — comma-separated, level:attemptCount
+        public string levelAttemptCounts = "";
 
         // Total time spent playing across all sessions (seconds)
         public float totalPlayedSeconds = 0f;
@@ -455,7 +458,6 @@ public class AccountManager : MonoBehaviour
         }
         catch (Exception ex)
         {
-            cloudServicesAvailable = false;
             Debug.LogWarning("[AccountManager] Firebase Auth unavailable. Running in local/offline mode. " + ex.Message);
             return false;
         }
@@ -486,7 +488,6 @@ public class AccountManager : MonoBehaviour
             }
             catch (Exception ex)
             {
-                cloudServicesAvailable = false;
                 dbRef = null;
                 Debug.LogWarning("[AccountManager] Firebase Database unavailable. Running in local/offline mode. " + ex.Message);
             }
@@ -726,12 +727,20 @@ public class AccountManager : MonoBehaviour
 
                 // Forgot-password for logged-out users updates DB hash/salt, not Firebase Auth password.
                 // Fallback to DB credential verification so reset users can still sign in.
-                TryDatabaseCredentialLogin(cleanUser, pass, success =>
+                TryDatabaseCredentialLogin(cleanUser, pass, (success, fallbackMessage) =>
                 {
                     if (!success)
                     {
-                        Debug.LogError("Firebase Auth Error: " + firebaseError);
-                        onResult?.Invoke(false, "Incorrect username or password.");
+                        // Wrong credentials are expected during normal login attempts; keep logs readable.
+                        if (IsLikelyInvalidCredentialsAuthError(firebaseError))
+                            Debug.LogWarning("[AccountManager] Login failed due to invalid credentials.");
+                        else
+                            Debug.LogWarning("[AccountManager] Firebase Auth sign-in failed: " + firebaseError);
+
+                        onResult?.Invoke(false,
+                            string.IsNullOrWhiteSpace(fallbackMessage)
+                                ? "Incorrect username or password."
+                                : fallbackMessage);
                     }
                     else
                     {
@@ -747,12 +756,12 @@ public class AccountManager : MonoBehaviour
         });
     }
 
-    private void TryDatabaseCredentialLogin(string normalizedUsername, string password, System.Action<bool> onResult)
+    private void TryDatabaseCredentialLogin(string normalizedUsername, string password, System.Action<bool, string> onResult)
     {
         if (dbRef == null)
         {
             Debug.LogWarning("[AccountManager] DB login fallback aborted: dbRef is null.");
-            onResult?.Invoke(false);
+            onResult?.Invoke(false, "Login service unavailable. Please try again.");
             return;
         }
 
@@ -761,7 +770,17 @@ public class AccountManager : MonoBehaviour
             if (data == null || userRef == null)
             {
                 Debug.LogWarning($"[AccountManager] DB login fallback failed: user '{normalizedUsername}' not found. LookupError='{lastUsernameLookupError}'.");
-                onResult?.Invoke(false);
+
+                if (!string.IsNullOrEmpty(lastUsernameLookupError) &&
+                    lastUsernameLookupError.IndexOf("Permission denied", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    onResult?.Invoke(false, "Login service unavailable. Please try again.");
+                }
+                else
+                {
+                    onResult?.Invoke(false, "No account found for that username.");
+                }
+
                 return;
             }
 
@@ -779,7 +798,7 @@ public class AccountManager : MonoBehaviour
                     : data.passwordHash.Substring(0, Math.Min(8, data.passwordHash.Length));
                 string saltState = string.IsNullOrEmpty(data.passwordSalt) ? "missing" : "present";
                 Debug.LogWarning($"[AccountManager] DB login fallback password mismatch for '{normalizedUsername}' (hash={hashPreview}..., salt={saltState}).");
-                onResult?.Invoke(false);
+                onResult?.Invoke(false, "Wrong password.");
                 return;
             }
 
@@ -800,8 +819,22 @@ public class AccountManager : MonoBehaviour
                 if (UIManager.Instance != null) UIManager.Instance.ShowMainMenu();
             }
 
-            onResult?.Invoke(true);
+            onResult?.Invoke(true, "Welcome back!");
         });
+    }
+
+    private static bool IsLikelyInvalidCredentialsAuthError(string errorMessage)
+    {
+        if (string.IsNullOrWhiteSpace(errorMessage)) return false;
+
+        string msg = errorMessage.ToLowerInvariant();
+        return msg.Contains("password is invalid") ||
+               msg.Contains("no user record") ||
+               msg.Contains("user-not-found") ||
+               msg.Contains("wrong-password") ||
+               msg.Contains("invalid login credentials") ||
+               msg.Contains("invalid email") ||
+               msg.Contains("internal error");
     }
 
     private void TryRecoverFirebaseAuthSessionFromFallback(string normalizedUsername, string password)
@@ -1053,6 +1086,11 @@ public class AccountManager : MonoBehaviour
             return;
         }
 
+        // Track attempts for this level regardless of whether the time is a new best.
+        var attemptCounts = ParseAttemptCounts(currentPlayer.levelAttemptCounts);
+        attemptCounts[level] = attemptCounts.ContainsKey(level) ? attemptCounts[level] + 1 : 1;
+        currentPlayer.levelAttemptCounts = SerializeAttemptCounts(attemptCounts);
+
         // Add to total played time
         currentPlayer.totalPlayedSeconds += seconds;
 
@@ -1150,6 +1188,29 @@ public class AccountManager : MonoBehaviour
     }
 
     /// <summary>
+    /// Parses "2:4,3:2" into a Dictionary of per-level attempt counts.
+    /// </summary>
+    public static Dictionary<int, int> ParseAttemptCounts(string serialized)
+    {
+        var result = new Dictionary<int, int>();
+        if (string.IsNullOrWhiteSpace(serialized)) return result;
+
+        string[] pairs = serialized.Split(',');
+        foreach (string pair in pairs)
+        {
+            string[] parts = pair.Split(':');
+            if (parts.Length == 2 &&
+                int.TryParse(parts[0], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int lvl) &&
+                int.TryParse(parts[1], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int count))
+            {
+                result[lvl] = Mathf.Max(0, count);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// Serializes a Dictionary into "1:45.23,2:120.5,3:88.1" format.
     /// </summary>
     private static string SerializeBestTimes(Dictionary<int, float> times)
@@ -1158,6 +1219,16 @@ public class AccountManager : MonoBehaviour
         foreach (var kvp in times)
         {
             parts.Add($"{kvp.Key}:{kvp.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+        }
+        return string.Join(",", parts);
+    }
+
+    private static string SerializeAttemptCounts(Dictionary<int, int> attempts)
+    {
+        var parts = new List<string>();
+        foreach (var kvp in attempts)
+        {
+            parts.Add($"{kvp.Key}:{Mathf.Max(0, kvp.Value).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
         }
         return string.Join(",", parts);
     }
@@ -1268,6 +1339,7 @@ public class AccountManager : MonoBehaviour
             { "puzzlesCompleted", currentPlayer.completedPuzzles != null ? currentPlayer.completedPuzzles.Count : 0 },
             { "profilePicture", currentPlayer.profilePicture ?? "image-removebg-preview" },
             { "bestLevelTimes", currentPlayer.bestLevelTimes ?? "" },
+            { "levelAttemptCounts", currentPlayer.levelAttemptCounts ?? "" },
             { "totalBestTime", bestTimes.Count > 0 ? totalBestTime : -1f },
             { "fastestLevelTime", fastestLevel },
             { "levelsCompleted", bestTimes.Count },

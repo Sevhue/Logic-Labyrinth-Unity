@@ -69,6 +69,12 @@ public class LevelManager : MonoBehaviour
     {
         Debug.Log("Scene loaded: " + scene.name + ", isLoadingGame: " + isLoadingGame);
 
+        if (scene.name == "Level1")
+            CleanupDuplicateLevel1Doors();
+
+        if (scene.name.StartsWith("Level"))
+            EnsureDungeonLightingManager();
+
         // ── Reset static key/candle flags on every level load ──
         // These statics can persist across scenes and even editor play sessions.
         if (scene.name.StartsWith("Level"))
@@ -175,6 +181,55 @@ public class LevelManager : MonoBehaviour
         else
             StopOutOfBoundsWatchdog();
 
+    }
+
+    private void CleanupDuplicateLevel1Doors()
+    {
+        CleanupDuplicateNamedObjects("lvl1_NewEnvironment");
+        CleanupDuplicateNamedObjects("Door_Tutorial");
+        CleanupDuplicateNamedObjects("Door_Success");
+    }
+
+    private void EnsureDungeonLightingManager()
+    {
+        DungeonLightingManager existing = FindAnyObjectByType<DungeonLightingManager>();
+        if (existing != null) return;
+
+        GameObject go = new GameObject("DungeonLightingManager_Auto");
+        go.AddComponent<DungeonLightingManager>();
+        Debug.Log("[LevelManager] Auto-created DungeonLightingManager for level scene.");
+    }
+
+    private void CleanupDuplicateNamedObjects(string exactName)
+    {
+        if (string.IsNullOrWhiteSpace(exactName)) return;
+
+        GameObject[] all = FindObjectsByType<GameObject>(FindObjectsSortMode.None);
+        if (all == null || all.Length == 0) return;
+
+        var matches = new System.Collections.Generic.List<GameObject>();
+        for (int i = 0; i < all.Length; i++)
+        {
+            var go = all[i];
+            if (go == null || !go.scene.IsValid()) continue;
+            if (go.name == exactName)
+                matches.Add(go);
+        }
+
+        if (matches.Count <= 1) return;
+
+        // Keep the door closest to world origin and remove duplicates.
+        // This gives deterministic behavior when duplicates are present.
+        matches.Sort((a, b) =>
+            a.transform.position.sqrMagnitude.CompareTo(b.transform.position.sqrMagnitude));
+
+        for (int i = 1; i < matches.Count; i++)
+        {
+            if (matches[i] != null)
+                Destroy(matches[i]);
+        }
+
+        Debug.LogWarning($"[LevelManager] Removed {matches.Count - 1} duplicate object(s) named '{exactName}' from Level1 at runtime.");
     }
 
     /// <summary>

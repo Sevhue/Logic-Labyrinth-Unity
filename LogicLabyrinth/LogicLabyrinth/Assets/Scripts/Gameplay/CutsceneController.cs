@@ -51,8 +51,6 @@ public class CutsceneController : MonoBehaviour
 
     // ── Phase 2 ──
     private bool waitingForTableOpen = false;
-    private bool tableDialogueActive = false;
-    private bool tableDialogueFinished = false;
     private GameObject dialogueInstance;
     private GameObject instructionBanner;
     private TextMeshProUGUI instructionTMP;
@@ -327,7 +325,6 @@ public class CutsceneController : MonoBehaviour
     private IEnumerator RunTableDialogue()
     {
         Debug.Log("[Cutscene] Phase 2: Table opened! Starting inner dialogue...");
-        tableDialogueActive = true;
         IsTableDialogueActive = true;
 
         // ── Create instruction banner inside the scroll ──
@@ -337,7 +334,6 @@ public class CutsceneController : MonoBehaviour
         if (dialoguePrefab == null)
         {
             Debug.LogWarning("[Cutscene] No dialoguePrefab assigned!");
-            tableDialogueActive = false;
             yield break;
         }
 
@@ -476,9 +472,7 @@ public class CutsceneController : MonoBehaviour
     private void EndTableDialogue()
     {
         Debug.Log("[Cutscene] Phase 2 complete! Player can now solve the puzzle.");
-        tableDialogueActive = false;
         IsTableDialogueActive = false;
-        tableDialogueFinished = true;
 
         if (dialogueInstance != null)
         { Destroy(dialogueInstance); dialogueInstance = null; }

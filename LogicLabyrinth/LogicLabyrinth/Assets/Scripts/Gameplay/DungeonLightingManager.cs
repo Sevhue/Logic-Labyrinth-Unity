@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.Rendering;
 
+
 /// <summary>
 /// Makes the dungeon dark with limited player visibility.
 /// Attach to any GameObject in a level scene (e.g. an empty "DungeonLighting" object).
@@ -14,17 +15,51 @@ using UnityEngine.Rendering;
 /// </summary>
 public class DungeonLightingManager : MonoBehaviour
 {
+    private struct TorchBaseline
+    {
+        public float intensity;
+        public float range;
+    }
+
+    [Header("Labyrinth Preset")]
+    [Tooltip("Forces a consistent horror/labyrinth visibility profile across all levels.")]
+    public bool forceLabyrinthPreset = true;
+
     [Header("Player Light Settings")]
+    [Tooltip("Use a forward-facing spotlight (horror flashlight style) instead of 360 point light.")]
+    public bool useSpotlight = true;
+
     [Tooltip("How far the player can see (Point Light range in meters)")]
     [Range(2f, 20f)]
-    public float playerLightRange = 6f;
+    public float playerLightRange = 2.8f;
 
     [Tooltip("Brightness of the player's light")]
     [Range(0.1f, 5f)]
-    public float playerLightIntensity = 1.2f;
+    public float playerLightIntensity = 2.2f;
 
     [Tooltip("Color of the player's light (warm torch-like)")]
     public Color playerLightColor = new Color(1f, 0.85f, 0.6f, 1f); // Warm orange
+
+    [Tooltip("Outer angle of the spotlight cone.")]
+    [Range(20f, 120f)]
+    public float playerSpotAngle = 54f;
+
+    [Tooltip("Inner angle of the spotlight cone.")]
+    [Range(10f, 100f)]
+    public float playerInnerSpotAngle = 30f;
+
+    [Tooltip("Downward pitch (degrees) so the beam lights the floor in front of the player.")]
+    [Range(-20f, 25f)]
+    public float playerSpotPitch = 10f;
+
+    [Tooltip("Small helper light to keep nearby floor readable.")]
+    public bool useFloorFillLight = true;
+
+    [Range(0.1f, 3f)]
+    public float floorFillRange = 2.0f;
+
+    [Range(0.05f, 2f)]
+    public float floorFillIntensity = 1.1f;
 
     [Header("Ambient & Fog")]
     [Tooltip("The ambient color of the dungeon (should be very dark)")]
@@ -38,37 +73,67 @@ public class DungeonLightingManager : MonoBehaviour
 
     [Tooltip("Fog density — higher = shorter visibility")]
     [Range(0.01f, 0.5f)]
-    public float fogDensity = 0.06f;
+    public float fogDensity = 0.1f;
 
     [Header("Directional Light")]
     [Tooltip("How much to reduce the directional light (0 = fully off)")]
     [Range(0f, 0.1f)]
-    public float directionalLightIntensity = 0.02f;
+    public float directionalLightIntensity = 0f;
 
     [Header("Torch Lights")]
+    [Tooltip("If enabled, every non-player light is disabled unless it looks like a placed torch light.")]
+    public bool forceOnlyTorchLights = true;
+
+    [Tooltip("Name keywords used to detect placed torch lights.")]
+    public string[] torchNameKeywords = { "torch", "brazi", "sconce", "flame" };
+
     [Tooltip("Boost multiplier for existing torch/point lights in the scene")]
     [Range(1f, 5f)]
-    public float torchLightBoost = 1.5f;
+    public float torchLightBoost = 1.0f;
 
     [Tooltip("Extra range added to torch lights so they punch through fog")]
     [Range(0f, 15f)]
-    public float torchExtraRange = 5f;
+    public float torchExtraRange = 0.3f;
 
     // Internal references
     private Light playerLight;
+    private Light floorFillLight;
     private GameObject playerLightObj;
     private Light[] originalDirectionalLights;
     private float[] originalIntensities;
     private CameraClearFlags originalClearFlags;
     private Color originalBgColor;
     private Camera mainCam;
+    private readonly System.Collections.Generic.Dictionary<int, TorchBaseline> torchBaselines =
+        new System.Collections.Generic.Dictionary<int, TorchBaseline>();
+    private System.Collections.IEnumerator lightRulesWatchdog;
+
+    void Awake()
+    {
+        if (!forceLabyrinthPreset) return;
+
+        // V1.3 baseline for player light.
+        playerLightRange = 6f;
+        playerLightIntensity = 1.2f;
+        ambientColor = new Color(0.03f, 0.03f, 0.05f, 1f);
+        fogColor = new Color(0.02f, 0.02f, 0.03f, 1f);
+        fogDensity = 0.1f;
+        directionalLightIntensity = 0f;
+        torchLightBoost = 1.0f;
+        torchExtraRange = 0.3f;
+    }
 
     void Start()
     {
         SetupCamera();
         SetupAmbientAndFog();
         DimDirectionalLights();
-        BoostTorchLights();
+        ApplySceneLightRules();
+
+        // Keep map blackout enforced even if objects/scripts enable lights later.
+        lightRulesWatchdog = EnforceLightRulesLoop();
+        StartCoroutine(lightRulesWatchdog);
+
         StartCoroutine(AttachPlayerLightDelayed());
     }
 
@@ -146,41 +211,159 @@ public class DungeonLightingManager : MonoBehaviour
         originalIntensities = origIntensities.ToArray();
     }
 
-    /// <summary>
-    /// Finds all existing Point/Spot lights in the scene (torch lights from the FBX)
-    /// and boosts their intensity and range so they're visible through the fog.
-    /// </summary>
-    private void BoostTorchLights()
+    private void ApplySceneLightRules()
     {
-        Light[] allLights = FindObjectsOfType<Light>();
-        int boosted = 0;
+        Light[] allLights = FindObjectsOfType<Light>(true);
+        int activeTorchCount = 0;
+        int disabledCount = 0;
 
         foreach (Light light in allLights)
         {
-            // Only boost Point and Spot lights (torch-type lights), skip Directional
-            if (light.type == LightType.Point || light.type == LightType.Spot)
+            if (light == null) continue;
+
+            if (IsPlayerOwnedLight(light))
+                continue;
+
+            if (light.type == LightType.Directional)
             {
-                // Skip the player light we just created
-                if (light.gameObject.name == "PlayerDungeonLight") continue;
+                light.enabled = true;
+                light.intensity = directionalLightIntensity;
+                continue;
+            }
 
-                float origIntensity = light.intensity;
-                float origRange = light.range;
+            bool isTorch = IsTorchLight(light);
+            bool isGuidanceLight = IsGuidanceLight(light);
 
-                light.intensity *= torchLightBoost;
-                light.range += torchExtraRange;
+            if (forceOnlyTorchLights && !isTorch && !isGuidanceLight)
+            {
+                if (light.enabled || light.intensity > 0f)
+                {
+                    light.enabled = false;
+                    light.intensity = 0f;
+                    disabledCount++;
+                }
 
-                // Make sure shadows are enabled for atmosphere
+                continue;
+            }
+
+            if (isTorch)
+            {
+                int id = light.GetInstanceID();
+                TorchBaseline baseline;
+                if (!torchBaselines.TryGetValue(id, out baseline))
+                {
+                    baseline = new TorchBaseline
+                    {
+                        intensity = light.intensity,
+                        range = light.range,
+                    };
+                    torchBaselines[id] = baseline;
+                }
+
+                light.enabled = true;
+                light.intensity = baseline.intensity * torchLightBoost;
+                light.range = baseline.range + torchExtraRange;
+
+                // Make sure torch lights cast shadows for occlusion and atmosphere.
                 if (light.shadows == LightShadows.None)
                     light.shadows = LightShadows.Soft;
 
-                boosted++;
-                Debug.Log($"[DungeonLighting] Boosted torch '{light.gameObject.name}': " +
-                          $"intensity {origIntensity:F1}→{light.intensity:F1}, " +
-                          $"range {origRange:F1}→{light.range:F1}");
+                activeTorchCount++;
             }
         }
 
-        Debug.Log($"[DungeonLighting] Boosted {boosted} torch lights.");
+        if (activeTorchCount > 0 || disabledCount > 0)
+            Debug.Log($"[DungeonLighting] Light rules enforced. Torches active: {activeTorchCount}, non-torch disabled: {disabledCount}.");
+    }
+
+    private bool IsPlayerOwnedLight(Light light)
+    {
+        if (light == null) return false;
+
+        if (light == playerLight || light == floorFillLight)
+            return true;
+
+        Transform t = light.transform;
+        if (playerLightObj != null && (t == playerLightObj.transform || t.IsChildOf(playerLightObj.transform)))
+            return true;
+
+        Transform root = t.root;
+        if (root != null)
+        {
+            if (root.CompareTag("Player"))
+                return true;
+
+            if (root.GetComponentInChildren<CharacterController>() != null)
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool IsTorchLight(Light light)
+    {
+        if (light == null) return false;
+
+        string path = GetHierarchyPath(light.transform).ToLowerInvariant();
+
+        if (torchNameKeywords != null)
+        {
+            for (int i = 0; i < torchNameKeywords.Length; i++)
+            {
+                string key = torchNameKeywords[i];
+                if (!string.IsNullOrWhiteSpace(key) && path.Contains(key.ToLowerInvariant()))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Keep scripted guidance lights (tutorial/success door highlights) alive even in strict torch mode.
+    private bool IsGuidanceLight(Light light)
+    {
+        if (light == null) return false;
+
+        string path = GetHierarchyPath(light.transform).ToLowerInvariant();
+        return path.Contains("doorhighlightlight")
+            || path.Contains("door_tutorial")
+            || path.Contains("door_success")
+            || path.Contains("keyshinelight");
+    }
+
+    private static string GetHierarchyPath(Transform target)
+    {
+        if (target == null) return string.Empty;
+
+        string path = target.name;
+        while (target.parent != null)
+        {
+            target = target.parent;
+            path = target.name + "/" + path;
+        }
+
+        return path;
+    }
+
+    private System.Collections.IEnumerator EnforceLightRulesLoop()
+    {
+        while (true)
+        {
+            yield return new WaitForSeconds(0.75f);
+            ApplySceneLightRules();
+        }
+    }
+
+    private void OnEnable()
+    {
+        ApplySceneLightRules();
+    }
+
+    private void LateUpdate()
+    {
+        // If player light was destroyed by scene reload timing, recover it quickly.
+        if (playerLight == null && playerLightObj == null)
+            AttachPlayerLight();
     }
 
     private void AttachPlayerLight()
@@ -197,23 +380,55 @@ public class DungeonLightingManager : MonoBehaviour
         // Avoid duplicates
         if (playerLightObj != null) return;
 
-        // Create the point light as a child of the player
+        // V1.3 behavior: point light attached directly to player.
         playerLightObj = new GameObject("PlayerDungeonLight");
         playerLightObj.transform.SetParent(playerObj.transform, false);
-
-        // Position it slightly above the player's center (eye level)
         playerLightObj.transform.localPosition = new Vector3(0f, 0.8f, 0f);
+        playerLightObj.transform.localRotation = Quaternion.identity;
 
-        // Add the point light
+        // Add player light
         playerLight = playerLightObj.AddComponent<Light>();
         playerLight.type = LightType.Point;
         playerLight.range = playerLightRange;
         playerLight.intensity = playerLightIntensity;
         playerLight.color = playerLightColor;
-        playerLight.shadows = LightShadows.None; // No shadows — player IS the light source; also avoids hitting shadow-casting light limit
+        playerLight.shadows = LightShadows.None;
         playerLight.renderMode = LightRenderMode.ForcePixel;
 
         Debug.Log($"[DungeonLighting] Player light attached! Range={playerLightRange}m, Intensity={playerLightIntensity}");
+    }
+
+    private void CreateFloorFillLight()
+    {
+        if (playerLightObj == null || floorFillLight != null) return;
+
+        GameObject fillObj = new GameObject("PlayerFloorFillLight");
+        fillObj.transform.SetParent(playerLightObj.transform, false);
+        fillObj.transform.localPosition = new Vector3(0f, -0.35f, 0.15f);
+        fillObj.transform.localRotation = Quaternion.identity;
+
+        floorFillLight = fillObj.AddComponent<Light>();
+        floorFillLight.type = LightType.Point;
+        floorFillLight.range = floorFillRange;
+        floorFillLight.intensity = floorFillIntensity;
+        floorFillLight.color = playerLightColor;
+        floorFillLight.shadows = LightShadows.None;
+        floorFillLight.renderMode = LightRenderMode.ForcePixel;
+    }
+
+    private Camera FindViewCamera()
+    {
+        if (Camera.main != null && Camera.main.isActiveAndEnabled)
+            return Camera.main;
+
+        Camera[] cams = FindObjectsByType<Camera>(FindObjectsSortMode.None);
+        for (int i = 0; i < cams.Length; i++)
+        {
+            if (cams[i] != null && cams[i].isActiveAndEnabled)
+                return cams[i];
+        }
+
+        return null;
     }
 
     private System.Collections.IEnumerator RetryAttachLight()
@@ -356,6 +571,15 @@ public class DungeonLightingManager : MonoBehaviour
         if (playerLightObj != null)
         {
             Destroy(playerLightObj);
+            floorFillLight = null;
         }
+
+        if (lightRulesWatchdog != null)
+        {
+            StopCoroutine(lightRulesWatchdog);
+            lightRulesWatchdog = null;
+        }
+
+        torchBaselines.Clear();
     }
 }

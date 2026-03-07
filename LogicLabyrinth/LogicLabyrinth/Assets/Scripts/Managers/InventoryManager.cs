@@ -1,6 +1,9 @@
 using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+using TMPro;
 
 public class InventoryManager : MonoBehaviour
 {
@@ -18,6 +21,24 @@ public class InventoryManager : MonoBehaviour
     /// <summary>Whether the player has collected a candle.</summary>
     public bool HasCandle { get; private set; } = false;
 
+    [Header("Level 1 Hints")]
+    [SerializeField] private bool enableDropGateHint = true;
+    [SerializeField] private int dropGateHintThreshold = 3;
+    [SerializeField] private float dropGateHintInitialDelay = 1.5f;
+
+    [Header("Level 2 Hints")]
+    [SerializeField] private bool enableTabCursorHint = true;
+    [SerializeField] private float tabCursorHintInitialDelay = 1f;
+
+    private static bool dropGateHintShownThisSession = false;
+    private GameObject dropGateHintUI;
+    private Coroutine dropGateHintRoutine;
+
+    private bool tabCursorHintShownForCurrentLevel2Entry = false;
+    private GameObject tabCursorHintUI;
+    private Coroutine tabCursorHintRoutine;
+    private float tabHintCheckCooldown = 0f;
+
     public void SetHasCandle(bool value)
     {
         HasCandle = value;
@@ -28,6 +49,29 @@ public class InventoryManager : MonoBehaviour
     {
         if (Instance == null) { Instance = this; DontDestroyOnLoad(gameObject); }
         else { Destroy(gameObject); }
+
+        TryShowTabCursorHint(SceneManager.GetActiveScene());
+    }
+
+    void OnEnable()
+    {
+        SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    void OnDisable()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    void Update()
+    {
+        if (tabCursorHintShownForCurrentLevel2Entry || tabCursorHintRoutine != null) return;
+
+        tabHintCheckCooldown -= Time.unscaledDeltaTime;
+        if (tabHintCheckCooldown > 0f) return;
+        tabHintCheckCooldown = 0.5f;
+
+        TryShowTabCursorHint(SceneManager.GetActiveScene());
     }
 
     // ============================
@@ -97,6 +141,7 @@ public class InventoryManager : MonoBehaviour
             }
             UpdateLocalUI();
             NotifyGateCollected(key);
+            TryShowDropGateHint();
         }
     }
 
@@ -220,6 +265,195 @@ public class InventoryManager : MonoBehaviour
         gateCounts["OR"] = or;
         gateCounts["NOT"] = not;
         UpdateLocalUI();
+        TryShowDropGateHint();
         Debug.Log("InventoryManager: Synced from cloud data.");
+    }
+
+    private void TryShowDropGateHint()
+    {
+        if (!enableDropGateHint || dropGateHintShownThisSession) return;
+        if (GetTotalGateCount() < Mathf.Max(1, dropGateHintThreshold)) return;
+
+        Scene scene = SceneManager.GetActiveScene();
+        if (scene.name != "Level1") return;
+
+        if (dropGateHintRoutine != null) return;
+        dropGateHintShownThisSession = true;
+        dropGateHintRoutine = StartCoroutine(ShowDropGateHintRoutine());
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        TryShowTabCursorHint(scene);
+    }
+
+    private void TryShowTabCursorHint(Scene scene)
+    {
+        if (!enableTabCursorHint) return;
+
+        if (scene.name != "Level2")
+        {
+            tabCursorHintShownForCurrentLevel2Entry = false;
+            return;
+        }
+
+        if (tabCursorHintShownForCurrentLevel2Entry) return;
+        if (tabCursorHintRoutine != null) return;
+
+        tabCursorHintShownForCurrentLevel2Entry = true;
+        tabCursorHintRoutine = StartCoroutine(ShowTabCursorHintRoutine());
+        Debug.Log("[Hints] Level 2 TAB cursor hint queued.");
+    }
+
+    private IEnumerator ShowTabCursorHintRoutine()
+    {
+        if (tabCursorHintInitialDelay > 0f)
+            yield return new WaitForSecondsRealtime(tabCursorHintInitialDelay);
+
+        tabCursorHintUI = new GameObject("TabCursorHintMessage");
+
+        Canvas canvas = tabCursorHintUI.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 1200;
+
+        CanvasScaler scaler = tabCursorHintUI.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+
+        GameObject panelGO = new GameObject("Panel");
+        panelGO.transform.SetParent(tabCursorHintUI.transform, false);
+        RectTransform panelRT = panelGO.AddComponent<RectTransform>();
+        panelRT.anchorMin = new Vector2(0.54f, 0.83f);
+        panelRT.anchorMax = new Vector2(0.98f, 0.95f);
+        panelRT.offsetMin = Vector2.zero;
+        panelRT.offsetMax = Vector2.zero;
+
+        Image bg = panelGO.AddComponent<Image>();
+        bg.color = new Color(0.08f, 0.05f, 0.02f, 0.9f);
+        bg.raycastTarget = false;
+
+        Outline outline = panelGO.AddComponent<Outline>();
+        outline.effectColor = new Color(0.85f, 0.7f, 0.35f, 0.8f);
+        outline.effectDistance = new Vector2(2f, 2f);
+
+        GameObject textGO = new GameObject("Text");
+        textGO.transform.SetParent(panelGO.transform, false);
+        RectTransform textRT = textGO.AddComponent<RectTransform>();
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.offsetMin = new Vector2(15f, 8f);
+        textRT.offsetMax = new Vector2(-15f, -8f);
+
+        TextMeshProUGUI tmp = textGO.AddComponent<TextMeshProUGUI>();
+        tmp.text = "Press Tab to toggle the mouse cursor.";
+        tmp.fontSize = 20;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color = new Color(1f, 0.9f, 0.6f, 1f);
+        tmp.fontStyle = FontStyles.Italic;
+        tmp.enableWordWrapping = true;
+        tmp.raycastTarget = false;
+
+        yield return new WaitForSecondsRealtime(4f);
+
+        CanvasGroup cg = tabCursorHintUI.AddComponent<CanvasGroup>();
+        float fadeTime = 0.5f;
+        float elapsed = 0f;
+        while (elapsed < fadeTime)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            cg.alpha = 1f - (elapsed / fadeTime);
+            yield return null;
+        }
+
+        if (tabCursorHintUI != null)
+            Destroy(tabCursorHintUI);
+
+        tabCursorHintUI = null;
+        tabCursorHintRoutine = null;
+    }
+
+    private IEnumerator ShowDropGateHintRoutine()
+    {
+        if (dropGateHintInitialDelay > 0f)
+            yield return new WaitForSecondsRealtime(dropGateHintInitialDelay);
+
+        dropGateHintUI = new GameObject("DropGateHintMessage");
+
+        Canvas canvas = dropGateHintUI.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 590;
+
+        CanvasScaler scaler = dropGateHintUI.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+
+        GameObject panelGO = new GameObject("Panel");
+        panelGO.transform.SetParent(dropGateHintUI.transform, false);
+        RectTransform panelRT = panelGO.AddComponent<RectTransform>();
+        panelRT.anchorMin = new Vector2(0.56f, 0.78f);
+        panelRT.anchorMax = new Vector2(0.98f, 0.90f);
+        panelRT.offsetMin = Vector2.zero;
+        panelRT.offsetMax = Vector2.zero;
+
+        Image bg = panelGO.AddComponent<Image>();
+        bg.color = new Color(0.08f, 0.05f, 0.02f, 0.9f);
+        bg.raycastTarget = false;
+
+        Outline outline = panelGO.AddComponent<Outline>();
+        outline.effectColor = new Color(0.85f, 0.7f, 0.35f, 0.8f);
+        outline.effectDistance = new Vector2(2f, 2f);
+
+        GameObject textGO = new GameObject("Text");
+        textGO.transform.SetParent(panelGO.transform, false);
+        RectTransform textRT = textGO.AddComponent<RectTransform>();
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.offsetMin = new Vector2(15f, 8f);
+        textRT.offsetMax = new Vector2(-15f, -8f);
+
+        TextMeshProUGUI tmp = textGO.AddComponent<TextMeshProUGUI>();
+        tmp.text = "Press Q to drop logic gates.";
+        tmp.fontSize = 20;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color = new Color(1f, 0.9f, 0.6f, 1f);
+        tmp.fontStyle = FontStyles.Italic;
+        tmp.enableWordWrapping = true;
+        tmp.raycastTarget = false;
+
+        yield return new WaitForSecondsRealtime(4f);
+
+        CanvasGroup cg = dropGateHintUI.AddComponent<CanvasGroup>();
+        float fadeTime = 0.5f;
+        float elapsed = 0f;
+        while (elapsed < fadeTime)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            cg.alpha = 1f - (elapsed / fadeTime);
+            yield return null;
+        }
+
+        if (dropGateHintUI != null)
+            Destroy(dropGateHintUI);
+
+        dropGateHintUI = null;
+        dropGateHintRoutine = null;
+    }
+
+    void OnDestroy()
+    {
+        if (dropGateHintRoutine != null)
+            StopCoroutine(dropGateHintRoutine);
+
+        if (dropGateHintUI != null)
+            Destroy(dropGateHintUI);
+
+        if (tabCursorHintRoutine != null)
+            StopCoroutine(tabCursorHintRoutine);
+
+        if (tabCursorHintUI != null)
+            Destroy(tabCursorHintUI);
+
+        if (Instance == this)
+            Instance = null;
     }
 }
