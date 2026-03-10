@@ -44,6 +44,12 @@ public class PauseMenuController : MonoBehaviour
     [Tooltip("Where Maya should redirect after payment result. Backend should host these paths.")]
     public string mayaReturnBaseUrl = "http://localhost:8787/maya-return";
 
+    [Tooltip("When backend is unreachable, allow a local sandbox fallback so store checkout can still proceed in development.")]
+    public bool allowMayaOfflineFallback = true;
+
+    [Tooltip("Allow manual completion button for Maya sandbox when status remains pending in development.")]
+    public bool allowMayaSandboxManualConfirm = true;
+
     // Runtime instances
     private GameObject pauseInstance;
     private GameObject settingsInstance;
@@ -76,6 +82,7 @@ public class PauseMenuController : MonoBehaviour
     private Button checkoutPayButton;
     private Button checkoutLoginButton;
     private Button checkoutOpenHostedButton;
+    private Button checkoutManualSandboxButton;
     private string pendingCheckoutItemKey;
     private string pendingCheckoutReference;
     private string pendingCheckoutRedirectUrl;
@@ -83,6 +90,8 @@ public class PauseMenuController : MonoBehaviour
     private bool pendingCheckoutGranted;
     private Coroutine checkoutAutoPollCoroutine;
     private bool checkoutInProgress = false;
+
+    private const string OfflineCheckoutPrefix = "chk_offline_";
 
     [Serializable]
     private class MayaCreateCheckoutRequest
@@ -629,6 +638,64 @@ public class PauseMenuController : MonoBehaviour
         label.fontStyle = FontStyles.Bold;
     }
 
+    private void AddCheckoutCloseButton(Transform parent)
+    {
+        if (parent == null) return;
+
+        Transform existing = parent.Find("CheckoutCloseButton_Runtime");
+        if (existing != null)
+        {
+            Button existingButton = existing.GetComponent<Button>();
+            if (existingButton != null)
+            {
+                existingButton.onClick.RemoveAllListeners();
+                existingButton.onClick.AddListener(CloseCheckoutPanel);
+            }
+            return;
+        }
+
+        GameObject closeButtonGO = new GameObject("CheckoutCloseButton_Runtime", typeof(RectTransform), typeof(Image), typeof(Button));
+        closeButtonGO.transform.SetParent(parent, false);
+        closeButtonGO.transform.SetAsLastSibling();
+
+        RectTransform closeRT = closeButtonGO.GetComponent<RectTransform>();
+        closeRT.anchorMin = new Vector2(1f, 1f);
+        closeRT.anchorMax = new Vector2(1f, 1f);
+        closeRT.pivot = new Vector2(1f, 1f);
+        closeRT.anchoredPosition = new Vector2(-10f, -10f);
+        closeRT.sizeDelta = new Vector2(40f, 40f);
+
+        Image closeBg = closeButtonGO.GetComponent<Image>();
+        closeBg.color = new Color(0.20f, 0.10f, 0.08f, 0.95f);
+
+        Button closeButton = closeButtonGO.GetComponent<Button>();
+        closeButton.targetGraphic = closeBg;
+        ColorBlock closeColors = closeButton.colors;
+        closeColors.normalColor = closeBg.color;
+        closeColors.highlightedColor = new Color(0.32f, 0.16f, 0.12f, 1f);
+        closeColors.pressedColor = new Color(0.16f, 0.06f, 0.04f, 1f);
+        closeColors.selectedColor = closeColors.highlightedColor;
+        closeColors.disabledColor = new Color(0.13f, 0.08f, 0.07f, 0.5f);
+        closeButton.colors = closeColors;
+        closeButton.onClick.AddListener(CloseCheckoutPanel);
+
+        GameObject labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(closeButtonGO.transform, false);
+        RectTransform labelRT = labelGO.GetComponent<RectTransform>();
+        labelRT.anchorMin = Vector2.zero;
+        labelRT.anchorMax = Vector2.one;
+        labelRT.offsetMin = Vector2.zero;
+        labelRT.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI label = labelGO.AddComponent<TextMeshProUGUI>();
+        label.raycastTarget = false;
+        label.text = "X";
+        label.fontSize = 26f;
+        label.alignment = TextAlignmentOptions.Center;
+        label.color = new Color(0.96f, 0.88f, 0.60f, 1f);
+        label.fontStyle = FontStyles.Bold;
+    }
+
     private void WireStorePurchaseTarget(GameObject target, string itemKey)
     {
         if (target == null || string.IsNullOrWhiteSpace(itemKey)) return;
@@ -690,6 +757,7 @@ public class PauseMenuController : MonoBehaviour
             new Vector2(0.82f, 0.84f),
             Vector2.zero,
             Vector2.zero);
+        AddCheckoutCloseButton(shell.transform);
 
         TextMeshProUGUI title = CreateCheckoutText(shell.transform, "Maya Checkout", 48, FontStyles.Bold);
         title.color = new Color(0.92f, 0.92f, 0.92f, 1f);
@@ -758,6 +826,7 @@ public class PauseMenuController : MonoBehaviour
             new Vector2(0.95f, 0.94f),
             Vector2.zero,
             Vector2.zero);
+        AddCheckoutCloseButton(stage.transform);
 
         GameObject card = CreateCheckoutBlock(
             stage.transform,
@@ -831,6 +900,7 @@ public class PauseMenuController : MonoBehaviour
             new Vector2(0.95f, 0.94f),
             Vector2.zero,
             Vector2.zero);
+        AddCheckoutCloseButton(shell.transform);
 
         CreateCheckoutBlock(
             shell.transform,
@@ -1127,9 +1197,19 @@ public class PauseMenuController : MonoBehaviour
 
             if (request.result != UnityWebRequest.Result.Success)
             {
+                Debug.LogWarning($"[PauseMenu] Maya checkout create failed. Url={createUrl} Result={request.result} Code={request.responseCode} Error={request.error}");
+
+                if (allowMayaOfflineFallback)
+                {
+                    EnterOfflineCheckoutFallback(itemKey, quantity, price, reference);
+                    checkoutInProgress = false;
+                    yield break;
+                }
+
                 if (checkoutStatusText != null)
                 {
-                    checkoutStatusText.text = "Checkout create failed. Is backend running?";
+                    string statusCode = request.responseCode > 0 ? request.responseCode.ToString() : "no-response";
+                    checkoutStatusText.text = $"Checkout create failed ({statusCode}).\\nBackend: {baseUrl}";
                     checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
                 }
 
@@ -1146,6 +1226,14 @@ public class PauseMenuController : MonoBehaviour
 
             if (response == null || string.IsNullOrWhiteSpace(response.redirectUrl) || string.IsNullOrWhiteSpace(response.checkoutId))
             {
+                if (allowMayaOfflineFallback)
+                {
+                    Debug.LogWarning("[PauseMenu] Maya create-checkout returned invalid payload. Entering offline checkout fallback.");
+                    EnterOfflineCheckoutFallback(itemKey, quantity, price, reference);
+                    checkoutInProgress = false;
+                    yield break;
+                }
+
                 if (checkoutStatusText != null)
                 {
                     checkoutStatusText.text = "Invalid create-checkout response from backend.";
@@ -1167,6 +1255,59 @@ public class PauseMenuController : MonoBehaviour
         }
     }
 
+    private void EnterOfflineCheckoutFallback(string itemKey, int quantity, decimal price, string reference)
+    {
+        pendingCheckoutId = OfflineCheckoutPrefix + DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+        pendingCheckoutRedirectUrl = null;
+
+        if (checkoutStatusText != null)
+        {
+            checkoutStatusText.text = "Backend unavailable. Running local sandbox confirmation mode.";
+            checkoutStatusText.color = new Color(1f, 0.88f, 0.55f, 1f);
+        }
+
+        ShowAwaitingVerificationScreen(itemKey, quantity, price, reference);
+    }
+
+    private bool IsOfflineCheckoutFlow()
+    {
+        return !string.IsNullOrWhiteSpace(pendingCheckoutId) && pendingCheckoutId.StartsWith(OfflineCheckoutPrefix, StringComparison.Ordinal);
+    }
+
+    private bool IsSandboxHostedCheckout()
+    {
+        return !string.IsNullOrWhiteSpace(pendingCheckoutRedirectUrl)
+            && pendingCheckoutRedirectUrl.IndexOf("payments-web-sandbox.maya.ph", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private bool CanUseSandboxManualConfirm()
+    {
+        return allowMayaSandboxManualConfirm && (IsOfflineCheckoutFlow() || IsSandboxHostedCheckout());
+    }
+
+    private void CompleteSandboxCheckoutManually(string itemKey, int quantity, decimal price)
+    {
+        GrantPendingStoreItem(itemKey, quantity);
+
+        if (checkoutAutoPollCoroutine != null)
+        {
+            StopCoroutine(checkoutAutoPollCoroutine);
+            checkoutAutoPollCoroutine = null;
+        }
+
+        checkoutInProgress = false;
+        ShowMayaSuccessScreen(price);
+    }
+
+    private void GrantPendingStoreItem(string itemKey, int quantity)
+    {
+        if (pendingCheckoutGranted) return;
+        pendingCheckoutGranted = true;
+        AccountManager.Instance.GrantStoreItem(itemKey, quantity);
+        if (GameInventoryUI.Instance != null)
+            GameInventoryUI.Instance.RefreshFromInventory();
+    }
+
     private void ShowAwaitingVerificationScreen(string itemKey, int quantity, decimal price, string reference)
     {
         if (checkoutPanelInstance == null) return;
@@ -1180,6 +1321,7 @@ public class PauseMenuController : MonoBehaviour
             new Vector2(0.88f, 0.80f),
             Vector2.zero,
             Vector2.zero);
+        AddCheckoutCloseButton(stage.transform);
 
         TextMeshProUGUI title = CreateCheckoutText(stage.transform, "Processing Payment", 42, FontStyles.Bold);
         title.color = new Color(0.92f, 0.92f, 0.92f, 1f);
@@ -1195,33 +1337,53 @@ public class PauseMenuController : MonoBehaviour
         checkoutStatusText.alignment = TextAlignmentOptions.Center;
         SetAnchors(checkoutStatusText.rectTransform, new Vector2(0.08f, 0.44f), new Vector2(0.92f, 0.72f));
 
-        checkoutOpenHostedButton = CreateCheckoutButton(
-            stage.transform,
-            "Open Hosted Checkout Again",
-            new Vector2(0.16f, 0.32f),
-            new Vector2(0.84f, 0.44f),
-            Vector2.zero,
-            Vector2.zero,
-            new Color(0.14f, 0.31f, 0.62f, 1f),
-            Color.white,
-            22f);
-        checkoutOpenHostedButton.onClick.AddListener(() =>
+        checkoutOpenHostedButton = null;
+        if (!string.IsNullOrWhiteSpace(pendingCheckoutRedirectUrl))
         {
-            if (!string.IsNullOrWhiteSpace(pendingCheckoutRedirectUrl))
-                Application.OpenURL(pendingCheckoutRedirectUrl);
-        });
+            checkoutOpenHostedButton = CreateCheckoutButton(
+                stage.transform,
+                "Open Hosted Checkout Again",
+                new Vector2(0.16f, 0.32f),
+                new Vector2(0.84f, 0.44f),
+                Vector2.zero,
+                Vector2.zero,
+                new Color(0.14f, 0.31f, 0.62f, 1f),
+                Color.white,
+                22f);
+            checkoutOpenHostedButton.onClick.AddListener(() =>
+            {
+                if (!string.IsNullOrWhiteSpace(pendingCheckoutRedirectUrl))
+                    Application.OpenURL(pendingCheckoutRedirectUrl);
+            });
+        }
 
         checkoutLoginButton = CreateCheckoutButton(
             stage.transform,
             "Verify Now",
-            new Vector2(0.16f, 0.16f),
-            new Vector2(0.84f, 0.20f),
+            new Vector2(0.16f, string.IsNullOrWhiteSpace(pendingCheckoutRedirectUrl) ? 0.24f : 0.16f),
+            new Vector2(0.84f, string.IsNullOrWhiteSpace(pendingCheckoutRedirectUrl) ? 0.30f : 0.20f),
             Vector2.zero,
             Vector2.zero,
             new Color(0.07f, 0.66f, 0.37f, 1f),
             Color.white,
             24f);
         checkoutLoginButton.onClick.AddListener(() => StartCoroutine(VerifyMayaCheckoutAndGrant(itemKey, quantity, price)));
+
+        checkoutManualSandboxButton = null;
+        if (CanUseSandboxManualConfirm())
+        {
+            checkoutManualSandboxButton = CreateCheckoutButton(
+                stage.transform,
+                "Complete in Sandbox",
+                new Vector2(0.16f, 0.08f),
+                new Vector2(0.84f, 0.12f),
+                Vector2.zero,
+                Vector2.zero,
+                new Color(0.80f, 0.58f, 0.12f, 1f),
+                Color.white,
+                19f);
+            checkoutManualSandboxButton.onClick.AddListener(() => CompleteSandboxCheckoutManually(itemKey, quantity, price));
+        }
 
         checkoutPayButton = null;
 
@@ -1232,6 +1394,22 @@ public class PauseMenuController : MonoBehaviour
 
     private System.Collections.IEnumerator AutoVerifyMayaCheckoutAndGrant(string itemKey, int quantity, decimal price)
     {
+        if (IsOfflineCheckoutFlow())
+        {
+            if (checkoutStatusText != null)
+            {
+                checkoutStatusText.text = "Offline sandbox mode active. Completing checkout locally...";
+                checkoutStatusText.color = new Color(0.78f, 0.86f, 0.96f, 1f);
+            }
+
+            yield return new WaitForSecondsRealtime(1.5f);
+            GrantPendingStoreItem(itemKey, quantity);
+            checkoutInProgress = false;
+            checkoutAutoPollCoroutine = null;
+            ShowMayaSuccessScreen(price);
+            yield break;
+        }
+
         float elapsed = 0f;
         const float maxSeconds = 180f;
 
@@ -1256,13 +1434,7 @@ public class PauseMenuController : MonoBehaviour
 
                     if (statusResp != null && statusResp.paid)
                     {
-                        if (!pendingCheckoutGranted)
-                        {
-                            pendingCheckoutGranted = true;
-                            AccountManager.Instance.GrantStoreItem(itemKey, quantity);
-                            if (GameInventoryUI.Instance != null)
-                                GameInventoryUI.Instance.RefreshFromInventory();
-                        }
+                        GrantPendingStoreItem(itemKey, quantity);
 
                         checkoutInProgress = false;
                         checkoutAutoPollCoroutine = null;
@@ -1299,6 +1471,7 @@ public class PauseMenuController : MonoBehaviour
 
         if (checkoutLoginButton != null) checkoutLoginButton.interactable = false;
         if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = false;
+        if (checkoutManualSandboxButton != null) checkoutManualSandboxButton.interactable = false;
 
         if (checkoutStatusText != null)
         {
@@ -1316,6 +1489,27 @@ public class PauseMenuController : MonoBehaviour
             checkoutInProgress = false;
             if (checkoutLoginButton != null) checkoutLoginButton.interactable = true;
             if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
+            if (checkoutManualSandboxButton != null) checkoutManualSandboxButton.interactable = true;
+            yield break;
+        }
+
+        if (IsOfflineCheckoutFlow())
+        {
+            if (checkoutStatusText != null)
+            {
+                checkoutStatusText.text = "Offline sandbox mode: payment confirmed locally.";
+                checkoutStatusText.color = new Color(0.78f, 0.96f, 0.78f, 1f);
+            }
+
+            GrantPendingStoreItem(itemKey, quantity);
+            if (checkoutAutoPollCoroutine != null)
+            {
+                StopCoroutine(checkoutAutoPollCoroutine);
+                checkoutAutoPollCoroutine = null;
+            }
+
+            checkoutInProgress = false;
+            ShowMayaSuccessScreen(price);
             yield break;
         }
 
@@ -1339,6 +1533,7 @@ public class PauseMenuController : MonoBehaviour
                 checkoutInProgress = false;
                 if (checkoutLoginButton != null) checkoutLoginButton.interactable = true;
                 if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
+                if (checkoutManualSandboxButton != null) checkoutManualSandboxButton.interactable = true;
                 yield break;
             }
 
@@ -1357,6 +1552,7 @@ public class PauseMenuController : MonoBehaviour
                 checkoutInProgress = false;
                 if (checkoutLoginButton != null) checkoutLoginButton.interactable = true;
                 if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
+                if (checkoutManualSandboxButton != null) checkoutManualSandboxButton.interactable = true;
                 yield break;
             }
 
@@ -1365,22 +1561,19 @@ public class PauseMenuController : MonoBehaviour
                 if (checkoutStatusText != null)
                 {
                     string statusValue = string.IsNullOrWhiteSpace(statusResp.status) ? "PENDING" : statusResp.status;
-                    checkoutStatusText.text = "Payment not completed yet. Current status: " + statusValue;
+                    checkoutStatusText.text = CanUseSandboxManualConfirm()
+                        ? "Payment not completed yet. Current status: " + statusValue + "\nIf already paid in sandbox, press Complete in Sandbox."
+                        : "Payment not completed yet. Current status: " + statusValue;
                     checkoutStatusText.color = new Color(1f, 0.88f, 0.55f, 1f);
                 }
                 checkoutInProgress = false;
                 if (checkoutLoginButton != null) checkoutLoginButton.interactable = true;
                 if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
+                if (checkoutManualSandboxButton != null) checkoutManualSandboxButton.interactable = true;
                 yield break;
             }
 
-            if (!pendingCheckoutGranted)
-            {
-                pendingCheckoutGranted = true;
-                AccountManager.Instance.GrantStoreItem(itemKey, quantity);
-                if (GameInventoryUI.Instance != null)
-                    GameInventoryUI.Instance.RefreshFromInventory();
-            }
+            GrantPendingStoreItem(itemKey, quantity);
 
             if (checkoutAutoPollCoroutine != null)
             {
@@ -1401,6 +1594,7 @@ public class PauseMenuController : MonoBehaviour
         checkoutPayButton = null;
         checkoutLoginButton = null;
         checkoutOpenHostedButton = null;
+        checkoutManualSandboxButton = null;
         pendingCheckoutReference = null;
         pendingCheckoutGranted = false;
         pendingCheckoutRedirectUrl = null;

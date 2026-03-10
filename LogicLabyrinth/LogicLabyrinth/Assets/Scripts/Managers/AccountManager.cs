@@ -89,12 +89,19 @@ public class AccountManager : MonoBehaviour
     private PlayerData currentPlayer;
     private DatabaseReference dbRef;
     private string lastUsernameLookupError = "";
+    private string lastKnownUserId = "";
 
     private const string InternalEmailSuffix = "@logic.com";
     private const string SessionLoggedOutKey = "LL_EXPLICIT_LOGOUT";
     private const string SessionPlayerJsonKey = "LL_LAST_PLAYER_JSON";
     private const string SessionPendingCloudSyncKey = "LL_PENDING_CLOUD_SYNC";
     private static bool offlineSaveWarningShown = false;
+
+    private void CacheLastKnownUserId(string userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId)) return;
+        lastKnownUserId = userId;
+    }
 
     private void MarkPendingCloudSync(bool pending)
     {
@@ -693,6 +700,7 @@ public class AccountManager : MonoBehaviour
                     if (dbTask.IsCompleted && dbTask.Result.Exists)
                     {
                         currentPlayer = JsonUtility.FromJson<PlayerData>(dbTask.Result.GetRawJsonValue());
+                        CacheLastKnownUserId(userId);
                         NormalizePlayerIdentityFields(currentPlayer);
                         MarkExplicitLogout(false);
                         PersistLocalSessionSnapshot();
@@ -804,6 +812,7 @@ public class AccountManager : MonoBehaviour
 
             NormalizePlayerIdentityFields(data);
             currentPlayer = data;
+            CacheLastKnownUserId(userRef.Key);
             TryFlushPendingCloudSync("login-db-credential-fallback");
             Debug.Log("[AccountManager] Login fallback succeeded via DB password hash verification.");
 
@@ -884,6 +893,8 @@ public class AccountManager : MonoBehaviour
     private void PromoteCurrentSessionToUidSync(string userId, string reason)
     {
         if (currentPlayer == null || dbRef == null || string.IsNullOrWhiteSpace(userId)) return;
+
+        CacheLastKnownUserId(userId);
 
         NormalizePlayerIdentityFields(currentPlayer);
         string json = JsonUtility.ToJson(currentPlayer);
@@ -1255,6 +1266,30 @@ public class AccountManager : MonoBehaviour
             PersistLocalSessionSnapshot();
             MarkPendingCloudSync(true);
 
+            string fallbackUid = !string.IsNullOrWhiteSpace(lastKnownUserId)
+                ? lastKnownUserId
+                : (auth != null && auth.CurrentUser != null ? auth.CurrentUser.UserId : "");
+
+            if (!string.IsNullOrWhiteSpace(fallbackUid) && dbRef != null)
+            {
+                NormalizePlayerIdentityFields(currentPlayer);
+                string json = JsonUtility.ToJson(currentPlayer);
+
+                dbRef.Child("users").Child(fallbackUid).SetRawJsonValueAsync(json).ContinueWithOnMainThread(task =>
+                {
+                    if (task.IsCompleted && !task.IsFaulted && !task.IsCanceled)
+                    {
+                        Debug.Log($"[AccountManager] Fallback UID sync succeeded for '{fallbackUid}'.");
+                    }
+                    else
+                    {
+                        Debug.LogWarning("[AccountManager] Fallback UID sync failed: " + task.Exception);
+                    }
+                });
+
+                UpdateLeaderboardEntry(fallbackUid);
+            }
+
             // Best-effort public leaderboard sync so profile/time changes are still visible globally.
             if (dbRef != null)
             {
@@ -1275,6 +1310,7 @@ public class AccountManager : MonoBehaviour
         if (auth.CurrentUser != null)
         {
             string userId = auth.CurrentUser.UserId;
+            CacheLastKnownUserId(userId);
             NormalizePlayerIdentityFields(currentPlayer);
             string json = JsonUtility.ToJson(currentPlayer);
             PersistLocalSessionSnapshot();
@@ -1343,7 +1379,8 @@ public class AccountManager : MonoBehaviour
             { "totalBestTime", bestTimes.Count > 0 ? totalBestTime : -1f },
             { "fastestLevelTime", fastestLevel },
             { "levelsCompleted", bestTimes.Count },
-            { "totalPlayedSeconds", currentPlayer.totalPlayedSeconds }
+            { "totalPlayedSeconds", currentPlayer.totalPlayedSeconds },
+            { "updatedAtUnixMs", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }
         };
 
         dbRef.Child("leaderboard").Child(userId).UpdateChildrenAsync(leaderboardData).ContinueWithOnMainThread(task => {
@@ -1444,6 +1481,7 @@ public class AccountManager : MonoBehaviour
 
         // 2. Clear local player data
         currentPlayer = null;
+        lastKnownUserId = "";
 
         // 3. Reset inventory on logout
         if (InventoryManager.Instance != null)

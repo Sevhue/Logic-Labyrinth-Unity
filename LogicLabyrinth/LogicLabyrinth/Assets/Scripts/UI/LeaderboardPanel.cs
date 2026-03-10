@@ -5,6 +5,7 @@ using Firebase.Database;
 using Firebase.Extensions;
 using System.Collections.Generic;
 using System.Linq;
+using System;
 
 /// <summary>
 /// Fetches all players from the Firebase "leaderboard" node, ranks them by
@@ -77,6 +78,7 @@ public class LeaderboardPanel : MonoBehaviour
         public float fastestLevelTime;
         public int levelsCompleted;
         public float totalPlayedSeconds;
+        public long updatedAtUnixMs;
     }
 
     private List<LeaderboardEntry> allEntries = new List<LeaderboardEntry>();
@@ -689,6 +691,9 @@ public class LeaderboardPanel : MonoBehaviour
                     System.Globalization.CultureInfo.InvariantCulture,
                     out entry.totalPlayedSeconds);
 
+            if (userSnap.HasChild("updatedAtUnixMs"))
+                long.TryParse(userSnap.Child("updatedAtUnixMs").Value?.ToString(), out entry.updatedAtUnixMs);
+
             // Keep this client's own avatar current even when cloud sync is temporarily unavailable.
             string localPic = ResolveLocalProfilePictureOverride(entry);
             if (!string.IsNullOrWhiteSpace(localPic))
@@ -774,6 +779,7 @@ public class LeaderboardPanel : MonoBehaviour
         entry.fastestLevelTime = fastest;
         entry.levelsCompleted = entry.bestTimes.Count > 0 ? entry.bestTimes.Count : player.lastCompletedLevel;
         entry.totalPlayedSeconds = player.totalPlayedSeconds;
+        entry.updatedAtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         allEntries.Add(entry);
     }
@@ -925,6 +931,10 @@ public class LeaderboardPanel : MonoBehaviour
     {
         if (candidate == null) return false;
         if (existing == null) return true;
+
+        // Prefer the newest write first so profile changes from fallback/public paths are visible.
+        if (candidate.updatedAtUnixMs != existing.updatedAtUnixMs)
+            return candidate.updatedAtUnixMs > existing.updatedAtUnixMs;
 
         bool candidateIsPublic = IsPublicFallbackId(candidate.uid);
         bool existingIsPublic = IsPublicFallbackId(existing.uid);

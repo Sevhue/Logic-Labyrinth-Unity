@@ -3,6 +3,16 @@ using UnityEngine.UI;
 
 public class ForgotPasswordRuntimePanel : MonoBehaviour
 {
+    private static readonly Color PanelBgColor = new Color(0.10f, 0.07f, 0.03f, 0.92f);
+    private static readonly Color PanelBorderColor = new Color(0.72f, 0.58f, 0.30f, 0.95f);
+    private static readonly Color TitleColor = new Color(0.84f, 0.75f, 0.50f, 1f);
+    private static readonly Color BodyTextColor = new Color(0.95f, 0.90f, 0.75f, 1f);
+    private static readonly Color InputBgColor = new Color(0.18f, 0.12f, 0.05f, 0.96f);
+    private static readonly Color InputTextColor = new Color(0.96f, 0.91f, 0.78f, 1f);
+    private static readonly Color PlaceholderColor = new Color(0.74f, 0.65f, 0.45f, 0.8f);
+    private static readonly Color ButtonBgColor = new Color(0.27f, 0.19f, 0.08f, 1f);
+    private static readonly Color ButtonTextColor = new Color(0.90f, 0.82f, 0.58f, 1f);
+
     private enum Step
     {
         Username,
@@ -26,7 +36,6 @@ public class ForgotPasswordRuntimePanel : MonoBehaviour
 
     private Button primaryButton;
     private Button backButton;
-    private Button closeButton;
 
     private Step step = Step.Username;
     private string currentUsername = "";
@@ -71,33 +80,70 @@ public class ForgotPasswordRuntimePanel : MonoBehaviour
         canvasGO.AddComponent<GraphicRaycaster>();
         DontDestroyOnLoad(canvasGO);
 
-        rootPanel = CreatePanel(canvas.transform, "Panel", new Vector2(640f, 460f), new Color(0f, 0f, 0f, 0.9f));
+        rootPanel = CreatePanel(canvas.transform, "Panel", new Vector2(700f, 500f), PanelBgColor);
 
         titleText = CreateText(rootPanel.transform, "Title", "RESET PASSWORD", 34, FontStyle.Bold, TextAnchor.MiddleCenter,
-            new Vector2(560f, 56f), new Vector2(0f, 170f), Color.white);
+            new Vector2(620f, 56f), new Vector2(0f, 190f), TitleColor);
 
         questionText = CreateText(rootPanel.transform, "Question", "Enter username", 20, FontStyle.Bold, TextAnchor.MiddleLeft,
-            new Vector2(560f, 40f), new Vector2(0f, 105f), new Color(1f, 0.95f, 0.7f));
+            new Vector2(620f, 40f), new Vector2(0f, 120f), BodyTextColor);
 
-        usernameField = CreateInput(rootPanel.transform, "UsernameInput", "Username", new Vector2(560f, 44f), new Vector2(0f, 55f), false);
-        answerField = CreateInput(rootPanel.transform, "AnswerInput", "Security answer (exact)", new Vector2(560f, 44f), new Vector2(0f, 10f), false);
-        passwordField = CreateInput(rootPanel.transform, "PasswordInput", "New password", new Vector2(560f, 44f), new Vector2(0f, -35f), true);
-        confirmField = CreateInput(rootPanel.transform, "ConfirmInput", "Confirm password", new Vector2(560f, 44f), new Vector2(0f, -80f), true);
+        usernameField = CreateInput(rootPanel.transform, "UsernameInput", "Username", new Vector2(620f, 48f), new Vector2(0f, 65f), false);
+        answerField = CreateInput(rootPanel.transform, "AnswerInput", "Security answer (exact)", new Vector2(620f, 48f), new Vector2(0f, 15f), false);
+        passwordField = CreateInput(rootPanel.transform, "PasswordInput", "New password", new Vector2(620f, 48f), new Vector2(0f, -35f), true);
+        confirmField = CreateInput(rootPanel.transform, "ConfirmInput", "Confirm password", new Vector2(620f, 48f), new Vector2(0f, -85f), true);
 
         messageText = CreateText(rootPanel.transform, "Message", "", 18, FontStyle.Normal, TextAnchor.MiddleCenter,
-            new Vector2(560f, 48f), new Vector2(0f, -140f), Color.white);
+            new Vector2(620f, 48f), new Vector2(0f, -155f), BodyTextColor);
 
-        primaryButton = CreateButton(rootPanel.transform, "PrimaryButton", "Find Account", new Vector2(220f, 46f), new Vector2(120f, -200f));
-        backButton = CreateButton(rootPanel.transform, "BackButton", "Back", new Vector2(140f, 46f), new Vector2(-90f, -200f));
-        closeButton = CreateButton(rootPanel.transform, "CloseButton", "Close", new Vector2(120f, 36f), new Vector2(250f, 205f));
+        primaryButton = CreateButton(rootPanel.transform, "PrimaryButton", "Find Account", new Vector2(230f, 48f), new Vector2(135f, -220f));
+        backButton = CreateButton(rootPanel.transform, "BackButton", "Back", new Vector2(165f, 48f), new Vector2(-100f, -220f));
 
         primaryButton.onClick.AddListener(OnPrimaryClicked);
         backButton.onClick.AddListener(OnBackClicked);
-        closeButton.onClick.AddListener(ClosePanel);
+
+        ApplyResponsiveLayout();
+    }
+
+    private void ApplyResponsiveLayout()
+    {
+        if (rootPanel == null) return;
+
+        RectTransform panelRT = rootPanel.GetComponent<RectTransform>();
+        // Keep a smaller modal footprint so it matches the login card proportions.
+        float panelWidth = Mathf.Clamp(Screen.width * 0.39f, 442f, 544f);
+        float panelHeight = Mathf.Clamp(Screen.height * 0.44f, 340f, 408f);
+        panelRT.sizeDelta = new Vector2(panelWidth, panelHeight);
+
+        float halfH = panelHeight * 0.5f;
+        float halfW = panelWidth * 0.5f;
+        float contentWidth = panelWidth - 56f;
+
+        SetRect(titleText.rectTransform, new Vector2(contentWidth, 52f), new Vector2(0f, halfH - 38f));
+        SetRect(questionText.rectTransform, new Vector2(contentWidth, 36f), new Vector2(0f, halfH - 92f));
+
+        SetRect(usernameField.GetComponent<RectTransform>(), new Vector2(contentWidth, 44f), new Vector2(0f, halfH - 144f));
+        SetRect(answerField.GetComponent<RectTransform>(), new Vector2(contentWidth, 44f), new Vector2(0f, halfH - 144f));
+        SetRect(passwordField.GetComponent<RectTransform>(), new Vector2(contentWidth, 44f), new Vector2(0f, halfH - 196f));
+        SetRect(confirmField.GetComponent<RectTransform>(), new Vector2(contentWidth, 44f), new Vector2(0f, halfH - 248f));
+
+        SetRect(messageText.rectTransform, new Vector2(contentWidth, 46f), new Vector2(0f, -halfH + 72f));
+
+        SetRect(backButton.GetComponent<RectTransform>(), new Vector2(128f, 36f), new Vector2(-76f, -halfH + 24f));
+        SetRect(primaryButton.GetComponent<RectTransform>(), new Vector2(162f, 36f), new Vector2(86f, -halfH + 24f));
+    }
+
+    private static void SetRect(RectTransform rt, Vector2 size, Vector2 anchoredPos)
+    {
+        if (rt == null) return;
+        rt.sizeDelta = size;
+        rt.anchoredPosition = anchoredPos;
     }
 
     private void ResetFlow()
     {
+        ApplyResponsiveLayout();
+
         step = Step.Username;
         waiting = false;
         currentUsername = "";
@@ -275,6 +321,9 @@ public class ForgotPasswordRuntimePanel : MonoBehaviour
     {
         if (canvas != null) canvas.gameObject.SetActive(false);
         gameObject.SetActive(false);
+
+        if (UIManager.Instance != null)
+            UIManager.Instance.ShowLoginPanel();
     }
 
     private void SetPrimaryButtonText(string text)
@@ -286,7 +335,7 @@ public class ForgotPasswordRuntimePanel : MonoBehaviour
     private void SetMessage(string msg, bool isError)
     {
         messageText.text = msg;
-        messageText.color = isError ? new Color(1f, 0.3f, 0.3f) : new Color(0.7f, 1f, 0.7f);
+        messageText.color = isError ? new Color(1f, 0.55f, 0.50f, 1f) : new Color(0.77f, 0.95f, 0.72f, 1f);
     }
 
     private static string ValidatePassword(string pass, string confirm)
@@ -319,6 +368,10 @@ public class ForgotPasswordRuntimePanel : MonoBehaviour
         rt.pivot = new Vector2(0.5f, 0.5f);
         rt.sizeDelta = size;
         go.GetComponent<Image>().color = color;
+
+        var outline = go.AddComponent<Outline>();
+        outline.effectColor = PanelBorderColor;
+        outline.effectDistance = new Vector2(2f, 2f);
         return go;
     }
 
@@ -354,17 +407,22 @@ public class ForgotPasswordRuntimePanel : MonoBehaviour
         rt.pivot = new Vector2(0.5f, 0.5f);
         rt.sizeDelta = size;
         rt.anchoredPosition = pos;
-        go.GetComponent<Image>().color = new Color(1f, 1f, 1f, 0.95f);
+        Image bg = go.GetComponent<Image>();
+        bg.color = InputBgColor;
+
+        var outline = go.AddComponent<Outline>();
+        outline.effectColor = PanelBorderColor;
+        outline.effectDistance = new Vector2(1.5f, 1.5f);
 
         var text = CreateText(go.transform, "Text", "", 20, FontStyle.Normal, TextAnchor.MiddleLeft,
-            new Vector2(size.x - 20f, size.y - 8f), Vector2.zero, Color.black);
+            new Vector2(size.x - 20f, size.y - 8f), Vector2.zero, InputTextColor);
         text.rectTransform.anchorMin = new Vector2(0f, 0f);
         text.rectTransform.anchorMax = new Vector2(1f, 1f);
         text.rectTransform.offsetMin = new Vector2(10f, 4f);
         text.rectTransform.offsetMax = new Vector2(-10f, -4f);
 
         var holder = CreateText(go.transform, "Placeholder", placeholder, 18, FontStyle.Italic, TextAnchor.MiddleLeft,
-            new Vector2(size.x - 20f, size.y - 8f), Vector2.zero, new Color(0.4f, 0.4f, 0.4f));
+            new Vector2(size.x - 20f, size.y - 8f), Vector2.zero, PlaceholderColor);
         holder.rectTransform.anchorMin = new Vector2(0f, 0f);
         holder.rectTransform.anchorMax = new Vector2(1f, 1f);
         holder.rectTransform.offsetMin = new Vector2(10f, 4f);
@@ -374,6 +432,8 @@ public class ForgotPasswordRuntimePanel : MonoBehaviour
         input.textComponent = text;
         input.placeholder = holder;
         input.contentType = password ? InputField.ContentType.Password : InputField.ContentType.Standard;
+        input.selectionColor = new Color(0.72f, 0.58f, 0.30f, 0.45f);
+        input.caretColor = InputTextColor;
         return input;
     }
 
@@ -389,9 +449,24 @@ public class ForgotPasswordRuntimePanel : MonoBehaviour
         rt.sizeDelta = size;
         rt.anchoredPosition = pos;
 
-        go.GetComponent<Image>().color = new Color(0.2f, 0.45f, 0.9f, 1f);
-        CreateText(go.transform, "Label", label, 18, FontStyle.Bold, TextAnchor.MiddleCenter, size, Vector2.zero, Color.white);
+        Image bg = go.GetComponent<Image>();
+        bg.color = ButtonBgColor;
 
-        return go.GetComponent<Button>();
+        var outline = go.AddComponent<Outline>();
+        outline.effectColor = PanelBorderColor;
+        outline.effectDistance = new Vector2(1.5f, 1.5f);
+
+        Button button = go.GetComponent<Button>();
+        ColorBlock colors = button.colors;
+        colors.normalColor = ButtonBgColor;
+        colors.highlightedColor = new Color(0.33f, 0.24f, 0.11f, 1f);
+        colors.pressedColor = new Color(0.18f, 0.12f, 0.05f, 1f);
+        colors.selectedColor = colors.highlightedColor;
+        colors.disabledColor = new Color(0.16f, 0.12f, 0.08f, 0.7f);
+        button.colors = colors;
+
+        CreateText(go.transform, "Label", label, 18, FontStyle.Bold, TextAnchor.MiddleCenter, size, Vector2.zero, ButtonTextColor);
+
+        return button;
     }
 }
