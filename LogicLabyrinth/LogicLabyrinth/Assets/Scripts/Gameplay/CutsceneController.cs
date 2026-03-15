@@ -36,6 +36,16 @@ public class CutsceneController : MonoBehaviour
     [Tooltip("How many seconds each inner dialogue line stays on screen")]
     public float dialogueDuration = 4f;
 
+    [Header("Dialogue Visuals")]
+    [Tooltip("Show the top instruction banner inside the puzzle scroll.")]
+    public bool showInstructionBanner = false;
+    [Tooltip("Show dark background panels behind bottom dialogue text.")]
+    public bool showDialogueBackground = false;
+    [Tooltip("Scale applied to puzzle board after table dialogue ends.")]
+    public float postDialogueBoardScale = 0.94f;
+    [Tooltip("Typewriter speed for post-dialogue text (characters per second).")]
+    public float postDialogueTypeCharsPerSecond = 42f;
+
     // ── Static flags ──
     public static bool IsPlaying { get; private set; }
     public static bool CameraOnlyMode { get; private set; }
@@ -54,6 +64,11 @@ public class CutsceneController : MonoBehaviour
     private GameObject dialogueInstance;
     private GameObject instructionBanner;
     private TextMeshProUGUI instructionTMP;
+    private GameObject postDialogueBoardExtension;
+    private TextMeshProUGUI postDialogueTextPrimary;
+    private TextMeshProUGUI postDialogueTextSecondary;
+    private Coroutine postDialogueMessageRoutine;
+    private ParticleSystem postDialogueSparkles;
 
     // ── Phase 3 ──
     private bool waitingForTableClose = false;
@@ -327,8 +342,9 @@ public class CutsceneController : MonoBehaviour
         Debug.Log("[Cutscene] Phase 2: Table opened! Starting inner dialogue...");
         IsTableDialogueActive = true;
 
-        // ── Create instruction banner inside the scroll ──
-        CreateInstructionBanner();
+        // Optional instruction banner inside the scroll.
+        if (showInstructionBanner)
+            CreateInstructionBanner();
 
         // ── Instantiate Dialogue prefab ──
         if (dialoguePrefab == null)
@@ -360,15 +376,18 @@ public class CutsceneController : MonoBehaviour
             panel.transform.SetParent(dialogueInstance.transform, false);
 
             RectTransform panelRT = panel.AddComponent<RectTransform>();
-            panelRT.anchorMin = new Vector2(0.15f, 0.06f);
-            panelRT.anchorMax = new Vector2(0.85f, 0.18f);
+            panelRT.anchorMin = new Vector2(0.15f, 0.10f);
+            panelRT.anchorMax = new Vector2(0.85f, 0.22f);
             panelRT.offsetMin = Vector2.zero;
             panelRT.offsetMax = Vector2.zero;
 
-            // Dark semi-transparent background
-            Image bg = panel.AddComponent<Image>();
-            bg.color = new Color(0.05f, 0.03f, 0.02f, 0.85f);
-            bg.raycastTarget = false;
+            if (showDialogueBackground)
+            {
+                // Optional dark semi-transparent background
+                Image bg = panel.AddComponent<Image>();
+                bg.color = new Color(0.05f, 0.03f, 0.02f, 0.85f);
+                bg.raycastTarget = false;
+            }
 
             // Text child
             GameObject textGO = new GameObject("Text");
@@ -477,11 +496,201 @@ public class CutsceneController : MonoBehaviour
         if (dialogueInstance != null)
         { Destroy(dialogueInstance); dialogueInstance = null; }
 
+        ApplyPostDialoguePuzzleStyling();
+
         // Instruction banner stays — it's a child of PuzzleTableController,
         // so it auto-destroys when the puzzle UI closes.
 
         // Start watching for puzzle table to close → Phase 3
         waitingForTableClose = true;
+    }
+
+    private void ApplyPostDialoguePuzzleStyling()
+    {
+        PuzzleTableController ptc = FindAnyObjectByType<PuzzleTableController>();
+        if (ptc == null) return;
+
+        ptc.SetLegacyBoardScale(postDialogueBoardScale, true);
+        CreatePostDialogueBoardExtension(ptc.transform);
+    }
+
+    private void CreatePostDialogueBoardExtension(Transform parent)
+    {
+        if (parent == null) return;
+
+        if (postDialogueBoardExtension != null)
+            Destroy(postDialogueBoardExtension);
+
+        postDialogueBoardExtension = new GameObject("PostDialogueBoardExtension");
+        postDialogueBoardExtension.transform.SetParent(parent, false);
+
+        RectTransform extRT = postDialogueBoardExtension.AddComponent<RectTransform>();
+        extRT.anchorMin = new Vector2(0.16f, 0.14f);
+        extRT.anchorMax = new Vector2(0.84f, 0.30f);
+        extRT.offsetMin = Vector2.zero;
+        extRT.offsetMax = Vector2.zero;
+
+        Image bg = postDialogueBoardExtension.AddComponent<Image>();
+        bg.color = new Color(0.16f, 0.10f, 0.05f, 0.92f);
+        bg.raycastTarget = false;
+
+        Outline border = postDialogueBoardExtension.AddComponent<Outline>();
+        border.effectColor = new Color(0.85f, 0.67f, 0.22f, 0.85f);
+        border.effectDistance = new Vector2(2f, 2f);
+
+        Shadow woodDepth = postDialogueBoardExtension.AddComponent<Shadow>();
+        woodDepth.effectColor = new Color(0f, 0f, 0f, 0.55f);
+        woodDepth.effectDistance = new Vector2(0f, -3f);
+
+        CreatePostDialogueSparkles(postDialogueBoardExtension.transform);
+
+        GameObject primaryGO = new GameObject("PrimaryText");
+        primaryGO.transform.SetParent(postDialogueBoardExtension.transform, false);
+        RectTransform pRT = primaryGO.AddComponent<RectTransform>();
+        pRT.anchorMin = new Vector2(0.05f, 0.20f);
+        pRT.anchorMax = new Vector2(0.95f, 0.88f);
+        pRT.offsetMin = Vector2.zero;
+        pRT.offsetMax = Vector2.zero;
+
+        postDialogueTextPrimary = primaryGO.AddComponent<TextMeshProUGUI>();
+        postDialogueTextPrimary.text = string.Empty;
+        postDialogueTextPrimary.fontSize = 28f;
+        postDialogueTextPrimary.alignment = TextAlignmentOptions.Center;
+        postDialogueTextPrimary.fontStyle = FontStyles.Bold;
+        postDialogueTextPrimary.color = new Color(1f, 0.90f, 0.58f, 1f);
+        postDialogueTextPrimary.enableWordWrapping = true;
+        postDialogueTextPrimary.raycastTarget = false;
+
+        Shadow primaryShadow = primaryGO.AddComponent<Shadow>();
+        primaryShadow.effectColor = new Color(0.48f, 0.29f, 0.04f, 0.9f);
+        primaryShadow.effectDistance = new Vector2(0f, -2f);
+
+        GameObject secondaryGO = new GameObject("SecondaryText");
+        secondaryGO.transform.SetParent(postDialogueBoardExtension.transform, false);
+        RectTransform sRT = secondaryGO.AddComponent<RectTransform>();
+        sRT.anchorMin = new Vector2(0.05f, 0.20f);
+        sRT.anchorMax = new Vector2(0.95f, 0.88f);
+        sRT.offsetMin = Vector2.zero;
+        sRT.offsetMax = Vector2.zero;
+
+        postDialogueTextSecondary = secondaryGO.AddComponent<TextMeshProUGUI>();
+        postDialogueTextSecondary.text = string.Empty;
+        postDialogueTextSecondary.fontSize = 42f;
+        postDialogueTextSecondary.alignment = TextAlignmentOptions.Center;
+        postDialogueTextSecondary.fontStyle = FontStyles.Bold;
+        postDialogueTextSecondary.color = new Color(1f, 0.82f, 0.34f, 1f);
+        postDialogueTextSecondary.enableWordWrapping = true;
+        postDialogueTextSecondary.raycastTarget = false;
+        postDialogueTextSecondary.gameObject.SetActive(false);
+
+        Shadow secondaryShadow = secondaryGO.AddComponent<Shadow>();
+        secondaryShadow.effectColor = new Color(0.52f, 0.30f, 0.05f, 0.95f);
+        secondaryShadow.effectDistance = new Vector2(0f, -3f);
+
+        if (postDialogueMessageRoutine != null)
+            StopCoroutine(postDialogueMessageRoutine);
+        postDialogueMessageRoutine = StartCoroutine(RunPostDialogueMessageSequence());
+    }
+
+    private IEnumerator RunPostDialogueMessageSequence()
+    {
+        if (postDialogueTextPrimary == null || postDialogueTextSecondary == null)
+            yield break;
+
+        const string firstLine = "This is a Simplified Boolean Expression and you need to solve it's diagram";
+        const string secondLine = "Find the required Logic gates inside the maze";
+
+        postDialogueTextPrimary.gameObject.SetActive(true);
+        postDialogueTextSecondary.gameObject.SetActive(false);
+
+        yield return StartCoroutine(TypeSentence(postDialogueTextPrimary, firstLine, postDialogueTypeCharsPerSecond));
+        yield return new WaitForSecondsRealtime(3f);
+
+        postDialogueTextPrimary.gameObject.SetActive(false);
+        postDialogueTextSecondary.gameObject.SetActive(true);
+        yield return StartCoroutine(TypeSentence(postDialogueTextSecondary, secondLine, postDialogueTypeCharsPerSecond * 1.2f));
+    }
+
+    private IEnumerator TypeSentence(TextMeshProUGUI target, string sentence, float charsPerSecond)
+    {
+        if (target == null) yield break;
+
+        target.text = string.Empty;
+        float cps = Mathf.Max(8f, charsPerSecond);
+        float interval = 1f / cps;
+
+        for (int i = 1; i <= sentence.Length; i++)
+        {
+            target.text = sentence.Substring(0, i) + "|";
+            yield return new WaitForSecondsRealtime(interval);
+        }
+
+        target.text = sentence;
+    }
+
+    private void CreatePostDialogueSparkles(Transform parent)
+    {
+        if (postDialogueSparkles != null)
+            Destroy(postDialogueSparkles.gameObject);
+
+        GameObject sparkleGO = new GameObject("GoldSparkles");
+        sparkleGO.transform.SetParent(parent, false);
+
+        RectTransform rt = sparkleGO.AddComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.02f, 0.08f);
+        rt.anchorMax = new Vector2(0.98f, 0.92f);
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+
+        postDialogueSparkles = sparkleGO.AddComponent<ParticleSystem>();
+        var main = postDialogueSparkles.main;
+        main.playOnAwake = true;
+        main.loop = true;
+        main.simulationSpace = ParticleSystemSimulationSpace.Local;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(0.45f, 1.0f);
+        main.startSpeed = new ParticleSystem.MinMaxCurve(0.02f, 0.08f);
+        main.startSize = new ParticleSystem.MinMaxCurve(0.02f, 0.05f);
+        main.startColor = new ParticleSystem.MinMaxGradient(
+            new Color(1f, 0.93f, 0.62f, 0.95f),
+            new Color(1f, 0.76f, 0.24f, 0.85f));
+        main.maxParticles = 64;
+
+        var emission = postDialogueSparkles.emission;
+        emission.rateOverTime = 16f;
+
+        var shape = postDialogueSparkles.shape;
+        shape.enabled = true;
+        shape.shapeType = ParticleSystemShapeType.Box;
+        shape.scale = new Vector3(6.8f, 1.8f, 0.05f);
+
+        var noise = postDialogueSparkles.noise;
+        noise.enabled = true;
+        noise.strength = 0.18f;
+        noise.frequency = 0.55f;
+
+        var col = postDialogueSparkles.colorOverLifetime;
+        col.enabled = true;
+        Gradient grad = new Gradient();
+        grad.SetKeys(
+            new[]
+            {
+                new GradientColorKey(new Color(1f, 0.95f, 0.70f), 0f),
+                new GradientColorKey(new Color(1f, 0.76f, 0.24f), 0.6f),
+                new GradientColorKey(new Color(0.95f, 0.62f, 0.15f), 1f)
+            },
+            new[]
+            {
+                new GradientAlphaKey(0f, 0f),
+                new GradientAlphaKey(0.95f, 0.2f),
+                new GradientAlphaKey(0.85f, 0.7f),
+                new GradientAlphaKey(0f, 1f)
+            });
+        col.color = new ParticleSystem.MinMaxGradient(grad);
+
+        var renderer = postDialogueSparkles.GetComponent<ParticleSystemRenderer>();
+        renderer.renderMode = ParticleSystemRenderMode.Billboard;
+        renderer.sortMode = ParticleSystemSortMode.Distance;
+        renderer.alignment = ParticleSystemRenderSpace.Local;
     }
 
     /// <summary>

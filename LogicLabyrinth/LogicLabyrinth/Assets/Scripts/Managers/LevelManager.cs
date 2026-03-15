@@ -16,6 +16,7 @@ public class LevelManager : MonoBehaviour
     private Coroutine outOfBoundsWatchdogRoutine;
     private Vector3 lastSafePlayerPosition = Vector3.zero;
     private float lastSafePlayerYaw = 0f;
+    private float lastSafePlayerSampleTime = -999f;
     private float currentSceneVoidThreshold = float.NegativeInfinity;
 
     [Header("Player Safety")]
@@ -25,6 +26,10 @@ public class LevelManager : MonoBehaviour
     public float emergencyMaxAbsCoordinate = 100000f;
     [Tooltip("How often to check for out-of-bounds/fall events.")]
     public float safetyCheckInterval = 0.25f;
+    [Tooltip("Enable automatic out-of-bounds rescue teleports. Disable for collision debugging to prevent forced position rewinds.")]
+    public bool enableOutOfBoundsRescue = false;
+    [Tooltip("Attach PlayerMotionDebugLogger at runtime in level scenes.")]
+    public bool enableMotionDebugLogger = true;
 
 
     public PuzzleVariant currentLevelPuzzle;
@@ -88,6 +93,7 @@ public class LevelManager : MonoBehaviour
             // Reset cached rescue data per level load.
             lastSafePlayerPosition = Vector3.zero;
             lastSafePlayerYaw = 0f;
+            lastSafePlayerSampleTime = -999f;
             currentSceneVoidThreshold = float.NegativeInfinity;
         }
 
@@ -176,11 +182,37 @@ public class LevelManager : MonoBehaviour
             StartCoroutine(SweepDestroyedGatesAfterDelay());
         }
 
-        if (scene.name.StartsWith("Level"))
+        if (scene.name.StartsWith("Level") && enableOutOfBoundsRescue)
             StartOutOfBoundsWatchdog();
         else
             StopOutOfBoundsWatchdog();
 
+        if (scene.name.StartsWith("Level") && enableMotionDebugLogger)
+            StartCoroutine(AttachMotionDebugLoggerNextFrame());
+
+    }
+
+    private System.Collections.IEnumerator AttachMotionDebugLoggerNextFrame()
+    {
+        // Let scene objects initialize first.
+        yield return null;
+
+        Scene activeScene = SceneManager.GetActiveScene();
+        GameObject playerGO = FindActiveScenePlayerWithCharacterController(activeScene);
+        if (playerGO == null)
+            playerGO = PauseMenuController.FindPlayerWithCharacterController();
+
+        if (playerGO == null)
+        {
+            Debug.LogWarning("[LevelManager] MotionDebug logger not attached: player not found.");
+            yield break;
+        }
+
+        if (playerGO.GetComponent<PlayerMotionDebugLogger>() == null)
+        {
+            playerGO.AddComponent<PlayerMotionDebugLogger>();
+            Debug.Log($"[LevelManager] MotionDebug logger attached to '{playerGO.name}'.");
+        }
     }
 
     private void CleanupDuplicateLevel1Doors()
@@ -565,7 +597,10 @@ public class LevelManager : MonoBehaviour
     /// </summary>
     private bool TeleportPlayer(Vector3 pos, float rotY)
     {
-        GameObject playerGO = PauseMenuController.FindPlayerWithCharacterController();
+        Scene activeScene = SceneManager.GetActiveScene();
+        GameObject playerGO = FindActiveScenePlayerWithCharacterController(activeScene);
+        if (playerGO == null)
+            playerGO = PauseMenuController.FindPlayerWithCharacterController();
         if (playerGO == null)
         {
             Debug.LogWarning("[LevelManager] TeleportPlayer: Player with CharacterController not found!");
@@ -584,6 +619,14 @@ public class LevelManager : MonoBehaviour
         Physics.SyncTransforms();
 
         if (cc != null) cc.enabled = true;
+
+        // Clear residual overlap/velocity side effects on the first frame after teleport.
+        if (cc != null)
+            cc.Move(Vector3.zero);
+
+        lastSafePlayerPosition = pos;
+        lastSafePlayerYaw = rotY;
+        lastSafePlayerSampleTime = Time.time;
 
         Debug.Log($"[LevelManager] TeleportPlayer: Actual position after set = ({playerGO.transform.position.x:F2},{playerGO.transform.position.y:F2},{playerGO.transform.position.z:F2})");
         return true;
@@ -634,9 +677,7 @@ public class LevelManager : MonoBehaviour
             float yThreshold = float.IsNegativeInfinity(currentSceneVoidThreshold) ? voidYThreshold : currentSceneVoidThreshold;
             bool hasNaN = float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z);
             bool fellBelowThreshold = pos.y < yThreshold;
-            bool absurdX = Mathf.Abs(pos.x) > emergencyMaxAbsCoordinate;
-            bool absurdZ = Mathf.Abs(pos.z) > emergencyMaxAbsCoordinate;
-            bool invalid = hasNaN || fellBelowThreshold || absurdX || absurdZ;
+            bool invalid = hasNaN || fellBelowThreshold;
 
             if (invalid)
             {
@@ -650,8 +691,11 @@ public class LevelManager : MonoBehaviour
 
                 Vector3 rescuePos = lastSafePlayerPosition;
                 float rescueYaw = lastSafePlayerYaw;
+                bool hasRecentSafeSample =
+                    rescuePos != Vector3.zero &&
+                    (Time.time - lastSafePlayerSampleTime) <= 10f;
 
-                if (rescuePos == Vector3.zero)
+                if (!hasRecentSafeSample)
                 {
                     // Fallback to spawn marker if we have no safe sample yet.
                     if (!TryGetSpawnFallback(out rescuePos, out rescueYaw))
@@ -663,9 +707,7 @@ public class LevelManager : MonoBehaviour
 
                 string reason =
                     hasNaN ? "NaN coordinates" :
-                    fellBelowThreshold ? $"Y below threshold ({pos.y:F2} < {yThreshold:F2})" :
-                    absurdX ? $"X exceeded emergency bound ({pos.x:F2})" :
-                    $"Z exceeded emergency bound ({pos.z:F2})";
+                    $"Y below threshold ({pos.y:F2} < {yThreshold:F2})";
 
                 Debug.LogWarning($"[LevelManager] Out-of-bounds detected at ({pos.x:F2},{pos.y:F2},{pos.z:F2}) — reason: {reason} — rescuing player.");
                 TeleportPlayer(rescuePos, rescueYaw);
@@ -674,13 +716,18 @@ public class LevelManager : MonoBehaviour
             else
             {
                 invalidStreak = 0;
-                // Cache a safe location while grounded to avoid saving unstable in-air positions.
+                // Cache a safe location while grounded (or vertically stable) to avoid stale rescues.
                 CharacterController cc = playerGO.GetComponent<CharacterController>();
                 bool groundedOrNoCC = (cc == null) || cc.isGrounded;
-                if (groundedOrNoCC)
+                float verticalSpeed = cc != null ? cc.velocity.y : 0f;
+                bool verticallyStable = Mathf.Abs(verticalSpeed) < 4f;
+                bool aboveSafetyMargin = pos.y > (yThreshold + 1.5f);
+
+                if (aboveSafetyMargin && (groundedOrNoCC || verticallyStable))
                 {
                     lastSafePlayerPosition = pos;
                     lastSafePlayerYaw = playerGO.transform.eulerAngles.y;
+                    lastSafePlayerSampleTime = Time.time;
                 }
             }
 

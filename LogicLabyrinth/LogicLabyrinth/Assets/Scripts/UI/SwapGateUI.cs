@@ -422,7 +422,51 @@ public class SwapGateUI : MonoBehaviour
         GameObject dropped = Instantiate(prefab, dropPos, Quaternion.identity);
         dropped.name = $"Dropped_{gateType}_Gate";
 
+        IgnoreDroppedGateWithPlayer(dropped);
+
+        // Briefly disable the gate's colliders so the CharacterController is not
+        // violently ejected by a static collider appearing inside it.
+        GateSpawnDelay spawnDelay = dropped.AddComponent<GateSpawnDelay>();
+        spawnDelay.delay = 1.2f;
+
         Debug.Log($"[SwapGateUI] Spawned dropped {gateType} gate at {dropPos}");
+    }
+
+    private void IgnoreDroppedGateWithPlayer(GameObject dropped)
+    {
+        if (dropped == null)
+            return;
+
+        Collider[] gateCols = dropped.GetComponentsInChildren<Collider>(true);
+        Collider[] playerCols = null;
+
+        if (playerTransform != null)
+            playerCols = playerTransform.GetComponentsInChildren<Collider>(true);
+
+        // Fallback: resolve the actual moving player capsule if current transform
+        // is just a child camera/holder and has no colliders under it.
+        if (playerCols == null || playerCols.Length == 0)
+        {
+            GameObject playerCC = PauseMenuController.FindPlayerWithCharacterController();
+            if (playerCC != null)
+                playerCols = playerCC.GetComponentsInChildren<Collider>(true);
+        }
+
+        if (gateCols == null || playerCols == null || gateCols.Length == 0 || playerCols.Length == 0)
+            return;
+
+        for (int i = 0; i < gateCols.Length; i++)
+        {
+            Collider gateCol = gateCols[i];
+            if (gateCol == null) continue;
+
+            for (int j = 0; j < playerCols.Length; j++)
+            {
+                Collider playerCol = playerCols[j];
+                if (playerCol == null) continue;
+                Physics.IgnoreCollision(gateCol, playerCol, true);
+            }
+        }
     }
 
     /// <summary>
@@ -433,6 +477,7 @@ public class SwapGateUI : MonoBehaviour
     {
         Vector3 playerPos = playerTransform.position;
         Vector3 eyePos = playerPos + Vector3.up * 1f;
+        CharacterController playerCC = playerTransform.GetComponent<CharacterController>();
 
         // Directions to try: forward, back, left, right
         Vector3[] directions = new Vector3[]
@@ -472,22 +517,45 @@ public class SwapGateUI : MonoBehaviour
             {
                 Vector3 finalPos = floorHit.point + Vector3.up * 0.3f;
 
-                // Final safety check: make sure this spot isn't inside geometry
-                // by checking if a small sphere overlaps any collider
-                if (!Physics.CheckSphere(finalPos, 0.2f, ~0, QueryTriggerInteraction.Ignore))
+                // Keep a healthy distance from the player capsule to avoid delayed ejection
+                // when dropped gate colliders get re-enabled.
+                if (playerCC != null)
                 {
-                    return finalPos;
+                    Vector3 playerFeet = playerPos + Vector3.up * playerCC.skinWidth;
+                    float minDropDistance = Mathf.Max(0.9f, playerCC.radius + 0.35f);
+                    if (Vector3.Distance(finalPos, playerFeet) < minDropDistance)
+                        continue;
                 }
 
-                // Even if overlapping, if it's on valid floor it's better than nothing
-                // — still reachable. Store as fallback.
-                return floorHit.point + Vector3.up * 0.5f;
+                if (IsDropPositionClear(finalPos))
+                    return finalPos;
             }
         }
 
-        // Last resort: drop right at the player's feet
-        Debug.LogWarning("[SwapGateUI] Could not find safe drop position — dropping at player feet.");
-        return playerPos + Vector3.up * 0.3f;
+        // Last resort: place the gate behind the player at a safer offset instead of feet.
+        Vector3 fallbackProbe = eyePos - playerTransform.forward * 1.8f;
+        if (Physics.Raycast(fallbackProbe, Vector3.down, out RaycastHit fallbackFloor, 12f))
+        {
+            Vector3 fallback = fallbackFloor.point + Vector3.up * 0.35f;
+            if (IsDropPositionClear(fallback))
+                return fallback;
+        }
+
+        Debug.LogWarning("[SwapGateUI] Could not find ideal drop position — using conservative back-offset fallback.");
+        return playerPos - playerTransform.forward * 1.4f + Vector3.up * 0.4f;
+    }
+
+    private bool IsDropPositionClear(Vector3 position)
+    {
+        int overlapMask = ~0;
+        if (playerTransform != null)
+        {
+            int playerLayer = playerTransform.gameObject.layer;
+            if (playerLayer >= 0 && playerLayer <= 31)
+                overlapMask &= ~(1 << playerLayer);
+        }
+
+        return !Physics.CheckSphere(position, 0.22f, overlapMask, QueryTriggerInteraction.Ignore);
     }
 
     private void Close()

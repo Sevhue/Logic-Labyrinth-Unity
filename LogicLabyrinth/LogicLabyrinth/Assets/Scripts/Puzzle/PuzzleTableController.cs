@@ -59,6 +59,19 @@ public class PuzzleTableController : MonoBehaviour
     [Header("Question Number Display")]
     public TextMeshProUGUI questionNumberText;
 
+    [Header("Layout Tweaks")]
+    [Tooltip("Scales the legacy puzzle board content (Level 1-5 style) slightly larger.")]
+    public float legacyBoardScale = 1.08f;
+
+    public void SetLegacyBoardScale(float scale, bool applyNow = true)
+    {
+        legacyBoardScale = Mathf.Clamp(scale, 0.75f, 1.35f);
+        if (!applyNow) return;
+
+        if (!IsFreeFormCanvasMode() && puzzleContent != null)
+            puzzleContent.localScale = Vector3.one * legacyBoardScale;
+    }
+
     // Runtime state
     private List<GateDropSlot> dropSlots = new List<GateDropSlot>();
     private int attemptsUsed = 0;
@@ -174,6 +187,9 @@ public class PuzzleTableController : MonoBehaviour
 
         // Find the Q content area with the boxes (uses selectedQuestionIndex for multi-Q levels)
         FindPuzzleContent();
+
+        if (!IsFreeFormCanvasMode() && puzzleContent != null)
+            puzzleContent.localScale = Vector3.one * Mathf.Max(1f, legacyBoardScale);
 
         if (IsFreeFormCanvasMode())
         {

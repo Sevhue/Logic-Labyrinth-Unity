@@ -43,6 +43,12 @@ namespace StarterAssets
 		[Tooltip("What layers the character uses as ground")]
 		public LayerMask GroundLayers;
 
+		[Header("Collision Safety")]
+		[Tooltip("Minimum CharacterController skin width enforced at runtime for stable wall contacts.")]
+		public float SafeSkinWidth = 0.10f;
+		[Tooltip("Target CharacterController step offset enforced at runtime.")]
+		public float SafeStepOffset = 0.30f;
+
 		[Header("Stamina")]
 		[Tooltip("Maximum stamina")]
 		public float MaxStamina = 100f;
@@ -78,6 +84,9 @@ namespace StarterAssets
 		private float _rotationVelocity;
 		private float _verticalVelocity;
 		private float _terminalVelocity = 53.0f;
+		private Vector3 _lastStableGroundedPosition;
+		private bool _hasStableGroundedPosition;
+		private float _antiWarpCooldown;
 
 		// timeout deltatime
 		private float _jumpTimeoutDelta;
@@ -93,6 +102,11 @@ namespace StarterAssets
 		private bool _tabCursorVisible;
 
 		private const float _threshold = 0.01f;
+		private const float MaxVerticalSnapPerFrame = 4.0f;
+		private const float MaxHorizontalSnapPerFrame = 5.0f;
+		private const float MaxTotalSnapPerFrame = 7.0f;
+		private const float AbsurdCoordinateLimit = 500.0f;
+		private const float MinAllowedY = -150.0f;
 
 		private bool IsCurrentDeviceMouse
 		{
@@ -135,6 +149,23 @@ namespace StarterAssets
 
 			_tabCursorVisible = false;
 			SetGameplayCursorVisible(false);
+			ApplyCollisionSafetySettings();
+			_lastStableGroundedPosition = transform.position;
+			_hasStableGroundedPosition = true;
+		}
+
+		private void ApplyCollisionSafetySettings()
+		{
+			if (_controller == null) return;
+
+			float targetSkin = Mathf.Clamp(SafeSkinWidth, 0.08f, 0.15f);
+			if (_controller.skinWidth < targetSkin)
+				_controller.skinWidth = targetSkin;
+
+			_controller.stepOffset = Mathf.Clamp(SafeStepOffset, 0.2f, 0.5f);
+			_controller.minMoveDistance = 0f;
+
+			Debug.Log($"[FirstPersonController] Collision safety applied: skinWidth={_controller.skinWidth:F3}, stepOffset={_controller.stepOffset:F3}, minMoveDistance={_controller.minMoveDistance:F3}");
 		}
 
 		private void Update()
@@ -170,6 +201,9 @@ namespace StarterAssets
 				_controller.Move(new Vector3(0f, _verticalVelocity, 0f) * Time.deltaTime);
 				return;
 			}
+
+			if (TryRecoverFromAbsurdPosition("pre-move-check"))
+				return;
 
 			JumpAndGravity();
 			GroundedCheck();
@@ -260,6 +294,15 @@ namespace StarterAssets
 
 		private void Move()
 		{
+			Vector3 preMovePosition = transform.position;
+
+			if (_antiWarpCooldown > 0f)
+			{
+				_antiWarpCooldown -= Time.deltaTime;
+				_controller.Move(new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
+				return;
+			}
+
 			// --- Stamina logic ---
 			bool wantsSprint = _input.sprint && _input.move != Vector2.zero;
 			bool canSprint = !IsExhausted && CurrentStamina > 0f;
@@ -334,6 +377,78 @@ namespace StarterAssets
 
 			// move the player
 			_controller.Move(inputDirection.normalized * (_speed * Time.deltaTime) + new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
+
+			Vector3 postMovePosition = transform.position;
+			Vector3 frameDelta = postMovePosition - preMovePosition;
+			float verticalDelta = postMovePosition.y - preMovePosition.y;
+			float horizontalDelta = new Vector2(frameDelta.x, frameDelta.z).magnitude;
+
+			bool suspiciousVerticalPop =
+				verticalDelta > MaxVerticalSnapPerFrame &&
+				Grounded &&
+				!_input.jump;
+
+			bool suspiciousPositionWarp =
+				!_input.jump &&
+				(horizontalDelta > MaxHorizontalSnapPerFrame || frameDelta.magnitude > MaxTotalSnapPerFrame);
+
+			if (suspiciousVerticalPop || suspiciousPositionWarp)
+			{
+				// Restore to the immediate pre-move position to avoid snapping back to an old checkpoint.
+				Vector3 restorePos = preMovePosition;
+
+				bool wasEnabled = _controller.enabled;
+				if (wasEnabled) _controller.enabled = false;
+				transform.position = restorePos;
+				Physics.SyncTransforms();
+				if (wasEnabled) _controller.enabled = true;
+
+				_verticalVelocity = -2f;
+				_speed = 0f;
+				_antiWarpCooldown = 0.18f;
+
+				if (suspiciousVerticalPop)
+					Debug.LogWarning($"[FirstPersonController] Blocked suspicious vertical pop (dy={verticalDelta:F2}). Restored to ({restorePos.x:F2},{restorePos.y:F2},{restorePos.z:F2}).");
+				else
+					Debug.LogWarning($"[FirstPersonController] Blocked suspicious position warp (dh={horizontalDelta:F2}, d={frameDelta.magnitude:F2}). Restored to ({restorePos.x:F2},{restorePos.y:F2},{restorePos.z:F2}).");
+			}
+			else if (Grounded && !_input.jump)
+			{
+				float controllerVerticalSpeed = Mathf.Abs(_controller.velocity.y);
+				if (controllerVerticalSpeed < 1.5f)
+				{
+					_lastStableGroundedPosition = transform.position;
+					_hasStableGroundedPosition = true;
+				}
+			}
+		}
+
+		private bool TryRecoverFromAbsurdPosition(string reason)
+		{
+			Vector3 pos = transform.position;
+			bool absurd =
+				float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z) ||
+				Mathf.Abs(pos.x) > AbsurdCoordinateLimit ||
+				Mathf.Abs(pos.z) > AbsurdCoordinateLimit ||
+				pos.y < MinAllowedY;
+
+			if (!absurd)
+				return false;
+
+			Vector3 restorePos = _hasStableGroundedPosition ? _lastStableGroundedPosition : Vector3.zero;
+
+			bool wasEnabled = _controller != null && _controller.enabled;
+			if (wasEnabled) _controller.enabled = false;
+			transform.position = restorePos;
+			Physics.SyncTransforms();
+			if (wasEnabled) _controller.enabled = true;
+
+			_verticalVelocity = -2f;
+			_speed = 0f;
+			_antiWarpCooldown = 0.2f;
+
+			Debug.LogError($"[FirstPersonController] Recovered from absurd position at {reason}. pos=({pos.x:F2},{pos.y:F2},{pos.z:F2}) restore=({restorePos.x:F2},{restorePos.y:F2},{restorePos.z:F2})");
+			return true;
 		}
 
 		private void JumpAndGravity()

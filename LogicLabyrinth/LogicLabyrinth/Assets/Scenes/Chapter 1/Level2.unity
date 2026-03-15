@@ -2845,7 +2845,11 @@ MonoBehaviour:
   shinePulseSpeed: 2.5
   shineIntensity: 3
   shineRange: 4
+  successGlowDuration: 1
   showLegacyPickupPopup: 0
+  showSuccessKeyDoorHint: 1
+  successKeyHintDelay: 0.2
+  successKeyHintVisibleTime: 1.5
 --- !u!1001 &186899944
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -12613,6 +12617,8 @@ MonoBehaviour:
   GroundLayers:
     serializedVersion: 2
     m_Bits: 4294967295
+  SafeSkinWidth: 0.1
+  SafeStepOffset: 0.3
   MaxStamina: 100
   StaminaDrainRate: 25
   StaminaRegenRate: 15
@@ -14837,6 +14843,12 @@ MonoBehaviour:
   fogColor: {r: 0.01, g: 0.01, b: 0.02, a: 1}
   fogDensity: 0.12
   directionalLightIntensity: 0.02
+  forceOnlyTorchLights: 1
+  torchNameKeywords:
+  - torch
+  - brazi
+  - sconce
+  - flame
   torchLightBoost: 1.5
   torchExtraRange: 5
 --- !u!4 &1226068574
@@ -15755,6 +15767,11 @@ MonoBehaviour:
   andGateText: {fileID: 0}
   orGateText: {fileID: 0}
   notGateText: {fileID: 0}
+  enableDropGateHint: 1
+  dropGateHintThreshold: 3
+  dropGateHintInitialDelay: 1.5
+  enableTabCursorHint: 1
+  tabCursorHintInitialDelay: 1
 --- !u!4 &1299480674
 Transform:
   m_ObjectHideFlags: 0
@@ -20476,6 +20493,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: -4128937445876066082, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1920308112}
+    - targetCorrespondingSourceObject: {fileID: -4128937445876066082, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1920308114}
     - targetCorrespondingSourceObject: {fileID: 4875827166518839113, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1794849415}
@@ -21683,6 +21703,7 @@ MonoBehaviour:
   pulseSpeed: 2
   baseLightIntensity: 2
   baseLightRange: 3
+  minSecondsAfterOpenBeforeTransition: 0.15
 --- !u!1 &1364984088 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: -6944363349700419941, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
@@ -28754,6 +28775,27 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: 2348616061427368171, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
+--- !u!65 &1920308114
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1364983795}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 4.9064903, y: 4.653493, z: 0.6491243}
+  m_Center: {x: -0.026769165, y: 2.3107166, z: -0.00000093877327}
 --- !u!64 &1927008033
 MeshCollider:
   m_ObjectHideFlags: 0
