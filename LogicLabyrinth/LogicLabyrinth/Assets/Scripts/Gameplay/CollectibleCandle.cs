@@ -122,7 +122,8 @@ public class CollectibleCandle : MonoBehaviour
 
     private IEnumerator PickupAnimation()
     {
-        GameObject msgUI = CreatePickupMessage();
+        // Center candle-collected banner removed — the hotbar notification covers this.
+        GameObject msgUI = null;
 
         Vector3 startScale = transform.localScale;
         Vector3 startPos = transform.position;

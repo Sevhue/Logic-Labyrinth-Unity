@@ -21,6 +21,15 @@ using System.Collections;
 /// </summary>
 public class CutsceneController : MonoBehaviour
 {
+    private enum TutorialQuestStage
+    {
+        OpenTable,
+        Door,
+        Candle,
+        LogicGates,
+        SolvePuzzle
+    }
+
     [Header("Cutscene Prefab")]
     [Tooltip("The Cutscenes prefab from Assets/Cutscene/Cutscenes.prefab")]
     public GameObject cutscenePrefab;
@@ -43,6 +52,8 @@ public class CutsceneController : MonoBehaviour
     public bool showDialogueBackground = false;
     [Tooltip("Scale applied to puzzle board after table dialogue ends.")]
     public float postDialogueBoardScale = 0.94f;
+    [Tooltip("How much to move the shrunken board upward after dialogue (UI pixels).")]
+    public float postDialogueBoardYOffset = 56f;
     [Tooltip("Typewriter speed for post-dialogue text (characters per second).")]
     public float postDialogueTypeCharsPerSecond = 42f;
 
@@ -74,6 +85,24 @@ public class CutsceneController : MonoBehaviour
     private bool waitingForTableClose = false;
     private bool doorTutorialStarted = false;
     private GameObject doorTutorialUI;
+    private TutorialDoor trackedTutorialDoor;
+    private TextMeshProUGUI doorQuestHeadingTMP;
+    private TextMeshProUGUI openDoorQuestCheckboxTMP;
+    private TextMeshProUGUI openDoorQuestTaskTMP;
+    private TextMeshProUGUI findKeyQuestCheckboxTMP;
+    private TextMeshProUGUI findKeyQuestTaskTMP;
+    private TextMeshProUGUI finalQuestTaskTMP;
+    private Coroutine doorQuestTypingRoutine;
+    private TutorialQuestStage tutorialQuestStage = TutorialQuestStage.Door;
+    private bool openDoorQuestCompleted = false;
+    private bool findKeyQuestShown = false;
+    private bool findKeyQuestCompleted = false;
+    private bool candleCollectQuestCompleted = false;
+    private bool candleEquipQuestCompleted = false;
+    private bool candleEquippedOnce = false;
+    private bool solvePuzzleQuestCompleted = false;
+    private bool unlockExitDoorQuestCompleted = false;
+    private bool introMovementTipsQueued = false;
 
     // Inner dialogue lines
     private static readonly string[] dialogueLines = new string[]
@@ -94,6 +123,8 @@ public class CutsceneController : MonoBehaviour
         CameraOnlyMode = false;
         IsTableDialogueActive = false;
         TutorialDoor.PlayerHasKey = false; // Reset key state on scene load
+        TutorialDoor.TutorialKeyCollected = false;
+        CollectibleCandle.IsEquipped = false;
     }
 
     void Start()
@@ -159,13 +190,21 @@ public class CutsceneController : MonoBehaviour
         // ── Phase 1: Cutscene panels ──
         if (cutsceneActive && waitingForClick)
         {
-            bool advance = Input.GetKeyDown(KeyCode.Space)
-                         || Input.GetKeyDown(KeyCode.Return)
-                         || Input.GetKeyDown(KeyCode.KeypadEnter);
             if (CameraOnlyMode)
-                advance = advance || Input.GetMouseButtonDown(0);
-            if (advance)
-                AdvanceCutscene();
+            {
+                // Panels 2+ ("Where am I?" etc.) — advance on any WASD key
+                if (Input.GetKeyDown(KeyCode.W) || Input.GetKeyDown(KeyCode.A) ||
+                    Input.GetKeyDown(KeyCode.S) || Input.GetKeyDown(KeyCode.D))
+                    AdvanceCutscene();
+            }
+            else
+            {
+                bool advance = Input.GetKeyDown(KeyCode.Space)
+                             || Input.GetKeyDown(KeyCode.Return)
+                             || Input.GetKeyDown(KeyCode.KeypadEnter);
+                if (advance)
+                    AdvanceCutscene();
+            }
             KeepInventoryHidden();
             return;
         }
@@ -174,7 +213,10 @@ public class CutsceneController : MonoBehaviour
         if (waitingForTableOpen && PuzzleTableController.IsOpen)
         {
             waitingForTableOpen = false;
-            StartCoroutine(RunTableDialogue());
+            if (tutorialQuestStage == TutorialQuestStage.OpenTable)
+                StartCoroutine(CompleteOpenTableAndStartDialogue());
+            else
+                StartCoroutine(RunTableDialogue());
         }
 
         // ── Phase 3: Waiting for table to close after dialogue ──
@@ -182,6 +224,63 @@ public class CutsceneController : MonoBehaviour
         {
             waitingForTableClose = false;
             StartDoorTutorial();
+        }
+
+        if (doorTutorialStarted)
+        {
+            if (trackedTutorialDoor == null)
+                trackedTutorialDoor = FindAnyObjectByType<TutorialDoor>();
+
+            if (tutorialQuestStage == TutorialQuestStage.Door)
+            {
+                if (!findKeyQuestShown && TutorialDoor.TutorialKeyCollected)
+                    ShowFindKeyQuest();
+                else if (!findKeyQuestShown && trackedTutorialDoor != null && trackedTutorialDoor.HasTriedWhileLocked)
+                    ShowFindKeyQuest();
+
+                if (findKeyQuestShown && !findKeyQuestCompleted && TutorialDoor.TutorialKeyCollected)
+                    CompleteFindKeyQuest();
+
+                if (!openDoorQuestCompleted && trackedTutorialDoor != null && trackedTutorialDoor.IsDoorOpen)
+                    CompleteOpenDoorQuest();
+
+                if (openDoorQuestCompleted && findKeyQuestCompleted)
+                    BeginCandleQuestStage();
+            }
+            else if (tutorialQuestStage == TutorialQuestStage.Candle)
+            {
+                bool hasCandle = InventoryManager.Instance != null && InventoryManager.Instance.HasCandle;
+                if (!candleCollectQuestCompleted && hasCandle)
+                    CompleteCandleCollectQuest();
+
+                if (CollectibleCandle.IsEquipped)
+                    candleEquippedOnce = true;
+
+                if (!candleEquipQuestCompleted && candleEquippedOnce)
+                    CompleteCandleEquipQuest();
+
+                if (candleCollectQuestCompleted && candleEquipQuestCompleted)
+                    BeginLogicGatesQuestStage();
+            }
+            else if (tutorialQuestStage == TutorialQuestStage.LogicGates)
+            {
+                if (InventoryManager.Instance != null)
+                {
+                    int total = InventoryManager.Instance.GetGateCount("AND")
+                              + InventoryManager.Instance.GetGateCount("OR")
+                              + InventoryManager.Instance.GetGateCount("NOT");
+                    if (total >= 3)
+                        BeginSolvePuzzleQuestStage();
+                }
+            }
+            else if (tutorialQuestStage == TutorialQuestStage.SolvePuzzle)
+            {
+                if (!solvePuzzleQuestCompleted && IsPuzzleSolvedForQuest())
+                    BeginUnlockExitDoorQuestStage();
+
+                if (solvePuzzleQuestCompleted && !unlockExitDoorQuestCompleted && IsSuccessDoorOpenedForQuest())
+                    BeginRunToExitQuestStage();
+            }
         }
     }
 
@@ -291,6 +390,13 @@ public class CutsceneController : MonoBehaviour
         { IsPlaying = true; CameraOnlyMode = false; Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
         else
         { IsPlaying = false; CameraOnlyMode = true; Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; }
+
+        // Show movement tips during the "Where am I?" phase (panel index 2 onward), once.
+        if (index >= 2 && !introMovementTipsQueued)
+        {
+            introMovementTipsQueued = true;
+            StartCoroutine(ShowMovementTips());
+        }
     }
 
     private void AdvanceCutscene()
@@ -319,6 +425,19 @@ public class CutsceneController : MonoBehaviour
 
         HighlightTable();
         waitingForTableOpen = true;
+
+        // Show "OPEN THE PUZZLE TABLE" quest immediately after cutscene.
+        tutorialQuestStage = TutorialQuestStage.OpenTable;
+        ShowDoorQuestTracker();   // FadeInDoorQuest will pick BeginOpenTableQuestStage via the stage check.
+    }
+
+    private IEnumerator ShowMovementTips()
+    {
+        // Keep these on unscaled time so they still sequence correctly even if time scale changes.
+        yield return new WaitForSecondsRealtime(1.2f);
+        TipOverlayUI.ShowTip("Use W, A, S, D to move around the labyrinth.", 5f, 40f);
+        yield return new WaitForSecondsRealtime(5.4f);
+        TipOverlayUI.ShowTip("Hold Shift to sprint.", 6f, 40f);
     }
 
     private void HighlightTable()
@@ -511,6 +630,7 @@ public class CutsceneController : MonoBehaviour
         if (ptc == null) return;
 
         ptc.SetLegacyBoardScale(postDialogueBoardScale, true);
+        ptc.SetLegacyBoardVerticalOffset(postDialogueBoardYOffset, true);
         CreatePostDialogueBoardExtension(ptc.transform);
     }
 
@@ -604,7 +724,12 @@ public class CutsceneController : MonoBehaviour
         postDialogueTextSecondary.gameObject.SetActive(false);
 
         yield return StartCoroutine(TypeSentence(postDialogueTextPrimary, firstLine, postDialogueTypeCharsPerSecond));
+        if (postDialogueTextPrimary == null || postDialogueTextSecondary == null)
+            yield break;
+
         yield return new WaitForSecondsRealtime(3f);
+        if (postDialogueTextPrimary == null || postDialogueTextSecondary == null)
+            yield break;
 
         postDialogueTextPrimary.gameObject.SetActive(false);
         postDialogueTextSecondary.gameObject.SetActive(true);
@@ -621,10 +746,12 @@ public class CutsceneController : MonoBehaviour
 
         for (int i = 1; i <= sentence.Length; i++)
         {
+            if (target == null) yield break;
             target.text = sentence.Substring(0, i) + "|";
             yield return new WaitForSecondsRealtime(interval);
         }
 
+        if (target == null) yield break;
         target.text = sentence;
     }
 
@@ -724,11 +851,20 @@ public class CutsceneController : MonoBehaviour
     {
         if (doorTutorialStarted) return;
         doorTutorialStarted = true;
+        tutorialQuestStage = TutorialQuestStage.Door;
+        openDoorQuestCompleted = false;
+        findKeyQuestShown = false;
+        findKeyQuestCompleted = false;
+        candleCollectQuestCompleted = false;
+        candleEquipQuestCompleted = false;
+        candleEquippedOnce = false;
+        solvePuzzleQuestCompleted = false;
+        unlockExitDoorQuestCompleted = false;
 
         Debug.Log("[Cutscene] Phase 3: Puzzle closed. Starting door tutorial...");
 
-        // Show tutorial notification top-right
-        StartCoroutine(ShowDoorTutorialNotification());
+        // Show persistent quest tracker on the left side.
+        ShowDoorQuestTracker();
 
         // Find Door_Tutorial and add highlight + interaction
         GameObject doorObj = GameObject.Find("Door_Tutorial");
@@ -749,6 +885,7 @@ public class CutsceneController : MonoBehaviour
         {
             TutorialDoor td = doorObj.GetComponent<TutorialDoor>();
             if (td == null) td = doorObj.AddComponent<TutorialDoor>();
+            trackedTutorialDoor = td;
             td.StartHighlight();
             Debug.Log("[Cutscene] Door_Tutorial highlighted!");
         }
@@ -758,10 +895,12 @@ public class CutsceneController : MonoBehaviour
         }
     }
 
-    private IEnumerator ShowDoorTutorialNotification()
+    private void ShowDoorQuestTracker()
     {
-        // Create an overlay Canvas for the tutorial notification
-        doorTutorialUI = new GameObject("DoorTutorialNotification");
+        if (doorTutorialUI != null)
+            Destroy(doorTutorialUI);
+
+        doorTutorialUI = new GameObject("DoorQuestTracker");
         Canvas canvas = doorTutorialUI.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 550;
@@ -770,93 +909,517 @@ public class CutsceneController : MonoBehaviour
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920, 1080);
 
-        // ── Panel (top-right) ──
+        CanvasGroup rootGroup = doorTutorialUI.AddComponent<CanvasGroup>();
+        rootGroup.alpha = 0f;
+
+        // Panel pinned on the far-left side
         GameObject panelGO = new GameObject("Panel");
         panelGO.transform.SetParent(doorTutorialUI.transform, false);
 
         RectTransform panelRT = panelGO.AddComponent<RectTransform>();
-        panelRT.anchorMin = new Vector2(0.55f, 0.82f);
-        panelRT.anchorMax = new Vector2(0.98f, 0.96f);
+        panelRT.anchorMin = new Vector2(0.02f, 0.62f);
+        panelRT.anchorMax = new Vector2(0.27f, 0.85f);
         panelRT.offsetMin = Vector2.zero;
         panelRT.offsetMax = Vector2.zero;
 
-        Image bg = panelGO.AddComponent<Image>();
-        bg.color = new Color(0.08f, 0.05f, 0.02f, 0.9f);
-        bg.raycastTarget = false;
+        // Intentionally no background image or border for this quest tracker.
 
-        Outline outline = panelGO.AddComponent<Outline>();
-        outline.effectColor = new Color(0.85f, 0.7f, 0.35f, 0.8f);
-        outline.effectDistance = new Vector2(2f, 2f);
+        // TO DO heading
+        GameObject headingGO = new GameObject("Heading");
+        headingGO.transform.SetParent(panelGO.transform, false);
+        RectTransform hRT = headingGO.AddComponent<RectTransform>();
+        hRT.anchorMin = new Vector2(0.08f, 0.72f);
+        hRT.anchorMax = new Vector2(0.92f, 0.95f);
+        hRT.offsetMin = Vector2.zero;
+        hRT.offsetMax = Vector2.zero;
 
-        // ── Main text (full panel, no label) ──
-        GameObject textGO = new GameObject("Text");
-        textGO.transform.SetParent(panelGO.transform, false);
+        doorQuestHeadingTMP = headingGO.AddComponent<TextMeshProUGUI>();
+        doorQuestHeadingTMP.text = string.Empty;
+        doorQuestHeadingTMP.fontSize = 28;
+        doorQuestHeadingTMP.fontStyle = FontStyles.Bold;
+        doorQuestHeadingTMP.alignment = TextAlignmentOptions.Left;
+        doorQuestHeadingTMP.color = new Color(1f, 0.90f, 0.60f, 1f);
+        doorQuestHeadingTMP.raycastTarget = false;
 
-        RectTransform textRT = textGO.AddComponent<RectTransform>();
-        textRT.anchorMin = Vector2.zero;
-        textRT.anchorMax = Vector2.one;
-        textRT.offsetMin = new Vector2(15f, 8f);
-        textRT.offsetMax = new Vector2(-15f, -8f);
+        // Checkbox text: [ ] or [x]
+        GameObject checkboxGO = new GameObject("Checkbox");
+        checkboxGO.transform.SetParent(panelGO.transform, false);
+        RectTransform cRT = checkboxGO.AddComponent<RectTransform>();
+        cRT.anchorMin = new Vector2(0.08f, 0.28f);
+        cRT.anchorMax = new Vector2(0.20f, 0.62f);
+        cRT.offsetMin = Vector2.zero;
+        cRT.offsetMax = Vector2.zero;
 
-        TextMeshProUGUI textTMP = textGO.AddComponent<TextMeshProUGUI>();
-        textTMP.text = "Open the door and explore the labyrinth to find the logic gates";
-        textTMP.fontSize = 20;
-        textTMP.alignment = TextAlignmentOptions.Center;
-        textTMP.color = new Color(1f, 0.9f, 0.6f, 1f);
-        textTMP.fontStyle = FontStyles.Italic;
-        textTMP.enableWordWrapping = true;
-        textTMP.raycastTarget = false;
+        openDoorQuestCheckboxTMP = checkboxGO.AddComponent<TextMeshProUGUI>();
+        openDoorQuestCheckboxTMP.text = "[ ]";
+        openDoorQuestCheckboxTMP.fontSize = 34;
+        openDoorQuestCheckboxTMP.fontStyle = FontStyles.Bold;
+        openDoorQuestCheckboxTMP.alignment = TextAlignmentOptions.Center;
+        openDoorQuestCheckboxTMP.color = new Color(0.95f, 0.86f, 0.56f, 1f);
+        openDoorQuestCheckboxTMP.raycastTarget = false;
 
-        // ── Slide-in animation from right ──
-        CanvasGroup cg = panelGO.AddComponent<CanvasGroup>();
-        cg.alpha = 0f;
+        GameObject taskGO = new GameObject("Task");
+        taskGO.transform.SetParent(panelGO.transform, false);
+        RectTransform tRT = taskGO.AddComponent<RectTransform>();
+        tRT.anchorMin = new Vector2(0.22f, 0.26f);
+        tRT.anchorMax = new Vector2(0.92f, 0.64f);
+        tRT.offsetMin = Vector2.zero;
+        tRT.offsetMax = Vector2.zero;
 
-        Vector2 originalMin = panelRT.anchorMin;
-        Vector2 originalMax = panelRT.anchorMax;
-        // Start off-screen to the right
-        panelRT.anchorMin = new Vector2(1.05f, originalMin.y);
-        panelRT.anchorMax = new Vector2(1.48f, originalMax.y);
+        openDoorQuestTaskTMP = taskGO.AddComponent<TextMeshProUGUI>();
+        openDoorQuestTaskTMP.text = string.Empty;
+        openDoorQuestTaskTMP.fontSize = 24;
+        openDoorQuestTaskTMP.fontStyle = FontStyles.Bold;
+        openDoorQuestTaskTMP.alignment = TextAlignmentOptions.Left;
+        openDoorQuestTaskTMP.color = new Color(1f, 0.92f, 0.68f, 1f);
+        openDoorQuestTaskTMP.enableWordWrapping = true;
+        openDoorQuestTaskTMP.raycastTarget = false;
 
-        // Animate in
-        float slideTime = 0.5f;
+        // Quest row 2 (hidden until first locked attempt)
+        GameObject checkbox2GO = new GameObject("Checkbox_FindKey");
+        checkbox2GO.transform.SetParent(panelGO.transform, false);
+        RectTransform c2RT = checkbox2GO.AddComponent<RectTransform>();
+        c2RT.anchorMin = new Vector2(0.08f, 0.04f);
+        c2RT.anchorMax = new Vector2(0.20f, 0.28f);
+        c2RT.offsetMin = Vector2.zero;
+        c2RT.offsetMax = Vector2.zero;
+
+        findKeyQuestCheckboxTMP = checkbox2GO.AddComponent<TextMeshProUGUI>();
+        findKeyQuestCheckboxTMP.text = "[ ]";
+        findKeyQuestCheckboxTMP.fontSize = 34;
+        findKeyQuestCheckboxTMP.fontStyle = FontStyles.Bold;
+        findKeyQuestCheckboxTMP.alignment = TextAlignmentOptions.Center;
+        findKeyQuestCheckboxTMP.color = new Color(0.95f, 0.86f, 0.56f, 1f);
+        findKeyQuestCheckboxTMP.raycastTarget = false;
+        findKeyQuestCheckboxTMP.gameObject.SetActive(false);
+
+        GameObject task2GO = new GameObject("Task_FindKey");
+        task2GO.transform.SetParent(panelGO.transform, false);
+        RectTransform t2RT = task2GO.AddComponent<RectTransform>();
+        t2RT.anchorMin = new Vector2(0.22f, 0.03f);
+        t2RT.anchorMax = new Vector2(0.92f, 0.30f);
+        t2RT.offsetMin = Vector2.zero;
+        t2RT.offsetMax = Vector2.zero;
+
+        findKeyQuestTaskTMP = task2GO.AddComponent<TextMeshProUGUI>();
+        findKeyQuestTaskTMP.text = string.Empty;
+        findKeyQuestTaskTMP.fontSize = 24;
+        findKeyQuestTaskTMP.fontStyle = FontStyles.Bold;
+        findKeyQuestTaskTMP.alignment = TextAlignmentOptions.Left;
+        findKeyQuestTaskTMP.color = new Color(1f, 0.92f, 0.68f, 1f);
+        findKeyQuestTaskTMP.enableWordWrapping = true;
+        findKeyQuestTaskTMP.raycastTarget = false;
+        findKeyQuestTaskTMP.gameObject.SetActive(false);
+
+        GameObject finalTaskGO = new GameObject("FinalTask");
+        finalTaskGO.transform.SetParent(panelGO.transform, false);
+        RectTransform fRT = finalTaskGO.AddComponent<RectTransform>();
+        fRT.anchorMin = new Vector2(0.08f, 0.03f);
+        fRT.anchorMax = new Vector2(0.92f, 0.48f);
+        fRT.offsetMin = Vector2.zero;
+        fRT.offsetMax = Vector2.zero;
+
+        finalQuestTaskTMP = finalTaskGO.AddComponent<TextMeshProUGUI>();
+        finalQuestTaskTMP.text = string.Empty;
+        finalQuestTaskTMP.fontSize = 22;
+        finalQuestTaskTMP.fontStyle = FontStyles.Bold;
+        finalQuestTaskTMP.alignment = TextAlignmentOptions.Left;
+        finalQuestTaskTMP.color = new Color(1f, 0.92f, 0.68f, 1f);
+        finalQuestTaskTMP.enableWordWrapping = true;
+        finalQuestTaskTMP.raycastTarget = false;
+        finalQuestTaskTMP.gameObject.SetActive(false);
+
+        StartCoroutine(FadeInDoorQuest(rootGroup));
+    }
+
+    private IEnumerator FadeInDoorQuest(CanvasGroup cg)
+    {
+        if (cg == null) yield break;
+
         float elapsed = 0f;
-        while (elapsed < slideTime)
-        {
-            elapsed += Time.deltaTime;
-            float t = elapsed / slideTime;
-            t = 1f - Mathf.Pow(1f - t, 3f); // Ease-out cubic
-            panelRT.anchorMin = Vector2.Lerp(new Vector2(1.05f, originalMin.y), originalMin, t);
-            panelRT.anchorMax = Vector2.Lerp(new Vector2(1.48f, originalMax.y), originalMax, t);
-            cg.alpha = t;
-            yield return null;
-        }
-        panelRT.anchorMin = originalMin;
-        panelRT.anchorMax = originalMax;
-        cg.alpha = 1f;
-
-        // Pulse the text for attention
-        float pulseTimer = 0f;
-        float displayTime = 8f; // Show for 8 seconds
-        float displayElapsed = 0f;
-        Color brightGold = new Color(1f, 0.95f, 0.65f, 1f);
-        Color dimGold = new Color(0.85f, 0.7f, 0.35f, 0.8f);
-
-        while (displayElapsed < displayTime)
-        {
-            displayElapsed += Time.deltaTime;
-            pulseTimer += Time.deltaTime * 2.5f;
-            float pt = (Mathf.Sin(pulseTimer) + 1f) / 2f;
-            textTMP.color = Color.Lerp(dimGold, brightGold, pt);
-            yield return null;
-        }
-
-        // Fade out
-        elapsed = 0f;
-        float fadeTime = 0.5f;
+        const float fadeTime = 0.35f;
         while (elapsed < fadeTime)
         {
             elapsed += Time.deltaTime;
-            cg.alpha = 1f - (elapsed / fadeTime);
+            cg.alpha = Mathf.Clamp01(elapsed / fadeTime);
+            yield return null;
+        }
+
+        cg.alpha = 1f;
+
+        if (doorQuestTypingRoutine != null)
+            StopCoroutine(doorQuestTypingRoutine);
+
+        if (tutorialQuestStage == TutorialQuestStage.OpenTable)
+            doorQuestTypingRoutine = StartCoroutine(BeginOpenTableQuestStage());
+        else
+            doorQuestTypingRoutine = StartCoroutine(RunDoorQuestIntroTyping());
+    }
+
+    private IEnumerator BeginOpenTableQuestStage()
+    {
+        yield return StartCoroutine(TypeQuestText(doorQuestHeadingTMP, "TO DO", 34f));
+        yield return new WaitForSeconds(0.08f);
+        yield return StartCoroutine(TypeQuestText(openDoorQuestTaskTMP, "OPEN THE PUZZLE TABLE", 40f));
+        doorQuestTypingRoutine = null;
+    }
+
+    private IEnumerator CompleteOpenTableAndStartDialogue()
+    {
+        // Stop any still-running typing.
+        if (doorQuestTypingRoutine != null) { StopCoroutine(doorQuestTypingRoutine); doorQuestTypingRoutine = null; }
+
+        // Check off the task.
+        if (doorQuestHeadingTMP != null) doorQuestHeadingTMP.text = "TO DO";
+        if (openDoorQuestTaskTMP != null)
+        {
+            openDoorQuestTaskTMP.text = "OPEN THE PUZZLE TABLE";
+            openDoorQuestTaskTMP.color = new Color(0.70f, 1f, 0.73f, 1f);
+        }
+        if (openDoorQuestCheckboxTMP != null) openDoorQuestCheckboxTMP.text = "[v]";
+
+        yield return new WaitForSeconds(1.2f);
+
+        // Clear the tracker before table dialogue takes over.
+        if (doorQuestHeadingTMP != null) doorQuestHeadingTMP.text = string.Empty;
+        if (openDoorQuestTaskTMP != null)
+            openDoorQuestTaskTMP.color = new Color(1f, 0.92f, 0.68f, 1f);
+        SetQuestRowVisible(openDoorQuestCheckboxTMP, openDoorQuestTaskTMP, false);
+
+        StartCoroutine(RunTableDialogue());
+    }
+
+    private IEnumerator RunDoorQuestIntroTyping()
+    {
+        yield return StartCoroutine(TypeQuestText(doorQuestHeadingTMP, "TO DO", 34f));
+        yield return new WaitForSeconds(0.08f);
+        yield return StartCoroutine(TypeQuestText(openDoorQuestTaskTMP, "OPEN THE DOOR", 40f));
+        doorQuestTypingRoutine = null;
+    }
+
+    private IEnumerator RunCandleQuestIntroTyping()
+    {
+        yield return StartCoroutine(TypeQuestText(openDoorQuestTaskTMP, "COLLECT THE CANDLE", 40f));
+        doorQuestTypingRoutine = null;
+    }
+
+    private IEnumerator TypeQuestText(TextMeshProUGUI target, string sentence, float charsPerSecond)
+    {
+        if (target == null)
+            yield break;
+
+        target.text = string.Empty;
+        float cps = Mathf.Max(10f, charsPerSecond);
+        float interval = 1f / cps;
+
+        for (int i = 1; i <= sentence.Length; i++)
+        {
+            if (target == null)
+                yield break;
+
+            target.text = sentence.Substring(0, i) + "|";
+            yield return new WaitForSeconds(interval);
+        }
+
+        if (target == null)
+            yield break;
+
+        target.text = sentence;
+    }
+
+    private IEnumerator TypeQuestTextAndClear(TextMeshProUGUI target, string sentence, float charsPerSecond)
+    {
+        yield return StartCoroutine(TypeQuestText(target, sentence, charsPerSecond));
+        doorQuestTypingRoutine = null;
+    }
+
+    private void SetQuestRowVisible(TextMeshProUGUI checkbox, TextMeshProUGUI task, bool visible)
+    {
+        if (checkbox != null)
+            checkbox.gameObject.SetActive(visible);
+
+        if (task != null)
+            task.gameObject.SetActive(visible);
+    }
+
+    private void ResetQuestRow(TextMeshProUGUI checkbox, TextMeshProUGUI task)
+    {
+        if (checkbox != null)
+        {
+            checkbox.text = "[ ]";
+            checkbox.color = new Color(0.95f, 0.86f, 0.56f, 1f);
+        }
+
+        if (task != null)
+        {
+            task.text = string.Empty;
+            task.color = new Color(1f, 0.92f, 0.68f, 1f);
+        }
+    }
+
+    private void ShowFindKeyQuest()
+    {
+        findKeyQuestShown = true;
+
+        if (findKeyQuestCheckboxTMP != null)
+            findKeyQuestCheckboxTMP.gameObject.SetActive(true);
+
+        if (findKeyQuestTaskTMP != null)
+        {
+            findKeyQuestTaskTMP.gameObject.SetActive(true);
+            if (doorQuestTypingRoutine != null)
+                StopCoroutine(doorQuestTypingRoutine);
+            doorQuestTypingRoutine = StartCoroutine(TypeQuestTextAndClear(findKeyQuestTaskTMP, "FIND THE KEY", 40f));
+        }
+    }
+
+    private void CompleteFindKeyQuest()
+    {
+        findKeyQuestCompleted = true;
+
+        if (findKeyQuestCheckboxTMP != null)
+            findKeyQuestCheckboxTMP.text = "[v]";
+
+        if (findKeyQuestTaskTMP != null)
+            findKeyQuestTaskTMP.color = new Color(0.70f, 1f, 0.73f, 1f);
+    }
+
+    private void CompleteOpenDoorQuest()
+    {
+        openDoorQuestCompleted = true;
+
+        if (openDoorQuestCheckboxTMP != null)
+            openDoorQuestCheckboxTMP.text = "[v]";
+
+        if (openDoorQuestTaskTMP != null)
+            openDoorQuestTaskTMP.color = new Color(0.70f, 1f, 0.73f, 1f);
+
+        if (trackedTutorialDoor != null)
+            trackedTutorialDoor.StopHighlight();
+    }
+
+    private void BeginCandleQuestStage()
+    {
+        tutorialQuestStage = TutorialQuestStage.Candle;
+
+        if (doorQuestTypingRoutine != null)
+        {
+            StopCoroutine(doorQuestTypingRoutine);
+            doorQuestTypingRoutine = null;
+        }
+
+        SetQuestRowVisible(openDoorQuestCheckboxTMP, openDoorQuestTaskTMP, true);
+        SetQuestRowVisible(findKeyQuestCheckboxTMP, findKeyQuestTaskTMP, false);
+        ResetQuestRow(openDoorQuestCheckboxTMP, openDoorQuestTaskTMP);
+        ResetQuestRow(findKeyQuestCheckboxTMP, findKeyQuestTaskTMP);
+
+        if (finalQuestTaskTMP != null)
+        {
+            finalQuestTaskTMP.text = string.Empty;
+            finalQuestTaskTMP.gameObject.SetActive(false);
+        }
+
+        doorQuestTypingRoutine = StartCoroutine(RunCandleQuestIntroTyping());
+    }
+
+    private void CompleteCandleCollectQuest()
+    {
+        candleCollectQuestCompleted = true;
+
+        if (openDoorQuestCheckboxTMP != null)
+            openDoorQuestCheckboxTMP.text = "[v]";
+
+        if (openDoorQuestTaskTMP != null)
+            openDoorQuestTaskTMP.color = new Color(0.70f, 1f, 0.73f, 1f);
+
+        SetQuestRowVisible(findKeyQuestCheckboxTMP, findKeyQuestTaskTMP, true);
+        if (findKeyQuestTaskTMP != null)
+        {
+            if (doorQuestTypingRoutine != null)
+                StopCoroutine(doorQuestTypingRoutine);
+            doorQuestTypingRoutine = StartCoroutine(TypeQuestTextAndClear(findKeyQuestTaskTMP, "PRESS 1 TO EQUIP THE CANDLE", 40f));
+        }
+    }
+
+    private void CompleteCandleEquipQuest()
+    {
+        candleEquipQuestCompleted = true;
+
+        if (findKeyQuestCheckboxTMP != null)
+            findKeyQuestCheckboxTMP.text = "[v]";
+
+        if (findKeyQuestTaskTMP != null)
+            findKeyQuestTaskTMP.color = new Color(0.70f, 1f, 0.73f, 1f);
+    }
+
+    private void BeginLogicGatesQuestStage()
+    {
+        tutorialQuestStage = TutorialQuestStage.LogicGates;
+
+        if (doorQuestTypingRoutine != null)
+        {
+            StopCoroutine(doorQuestTypingRoutine);
+            doorQuestTypingRoutine = null;
+        }
+
+        SetQuestRowVisible(openDoorQuestCheckboxTMP, openDoorQuestTaskTMP, true);
+        SetQuestRowVisible(findKeyQuestCheckboxTMP, findKeyQuestTaskTMP, false);
+
+        ResetQuestRow(openDoorQuestCheckboxTMP, openDoorQuestTaskTMP);
+
+        if (finalQuestTaskTMP != null)
+        {
+            finalQuestTaskTMP.text = string.Empty;
+            finalQuestTaskTMP.gameObject.SetActive(false);
+        }
+
+        doorQuestTypingRoutine = StartCoroutine(TypeQuestTextAndClear(openDoorQuestTaskTMP, "FIND THE LOGIC GATES SCATTERED AROUND THE LABYRINTH", 34f));
+
+        // After the quest text finishes typing, hint the player about the journal.
+        StartCoroutine(DelayedJournalHint());
+    }
+
+    private IEnumerator DelayedJournalHint()
+    {
+        // Wait for the quest text to finish typing (~2.5s) plus a small buffer.
+        yield return new WaitForSeconds(4f);
+        TipOverlayUI.ShowTip("Press J to open your Gate Journal.", 8f, 40f);
+        GateJournal.EnsureInstance();
+    }
+
+    private void BeginSolvePuzzleQuestStage()
+    {
+        tutorialQuestStage = TutorialQuestStage.SolvePuzzle;
+        solvePuzzleQuestCompleted = false;
+
+        if (doorQuestTypingRoutine != null)
+        {
+            StopCoroutine(doorQuestTypingRoutine);
+            doorQuestTypingRoutine = null;
+        }
+
+        // Check off the logic gates quest and show the new objective
+        if (openDoorQuestCheckboxTMP != null)
+            openDoorQuestCheckboxTMP.text = "[v]";
+
+        if (openDoorQuestTaskTMP != null)
+            openDoorQuestTaskTMP.color = new Color(0.70f, 1f, 0.73f, 1f);
+
+        // Small delay so the checkmark registers visually, then swap text
+        StartCoroutine(ShowSolvePuzzleQuest());
+    }
+
+    private bool IsPuzzleSolvedForQuest()
+    {
+        InteractiveTable table = FindAnyObjectByType<InteractiveTable>();
+        if (table != null && table.IsSolved)
+            return true;
+
+        PuzzleTableController controller = FindAnyObjectByType<PuzzleTableController>();
+        return controller != null && controller.WasPuzzleSolved;
+    }
+
+    private bool IsSuccessDoorOpenedForQuest()
+    {
+        SuccessDoor successDoor = FindAnyObjectByType<SuccessDoor>();
+        return successDoor != null && successDoor.IsDoorOpen;
+    }
+
+    private void BeginUnlockExitDoorQuestStage()
+    {
+        solvePuzzleQuestCompleted = true;
+        unlockExitDoorQuestCompleted = false;
+
+        if (doorQuestTypingRoutine != null)
+        {
+            StopCoroutine(doorQuestTypingRoutine);
+            doorQuestTypingRoutine = null;
+        }
+
+        if (openDoorQuestCheckboxTMP != null)
+            openDoorQuestCheckboxTMP.text = "[v]";
+
+        if (openDoorQuestTaskTMP != null)
+            openDoorQuestTaskTMP.color = new Color(0.70f, 1f, 0.73f, 1f);
+
+        StartCoroutine(ShowUnlockExitDoorQuest());
+    }
+
+    private IEnumerator ShowUnlockExitDoorQuest()
+    {
+        yield return new WaitForSeconds(1.2f);
+
+        ResetQuestRow(openDoorQuestCheckboxTMP, openDoorQuestTaskTMP);
+
+        doorQuestTypingRoutine = StartCoroutine(TypeQuestTextAndClear(
+            openDoorQuestTaskTMP,
+            "USE THIS KEY TO UNLOCK THE EXIT DOOR",
+            34f));
+    }
+
+    private void BeginRunToExitQuestStage()
+    {
+        unlockExitDoorQuestCompleted = true;
+
+        if (doorQuestTypingRoutine != null)
+        {
+            StopCoroutine(doorQuestTypingRoutine);
+            doorQuestTypingRoutine = null;
+        }
+
+        if (openDoorQuestCheckboxTMP != null)
+            openDoorQuestCheckboxTMP.text = "[v]";
+
+        if (openDoorQuestTaskTMP != null)
+            openDoorQuestTaskTMP.color = new Color(0.70f, 1f, 0.73f, 1f);
+
+        StartCoroutine(ShowRunToExitQuest());
+    }
+
+    private IEnumerator ShowRunToExitQuest()
+    {
+        yield return new WaitForSeconds(1.2f);
+
+        ResetQuestRow(openDoorQuestCheckboxTMP, openDoorQuestTaskTMP);
+
+        doorQuestTypingRoutine = StartCoroutine(TypeQuestTextAndClear(
+            openDoorQuestTaskTMP,
+            "RUN TO THE EXIT TO REACH LEVEL 2",
+            34f));
+    }
+
+    private IEnumerator ShowSolvePuzzleQuest()
+    {
+        yield return new WaitForSeconds(1.2f);
+
+        ResetQuestRow(openDoorQuestCheckboxTMP, openDoorQuestTaskTMP);
+
+        doorQuestTypingRoutine = StartCoroutine(TypeQuestTextAndClear(
+            openDoorQuestTaskTMP,
+            "RETURN TO THE PUZZLE TABLE AND SOLVE THE CIRCUIT",
+            34f));
+    }
+
+    private IEnumerator FadeOutAndDestroyDoorQuestUI()
+    {
+        if (doorTutorialUI == null)
+            yield break;
+
+        yield return new WaitForSeconds(1.2f);
+
+        if (doorTutorialUI == null)
+            yield break;
+
+        CanvasGroup cg = doorTutorialUI.GetComponent<CanvasGroup>();
+        if (cg == null)
+            cg = doorTutorialUI.AddComponent<CanvasGroup>();
+
+        float elapsed = 0f;
+        const float fadeTime = 0.35f;
+        while (elapsed < fadeTime)
+        {
+            elapsed += Time.deltaTime;
+            cg.alpha = 1f - Mathf.Clamp01(elapsed / fadeTime);
             yield return null;
         }
 
@@ -866,6 +1429,18 @@ public class CutsceneController : MonoBehaviour
 
     void OnDestroy()
     {
+        if (postDialogueMessageRoutine != null)
+        {
+            StopCoroutine(postDialogueMessageRoutine);
+            postDialogueMessageRoutine = null;
+        }
+
+        if (doorQuestTypingRoutine != null)
+        {
+            StopCoroutine(doorQuestTypingRoutine);
+            doorQuestTypingRoutine = null;
+        }
+
         IsPlaying = false;
         CameraOnlyMode = false;
         IsTableDialogueActive = false;

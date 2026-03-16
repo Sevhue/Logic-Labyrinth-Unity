@@ -23,7 +23,7 @@ public class GameInventoryUI : MonoBehaviour
     public enum ItemType { None, AND, OR, NOT, Key, Candle, Adrenaline }
 
     private ItemType[] slotItems = new ItemType[SLOT_COUNT];
-    private int selectedSlot = 0; // 0-based index of the currently selected slot
+    private int selectedSlot = -1; // 0-based index of the currently selected slot, -1 when nothing is selected
 
     // UI references per slot
     private GameObject[] slotRoots = new GameObject[SLOT_COUNT];
@@ -135,6 +135,17 @@ public class GameInventoryUI : MonoBehaviour
     {
         if (index < 0 || index >= SLOT_COUNT) return;
 
+        if (index == selectedSlot)
+        {
+            if (selectedSlot >= 0 && selectedSlot < SLOT_COUNT && slotItems[selectedSlot] == ItemType.Candle)
+                CollectibleCandle.Unequip();
+
+            selectedSlot = -1;
+            UpdateSlotVisuals();
+            Debug.Log($"[Hotbar] Deselected slot {index + 1}");
+            return;
+        }
+
         // Check if we're de-selecting a candle slot (unequip)
         if (selectedSlot >= 0 && selectedSlot < SLOT_COUNT && slotItems[selectedSlot] == ItemType.Candle)
         {
@@ -156,6 +167,9 @@ public class GameInventoryUI : MonoBehaviour
 
     public ItemType GetSelectedItem()
     {
+        if (selectedSlot < 0 || selectedSlot >= SLOT_COUNT)
+            return ItemType.None;
+
         return slotItems[selectedSlot];
     }
 

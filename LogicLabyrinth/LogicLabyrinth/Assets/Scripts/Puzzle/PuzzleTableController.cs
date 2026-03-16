@@ -62,6 +62,8 @@ public class PuzzleTableController : MonoBehaviour
     [Header("Layout Tweaks")]
     [Tooltip("Scales the legacy puzzle board content (Level 1-5 style) slightly larger.")]
     public float legacyBoardScale = 1.08f;
+    [Tooltip("Optional vertical offset for legacy board (pixels on RectTransform, local Y on Transform).")]
+    public float legacyBoardYOffset = 0f;
 
     public void SetLegacyBoardScale(float scale, bool applyNow = true)
     {
@@ -70,6 +72,27 @@ public class PuzzleTableController : MonoBehaviour
 
         if (!IsFreeFormCanvasMode() && puzzleContent != null)
             puzzleContent.localScale = Vector3.one * legacyBoardScale;
+    }
+
+    public void SetLegacyBoardVerticalOffset(float yOffset, bool applyNow = true)
+    {
+        legacyBoardYOffset = yOffset;
+        if (!applyNow) return;
+
+        if (IsFreeFormCanvasMode() || puzzleContent == null)
+            return;
+
+        RectTransform rt = puzzleContent as RectTransform;
+        if (rt != null)
+        {
+            Vector2 anchored = rt.anchoredPosition;
+            rt.anchoredPosition = new Vector2(anchored.x, legacyBoardYOffset);
+        }
+        else
+        {
+            Vector3 local = puzzleContent.localPosition;
+            puzzleContent.localPosition = new Vector3(local.x, legacyBoardYOffset, local.z);
+        }
     }
 
     // Runtime state

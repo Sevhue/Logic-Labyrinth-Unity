@@ -22,12 +22,18 @@ public class TutorialDoor : MonoBehaviour
 
     // Static key state — set by CollectibleKey when player picks it up
     public static bool PlayerHasKey { get; set; } = false;
+    // Persistent tutorial progression flag (stays true after key is consumed at door).
+    public static bool TutorialKeyCollected { get; set; } = false;
 
     // Legacy static flag — no longer needed but kept for compat
     public static bool IsShowingPrompt => false;
 
     /// <summary>True after the door has been unlocked and opened.</summary>
     public bool IsDoorOpen { get; private set; } = false;
+    /// <summary>True after the player attempts to open while locked (no key).</summary>
+    public bool HasTriedWhileLocked { get; private set; } = false;
+    /// <summary>True after the player crosses through the opened doorway.</summary>
+    public bool HasPlayerPassedThroughOpenDoorway { get; private set; } = false;
 
     // State
     private bool isHighlighting = false;
@@ -37,6 +43,9 @@ public class TutorialDoor : MonoBehaviour
     private Coroutine pulseCoroutine;
     private Coroutine lockedMessageRoutine;
     private Coroutine runHintRoutine;
+    private Transform trackedDoorwayPlayer;
+    private float trackedDoorwayPlayerLocalZ;
+    private bool hasTrackedDoorwayPlayerSide = false;
 
     [Header("Level 1 Run Hint")]
     [SerializeField] private bool enableRunHint = true;
@@ -77,6 +86,7 @@ public class TutorialDoor : MonoBehaviour
         }
         else
         {
+            HasTriedWhileLocked = true;
             ShowLockedMessage();
         }
     }
@@ -243,6 +253,7 @@ public class TutorialDoor : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
+        TrackOpenedDoorPassThrough(other);
         TryStartRunHintFromCollider(other);
     }
 
@@ -250,7 +261,37 @@ public class TutorialDoor : MonoBehaviour
     {
         // Fallback: if the player was already overlapping when the door opened,
         // OnTriggerEnter may not run, so keep checking while inside.
+        TrackOpenedDoorPassThrough(other);
         TryStartRunHintFromCollider(other);
+    }
+
+    private void OnTriggerExit(Collider other)
+    {
+        if (!IsDoorOpen || !IsPlayerCollider(other) || !hasTrackedDoorwayPlayerSide)
+            return;
+
+        Transform playerTransform = other.transform;
+        if (trackedDoorwayPlayer != playerTransform)
+            return;
+
+        float exitLocalZ = transform.InverseTransformPoint(playerTransform.position).z;
+        bool crossedDoorPlane = Mathf.Sign(exitLocalZ) != Mathf.Sign(trackedDoorwayPlayerLocalZ) &&
+                                Mathf.Abs(exitLocalZ - trackedDoorwayPlayerLocalZ) > 0.25f;
+        if (crossedDoorPlane)
+            HasPlayerPassedThroughOpenDoorway = true;
+
+        trackedDoorwayPlayer = null;
+        hasTrackedDoorwayPlayerSide = false;
+    }
+
+    private void TrackOpenedDoorPassThrough(Collider other)
+    {
+        if (!IsDoorOpen || HasPlayerPassedThroughOpenDoorway || !IsPlayerCollider(other))
+            return;
+
+        trackedDoorwayPlayer = other.transform;
+        trackedDoorwayPlayerLocalZ = transform.InverseTransformPoint(trackedDoorwayPlayer.position).z;
+        hasTrackedDoorwayPlayerSide = true;
     }
 
     private void TryStartRunHintFromCollider(Collider other)
@@ -322,64 +363,8 @@ public class TutorialDoor : MonoBehaviour
 
     private IEnumerator ShowRunHintRoutine()
     {
-        if (runHintUI != null) yield break;
-
-        runHintUI = new GameObject("RunHintMessage");
-        Canvas canvas = runHintUI.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 590;
-
-        CanvasScaler scaler = runHintUI.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920, 1080);
-
-        GameObject panelGO = new GameObject("Panel");
-        panelGO.transform.SetParent(runHintUI.transform, false);
-        RectTransform panelRT = panelGO.AddComponent<RectTransform>();
-        panelRT.anchorMin = new Vector2(0.58f, 0.84f);
-        panelRT.anchorMax = new Vector2(0.98f, 0.95f);
-        panelRT.offsetMin = Vector2.zero;
-        panelRT.offsetMax = Vector2.zero;
-
-        Image bg = panelGO.AddComponent<Image>();
-        bg.color = new Color(0.08f, 0.05f, 0.02f, 0.9f);
-        bg.raycastTarget = false;
-
-        Outline outline = panelGO.AddComponent<Outline>();
-        outline.effectColor = new Color(0.85f, 0.7f, 0.35f, 0.8f);
-        outline.effectDistance = new Vector2(2f, 2f);
-
-        GameObject textGO = new GameObject("Text");
-        textGO.transform.SetParent(panelGO.transform, false);
-        RectTransform textRT = textGO.AddComponent<RectTransform>();
-        textRT.anchorMin = Vector2.zero;
-        textRT.anchorMax = Vector2.one;
-        textRT.offsetMin = new Vector2(15f, 8f);
-        textRT.offsetMax = new Vector2(-15f, -8f);
-
-        TextMeshProUGUI textTMP = textGO.AddComponent<TextMeshProUGUI>();
-        textTMP.text = "Hold Shift to run faster.";
-        textTMP.fontSize = 20;
-        textTMP.alignment = TextAlignmentOptions.Center;
-        textTMP.color = new Color(1f, 0.9f, 0.6f, 1f);
-        textTMP.fontStyle = FontStyles.Italic;
-        textTMP.enableWordWrapping = true;
-        textTMP.raycastTarget = false;
-
-        yield return new WaitForSeconds(4f);
-
-        CanvasGroup cg = runHintUI.AddComponent<CanvasGroup>();
-        float fadeTime = 0.5f;
-        float elapsed = 0f;
-        while (elapsed < fadeTime)
-        {
-            elapsed += Time.deltaTime;
-            cg.alpha = 1f - (elapsed / fadeTime);
-            yield return null;
-        }
-
-        Destroy(runHintUI);
-        runHintUI = null;
+        TipOverlayUI.ShowTip("Hold Shift to run faster.", 7f, 40f);
+        yield break;
     }
 
     private IEnumerator AnimateDoorOpen()

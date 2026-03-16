@@ -148,7 +148,10 @@ public class CollectibleKey : MonoBehaviour
         if (keyType == KeyType.Success)
             SuccessDoor.PlayerHasSuccessKey = true;
         else
+        {
             TutorialDoor.PlayerHasKey = true;
+            TutorialDoor.TutorialKeyCollected = true;
+        }
 
         // Remove any stale locked-door overlays so key pickup doesn't stack multiple UI banners.
         TutorialDoor.HideAllLockedMessages();
@@ -164,8 +167,7 @@ public class CollectibleKey : MonoBehaviour
         if (FirstPersonArmAnimator.Instance != null)
             FirstPersonArmAnimator.Instance.PlayCollectAnimation();
 
-        if (ShouldShowSuccessDoorHint())
-            ShowSuccessDoorHint();
+        // Success-key guidance is handled by the tutorial TO DO tracker.
 
         StartCoroutine(PickupAnimation());
     }

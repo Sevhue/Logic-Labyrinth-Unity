@@ -85,7 +85,9 @@ public class LevelManager : MonoBehaviour
         if (scene.name.StartsWith("Level"))
         {
             TutorialDoor.PlayerHasKey = false;
+            TutorialDoor.TutorialKeyCollected = false;
             SuccessDoor.PlayerHasSuccessKey = false;
+            CollectibleCandle.IsEquipped = false;
             if (InventoryManager.Instance != null)
                 InventoryManager.Instance.SetHasCandle(false);
             Debug.Log("[LevelManager] Reset key/candle flags for fresh level load.");

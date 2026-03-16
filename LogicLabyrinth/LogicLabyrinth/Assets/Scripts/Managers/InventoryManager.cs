@@ -202,6 +202,12 @@ public class InventoryManager : MonoBehaviour
         {
             GameInventoryUI.Instance.OnGateCollected(gateType);
         }
+
+        // Show first-time tutorial card (no-op on repeat collects of the same type)
+        GateTutorialCard.ShowCard(gateType);
+
+        // Make sure the J-key journal listener is alive
+        GateJournal.EnsureInstance();
     }
 
     public int GetGateCount(string gateType)
@@ -222,6 +228,9 @@ public class InventoryManager : MonoBehaviour
 
         // Clear candle
         HasCandle = false;
+
+    // Clear gate tutorial card tracking so cards show again on a new game
+    GateTutorialCard.ResetSeenGates();
 
         // Sync zeroed counts to player data so a mid-level save won't restore old items
         if (AccountManager.Instance != null && AccountManager.Instance.GetCurrentPlayer() != null)
@@ -310,63 +319,7 @@ public class InventoryManager : MonoBehaviour
         if (tabCursorHintInitialDelay > 0f)
             yield return new WaitForSecondsRealtime(tabCursorHintInitialDelay);
 
-        tabCursorHintUI = new GameObject("TabCursorHintMessage");
-
-        Canvas canvas = tabCursorHintUI.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 1200;
-
-        CanvasScaler scaler = tabCursorHintUI.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920, 1080);
-
-        GameObject panelGO = new GameObject("Panel");
-        panelGO.transform.SetParent(tabCursorHintUI.transform, false);
-        RectTransform panelRT = panelGO.AddComponent<RectTransform>();
-        panelRT.anchorMin = new Vector2(0.54f, 0.83f);
-        panelRT.anchorMax = new Vector2(0.98f, 0.95f);
-        panelRT.offsetMin = Vector2.zero;
-        panelRT.offsetMax = Vector2.zero;
-
-        Image bg = panelGO.AddComponent<Image>();
-        bg.color = new Color(0.08f, 0.05f, 0.02f, 0.9f);
-        bg.raycastTarget = false;
-
-        Outline outline = panelGO.AddComponent<Outline>();
-        outline.effectColor = new Color(0.85f, 0.7f, 0.35f, 0.8f);
-        outline.effectDistance = new Vector2(2f, 2f);
-
-        GameObject textGO = new GameObject("Text");
-        textGO.transform.SetParent(panelGO.transform, false);
-        RectTransform textRT = textGO.AddComponent<RectTransform>();
-        textRT.anchorMin = Vector2.zero;
-        textRT.anchorMax = Vector2.one;
-        textRT.offsetMin = new Vector2(15f, 8f);
-        textRT.offsetMax = new Vector2(-15f, -8f);
-
-        TextMeshProUGUI tmp = textGO.AddComponent<TextMeshProUGUI>();
-        tmp.text = "Press Tab to toggle the mouse cursor.";
-        tmp.fontSize = 20;
-        tmp.alignment = TextAlignmentOptions.Center;
-        tmp.color = new Color(1f, 0.9f, 0.6f, 1f);
-        tmp.fontStyle = FontStyles.Italic;
-        tmp.enableWordWrapping = true;
-        tmp.raycastTarget = false;
-
-        yield return new WaitForSecondsRealtime(4f);
-
-        CanvasGroup cg = tabCursorHintUI.AddComponent<CanvasGroup>();
-        float fadeTime = 0.5f;
-        float elapsed = 0f;
-        while (elapsed < fadeTime)
-        {
-            elapsed += Time.unscaledDeltaTime;
-            cg.alpha = 1f - (elapsed / fadeTime);
-            yield return null;
-        }
-
-        if (tabCursorHintUI != null)
-            Destroy(tabCursorHintUI);
+        TipOverlayUI.ShowTip("Press Tab to toggle the mouse cursor.", 7f, 40f);
 
         tabCursorHintUI = null;
         tabCursorHintRoutine = null;
@@ -377,63 +330,7 @@ public class InventoryManager : MonoBehaviour
         if (dropGateHintInitialDelay > 0f)
             yield return new WaitForSecondsRealtime(dropGateHintInitialDelay);
 
-        dropGateHintUI = new GameObject("DropGateHintMessage");
-
-        Canvas canvas = dropGateHintUI.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 590;
-
-        CanvasScaler scaler = dropGateHintUI.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920, 1080);
-
-        GameObject panelGO = new GameObject("Panel");
-        panelGO.transform.SetParent(dropGateHintUI.transform, false);
-        RectTransform panelRT = panelGO.AddComponent<RectTransform>();
-        panelRT.anchorMin = new Vector2(0.56f, 0.78f);
-        panelRT.anchorMax = new Vector2(0.98f, 0.90f);
-        panelRT.offsetMin = Vector2.zero;
-        panelRT.offsetMax = Vector2.zero;
-
-        Image bg = panelGO.AddComponent<Image>();
-        bg.color = new Color(0.08f, 0.05f, 0.02f, 0.9f);
-        bg.raycastTarget = false;
-
-        Outline outline = panelGO.AddComponent<Outline>();
-        outline.effectColor = new Color(0.85f, 0.7f, 0.35f, 0.8f);
-        outline.effectDistance = new Vector2(2f, 2f);
-
-        GameObject textGO = new GameObject("Text");
-        textGO.transform.SetParent(panelGO.transform, false);
-        RectTransform textRT = textGO.AddComponent<RectTransform>();
-        textRT.anchorMin = Vector2.zero;
-        textRT.anchorMax = Vector2.one;
-        textRT.offsetMin = new Vector2(15f, 8f);
-        textRT.offsetMax = new Vector2(-15f, -8f);
-
-        TextMeshProUGUI tmp = textGO.AddComponent<TextMeshProUGUI>();
-        tmp.text = "Press Q to drop logic gates.";
-        tmp.fontSize = 20;
-        tmp.alignment = TextAlignmentOptions.Center;
-        tmp.color = new Color(1f, 0.9f, 0.6f, 1f);
-        tmp.fontStyle = FontStyles.Italic;
-        tmp.enableWordWrapping = true;
-        tmp.raycastTarget = false;
-
-        yield return new WaitForSecondsRealtime(4f);
-
-        CanvasGroup cg = dropGateHintUI.AddComponent<CanvasGroup>();
-        float fadeTime = 0.5f;
-        float elapsed = 0f;
-        while (elapsed < fadeTime)
-        {
-            elapsed += Time.unscaledDeltaTime;
-            cg.alpha = 1f - (elapsed / fadeTime);
-            yield return null;
-        }
-
-        if (dropGateHintUI != null)
-            Destroy(dropGateHintUI);
+        TipOverlayUI.ShowTip("Press Q to drop logic gates.", 7f, 40f);
 
         dropGateHintUI = null;
         dropGateHintRoutine = null;
