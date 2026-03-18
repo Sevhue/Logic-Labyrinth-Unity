@@ -536,10 +536,38 @@ public class SimpleGateCollector : MonoBehaviour
 
     void TryDiscardGate()
     {
-        if (InventoryManager.Instance == null || InventoryManager.Instance.GetTotalGateCount() == 0)
+        if (InventoryManager.Instance == null) return;
+
+        // If the popup is already open, Q is the close key — let SwapGateUI handle it.
+        if (SwapGateUI.IsOpen) return;
+
+        string selectedGateType = GetSelectedDroppableGateType();
+        if (!string.IsNullOrEmpty(selectedGateType) && InventoryManager.Instance.GetTotalGateCount() > 0)
+        {
+            Debug.Log($"[SimpleGateCollector] Direct-dropping selected gate: {selectedGateType}");
+            SwapGateUI.DiscardGateImmediately(selectedGateType, andGatePrefab, orGatePrefab, notGatePrefab, transform);
             return;
+        }
 
         Debug.Log("[SimpleGateCollector] Opening discard UI.");
         SwapGateUI.ShowDiscard(andGatePrefab, orGatePrefab, notGatePrefab, transform);
+    }
+
+    private string GetSelectedDroppableGateType()
+    {
+        if (GameInventoryUI.Instance == null)
+            return null;
+
+        switch (GameInventoryUI.Instance.GetSelectedItem())
+        {
+            case GameInventoryUI.ItemType.AND:
+                return "AND";
+            case GameInventoryUI.ItemType.OR:
+                return "OR";
+            case GameInventoryUI.ItemType.NOT:
+                return "NOT";
+            default:
+                return null;
+        }
     }
 }

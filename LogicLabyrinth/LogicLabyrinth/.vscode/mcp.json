@@ -1,8 +1,14 @@
 {
   "servers": {
     "ai-game-developer": {
-      "type": "http",
-      "url": "http://localhost:50076"
+      "type": "stdio",
+      "args": [
+        "port=50076",
+        "plugin-timeout=10000",
+        "client-transport=stdio",
+        "authorization=none"
+      ],
+      "command": "C:/Users/cleve/Documents/GitHub/Logic-Labyrinth-Unity/LogicLabyrinth/LogicLabyrinth/Library/mcp-server/win-x64/unity-mcp-server.exe"
     }
   }
 }

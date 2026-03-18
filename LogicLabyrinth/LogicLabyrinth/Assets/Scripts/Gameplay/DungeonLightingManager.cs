@@ -115,8 +115,8 @@ public class DungeonLightingManager : MonoBehaviour
         // V1.3 baseline for player light.
         playerLightRange = 6f;
         playerLightIntensity = 1.2f;
-        ambientColor = new Color(0.03f, 0.03f, 0.05f, 1f);
-        fogColor = new Color(0.02f, 0.02f, 0.03f, 1f);
+        ambientColor = Color.black;       // Pure black — no ambient silhouette
+        fogColor = Color.black;           // Fog fades to pure black, matching camera BG
         fogDensity = 0.1f;
         directionalLightIntensity = 0f;
         torchLightBoost = 1.0f;
@@ -167,10 +167,10 @@ public class DungeonLightingManager : MonoBehaviour
 
     private void SetupAmbientAndFog()
     {
-        // Set ambient light to very dark
+        // Set ambient light to pure black so unlit surfaces are invisible
         RenderSettings.ambientMode = AmbientMode.Flat;
         RenderSettings.ambientLight = ambientColor;
-        RenderSettings.ambientIntensity = 0.1f;
+        RenderSettings.ambientIntensity = 0f;
 
         // Disable skybox reflections
         RenderSettings.defaultReflectionMode = DefaultReflectionMode.Custom;

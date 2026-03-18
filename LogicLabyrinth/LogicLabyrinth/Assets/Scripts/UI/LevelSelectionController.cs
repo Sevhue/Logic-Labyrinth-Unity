@@ -14,6 +14,7 @@ using UnityEditor;
 public class LevelSelectionController : MonoBehaviour
 {
     public static LevelSelectionController Instance { get; private set; }
+    private const bool DevUnlockAllLevels = true;
 
     private TextMeshProUGUI globalChapterTitle;
     private TextMeshProUGUI levelLockWarningText;
@@ -48,6 +49,7 @@ public class LevelSelectionController : MonoBehaviour
     // Temporary product request: keep Chapter 2 Level 5 and 6 locked.
     private static bool IsForceLockedLevel(int chapterNumber, int levelNumber)
     {
+        if (DevUnlockAllLevels) return false;
         return chapterNumber == 2 && (levelNumber == 5 || levelNumber == 6);
     }
 
@@ -125,7 +127,7 @@ public class LevelSelectionController : MonoBehaviour
             lastCompletedLevel = Mathf.Max(0, player.lastCompletedLevel);
         }
 
-        int nextPlayableLevel = Mathf.Max(1, lastCompletedLevel + 1);
+        int nextPlayableLevel = DevUnlockAllLevels ? int.MaxValue : Mathf.Max(1, lastCompletedLevel + 1);
 
         HideChapterLocalTitles(chapterPanel);
 

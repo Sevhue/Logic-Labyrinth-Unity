@@ -79,6 +79,25 @@ public class SwapGateUI : MonoBehaviour
         ui.playerTransform = player;
     }
 
+    public static bool DiscardGateImmediately(string gateType, GameObject andPfb, GameObject orPfb, GameObject notPfb, Transform player)
+    {
+        if (InventoryManager.Instance == null || player == null)
+            return false;
+
+        string normalizedGateType = gateType.ToUpper();
+        if (!InventoryManager.Instance.RemoveGate(normalizedGateType))
+            return false;
+
+        SpawnDroppedGateStatic(normalizedGateType, andPfb, orPfb, notPfb, player);
+
+        LevelUIManager levelUI = FindAnyObjectByType<LevelUIManager>();
+        if (levelUI != null)
+            levelUI.ShowCollectionMessage($"Dropped {normalizedGateType} Gate", new Color(0.9f, 0.7f, 0.2f));
+
+        Debug.Log($"[SwapGateUI] Direct-discarded {normalizedGateType} gate.");
+        return true;
+    }
+
     public static bool IsOpen => Instance != null;
 
     // ════════════════════════════════════════
@@ -101,12 +120,13 @@ public class SwapGateUI : MonoBehaviour
 
     void Update()
     {
-        // Escape to cancel
-        bool escPressed = Input.GetKeyDown(KeyCode.Escape);
-        if (!escPressed && UnityEngine.InputSystem.Keyboard.current != null)
-            escPressed = UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame;
+        // Q or Escape to cancel
+        bool cancelPressed = Input.GetKeyDown(KeyCode.Q) || Input.GetKeyDown(KeyCode.Escape);
+        if (!cancelPressed && UnityEngine.InputSystem.Keyboard.current != null)
+            cancelPressed = UnityEngine.InputSystem.Keyboard.current.qKey.wasPressedThisFrame
+                         || UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame;
 
-        if (escPressed)
+        if (cancelPressed)
             Close();
     }
 
@@ -351,7 +371,7 @@ public class SwapGateUI : MonoBehaviour
         textRT.offsetMax = Vector2.zero;
 
         TextMeshProUGUI tmp = textGO.AddComponent<TextMeshProUGUI>();
-        tmp.text = "CANCEL (Esc)";
+        tmp.text = "CANCEL (Q)";
         tmp.fontSize = 16;
         tmp.fontStyle = FontStyles.Bold | FontStyles.SmallCaps;
         tmp.color = creamText;
@@ -403,36 +423,43 @@ public class SwapGateUI : MonoBehaviour
 
     private void SpawnDroppedGate(string gateType)
     {
-        GameObject prefab = null;
-        switch (gateType.ToUpper())
-        {
-            case "AND": prefab = andPrefab; break;
-            case "OR":  prefab = orPrefab;  break;
-            case "NOT": prefab = notPrefab; break;
-        }
+        SpawnDroppedGateStatic(gateType, andPrefab, orPrefab, notPrefab, playerTransform);
+    }
 
-        if (prefab == null || playerTransform == null)
+    private static void SpawnDroppedGateStatic(string gateType, GameObject andPfb, GameObject orPfb, GameObject notPfb, Transform player)
+    {
+        GameObject prefab = ResolveGatePrefab(gateType, andPfb, orPfb, notPfb);
+        if (prefab == null || player == null)
         {
             Debug.LogWarning($"[SwapGateUI] Cannot spawn dropped gate — prefab or player missing.");
             return;
         }
 
-        Vector3 dropPos = FindSafeDropPosition();
+        Vector3 dropPos = FindSafeDropPositionStatic(player);
 
         GameObject dropped = Instantiate(prefab, dropPos, Quaternion.identity);
-        dropped.name = $"Dropped_{gateType}_Gate";
+        dropped.name = $"Dropped_{gateType.ToUpper()}_Gate";
 
-        IgnoreDroppedGateWithPlayer(dropped);
+        IgnoreDroppedGateWithPlayerStatic(dropped, player);
 
-        // Briefly disable the gate's colliders so the CharacterController is not
-        // violently ejected by a static collider appearing inside it.
         GateSpawnDelay spawnDelay = dropped.AddComponent<GateSpawnDelay>();
         spawnDelay.delay = 1.2f;
 
-        Debug.Log($"[SwapGateUI] Spawned dropped {gateType} gate at {dropPos}");
+        Debug.Log($"[SwapGateUI] Spawned dropped {gateType.ToUpper()} gate at {dropPos}");
     }
 
-    private void IgnoreDroppedGateWithPlayer(GameObject dropped)
+    private static GameObject ResolveGatePrefab(string gateType, GameObject andPfb, GameObject orPfb, GameObject notPfb)
+    {
+        switch (gateType.ToUpper())
+        {
+            case "AND": return andPfb;
+            case "OR":  return orPfb;
+            case "NOT": return notPfb;
+            default:     return null;
+        }
+    }
+
+    private static void IgnoreDroppedGateWithPlayerStatic(GameObject dropped, Transform player)
     {
         if (dropped == null)
             return;
@@ -440,8 +467,8 @@ public class SwapGateUI : MonoBehaviour
         Collider[] gateCols = dropped.GetComponentsInChildren<Collider>(true);
         Collider[] playerCols = null;
 
-        if (playerTransform != null)
-            playerCols = playerTransform.GetComponentsInChildren<Collider>(true);
+        if (player != null)
+            playerCols = player.GetComponentsInChildren<Collider>(true);
 
         // Fallback: resolve the actual moving player capsule if current transform
         // is just a child camera/holder and has no colliders under it.
@@ -473,7 +500,7 @@ public class SwapGateUI : MonoBehaviour
     /// Finds a safe position to drop a gate — not inside walls or floors.
     /// Tries: forward, backward, left, right, then directly at player feet.
     /// </summary>
-    private Vector3 FindSafeDropPosition()
+    private static Vector3 FindSafeDropPositionStatic(Transform playerTransform)
     {
         Vector3 playerPos = playerTransform.position;
         Vector3 eyePos = playerPos + Vector3.up * 1f;
@@ -527,7 +554,7 @@ public class SwapGateUI : MonoBehaviour
                         continue;
                 }
 
-                if (IsDropPositionClear(finalPos))
+                if (IsDropPositionClearStatic(finalPos, playerTransform))
                     return finalPos;
             }
         }
@@ -537,7 +564,7 @@ public class SwapGateUI : MonoBehaviour
         if (Physics.Raycast(fallbackProbe, Vector3.down, out RaycastHit fallbackFloor, 12f))
         {
             Vector3 fallback = fallbackFloor.point + Vector3.up * 0.35f;
-            if (IsDropPositionClear(fallback))
+            if (IsDropPositionClearStatic(fallback, playerTransform))
                 return fallback;
         }
 
@@ -545,7 +572,7 @@ public class SwapGateUI : MonoBehaviour
         return playerPos - playerTransform.forward * 1.4f + Vector3.up * 0.4f;
     }
 
-    private bool IsDropPositionClear(Vector3 position)
+    private static bool IsDropPositionClearStatic(Vector3 position, Transform playerTransform)
     {
         int overlapMask = ~0;
         if (playerTransform != null)

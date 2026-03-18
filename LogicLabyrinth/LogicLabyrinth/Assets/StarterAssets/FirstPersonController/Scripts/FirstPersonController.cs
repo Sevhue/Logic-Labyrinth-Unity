@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.UI;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
@@ -67,6 +68,30 @@ namespace StarterAssets
 		public bool IsExhausted { get; private set; }
 
 		private float _staminaRegenTimer;
+
+		[Header("Health")]
+		[Tooltip("Maximum health (capped at 100).")]
+		public float MaxHealth = 100f;
+		[Tooltip("Small i-frame window after taking damage to prevent ultra-fast multi-hits.")]
+		public float DamageCooldownSeconds = 0.25f;
+		[Tooltip("How long the red damage flash lasts.")]
+		public float DamageFlashDuration = 0.20f;
+		[Tooltip("Peak alpha of the red damage flash.")]
+		public float DamageFlashMaxAlpha = 0.30f;
+		[Tooltip("How long hit camera shake lasts.")]
+		public float DamageShakeDuration = 0.20f;
+		[Tooltip("Strength of hit camera shake.")]
+		public float DamageShakeIntensity = 0.09f;
+
+		public float CurrentHealth { get; private set; }
+		public float HealthPercent => MaxHealth > 0f ? CurrentHealth / MaxHealth : 0f;
+		public bool IsDead { get; private set; }
+		private float _nextDamageAllowedTime;
+		private CanvasGroup _damageFlashCanvasGroup;
+		private float _damageFlashTimer;
+		private float _damageShakeTimer;
+		private Vector3 _cameraTargetBaseLocalPos;
+		private bool _cameraTargetBaseCached;
 
 		[Header("Cinemachine")]
 		[Tooltip("The follow target set in the Cinemachine Virtual Camera that the camera will follow")]
@@ -147,9 +172,21 @@ namespace StarterAssets
 			CurrentStamina = MaxStamina;
 			IsExhausted = false;
 
+			// Initialize health
+			MaxHealth = Mathf.Clamp(MaxHealth, 1f, 100f);
+			CurrentHealth = MaxHealth;
+			IsDead = false;
+			_nextDamageAllowedTime = 0f;
+
 			_tabCursorVisible = false;
 			SetGameplayCursorVisible(false);
 			ApplyCollisionSafetySettings();
+			EnsureDamageFlashOverlay();
+			if (CinemachineCameraTarget != null)
+			{
+				_cameraTargetBaseLocalPos = CinemachineCameraTarget.transform.localPosition;
+				_cameraTargetBaseCached = true;
+			}
 			_lastStableGroundedPosition = transform.position;
 			_hasStableGroundedPosition = true;
 		}
@@ -170,6 +207,8 @@ namespace StarterAssets
 
 		private void Update()
 		{
+			UpdateDamageFeedback();
+
 			// If pause is open, clear tab-toggle state so resume returns to normal locked gameplay cursor.
 			if (PauseMenuController.IsPaused)
 			{
@@ -532,6 +571,155 @@ namespace StarterAssets
 			else
 			{
 				Gizmos.DrawSphere(new Vector3(transform.position.x, transform.position.y - GroundedOffset, transform.position.z), GroundedRadius);
+			}
+		}
+
+		public void ApplyDamage(float damageAmount)
+		{
+			if (damageAmount <= 0f || IsDead) return;
+			if (Time.time < _nextDamageAllowedTime) return;
+
+			_nextDamageAllowedTime = Time.time + Mathf.Max(0f, DamageCooldownSeconds);
+			CurrentHealth = Mathf.Clamp(CurrentHealth - damageAmount, 0f, MaxHealth);
+			TriggerDamageFeedback();
+
+			if (CurrentHealth <= 0f)
+			{
+				IsDead = true;
+				Debug.LogWarning("[FirstPersonController] Player health reached 0.");
+			}
+		}
+
+		public void Heal(float amount)
+		{
+			if (amount <= 0f) return;
+			MaxHealth = Mathf.Clamp(MaxHealth, 1f, 100f);
+			CurrentHealth = Mathf.Clamp(CurrentHealth + amount, 0f, MaxHealth);
+			if (CurrentHealth > 0f) IsDead = false;
+		}
+
+		private void OnControllerColliderHit(ControllerColliderHit hit)
+		{
+			if (hit == null || hit.collider == null) return;
+
+			SpikeTrapHazard hazard = hit.collider.GetComponentInParent<SpikeTrapHazard>();
+			if (hazard != null)
+				hazard.TryDamage(gameObject);
+		}
+
+		private void EnsureDamageFlashOverlay()
+		{
+			if (_damageFlashCanvasGroup != null) return;
+
+			Canvas targetCanvas = null;
+			Canvas[] allCanvases = FindObjectsByType<Canvas>(FindObjectsSortMode.None);
+			for (int i = 0; i < allCanvases.Length; i++)
+			{
+				Canvas c = allCanvases[i];
+				if (c != null && c.renderMode == RenderMode.ScreenSpaceOverlay && c.gameObject.name == "LevelCanvas")
+				{
+					targetCanvas = c;
+					break;
+				}
+			}
+
+			if (targetCanvas == null)
+			{
+				for (int i = 0; i < allCanvases.Length; i++)
+				{
+					Canvas c = allCanvases[i];
+					if (c != null && c.renderMode == RenderMode.ScreenSpaceOverlay && c.isRootCanvas)
+					{
+						targetCanvas = c;
+						break;
+					}
+				}
+			}
+
+			if (targetCanvas == null)
+			{
+				GameObject canvasGO = new GameObject("DamageFlashCanvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+				targetCanvas = canvasGO.GetComponent<Canvas>();
+				targetCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+				targetCanvas.sortingOrder = 1000;
+				CanvasScaler scaler = canvasGO.GetComponent<CanvasScaler>();
+				scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+				scaler.referenceResolution = new Vector2(1920f, 1080f);
+			}
+
+			GameObject flashGO = new GameObject("PlayerDamageFlash", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(CanvasGroup));
+			flashGO.transform.SetParent(targetCanvas.transform, false);
+
+			RectTransform rt = flashGO.GetComponent<RectTransform>();
+			rt.anchorMin = Vector2.zero;
+			rt.anchorMax = Vector2.one;
+			rt.offsetMin = Vector2.zero;
+			rt.offsetMax = Vector2.zero;
+
+			Image img = flashGO.GetComponent<Image>();
+			img.color = new Color(0.85f, 0.08f, 0.08f, 1f);
+			img.raycastTarget = false;
+
+			_damageFlashCanvasGroup = flashGO.GetComponent<CanvasGroup>();
+			_damageFlashCanvasGroup.alpha = 0f;
+		}
+
+		private void TriggerDamageFeedback()
+		{
+			if (_damageFlashCanvasGroup == null)
+				EnsureDamageFlashOverlay();
+
+			if (_damageFlashCanvasGroup != null)
+			{
+				_damageFlashTimer = Mathf.Max(0.05f, DamageFlashDuration);
+				_damageFlashCanvasGroup.alpha = Mathf.Clamp01(DamageFlashMaxAlpha);
+			}
+
+			if (CinemachineCameraTarget != null && !_cameraTargetBaseCached)
+			{
+				_cameraTargetBaseLocalPos = CinemachineCameraTarget.transform.localPosition;
+				_cameraTargetBaseCached = true;
+			}
+
+			_damageShakeTimer = Mathf.Max(_damageShakeTimer, Mathf.Max(0.05f, DamageShakeDuration));
+		}
+
+		private void UpdateDamageFeedback()
+		{
+			if (_damageFlashCanvasGroup != null)
+			{
+				if (_damageFlashTimer > 0f)
+				{
+					_damageFlashTimer -= Time.deltaTime;
+					float t = Mathf.Clamp01(_damageFlashTimer / Mathf.Max(0.05f, DamageFlashDuration));
+					_damageFlashCanvasGroup.alpha = Mathf.Clamp01(DamageFlashMaxAlpha) * t;
+				}
+				else if (_damageFlashCanvasGroup.alpha > 0f)
+				{
+					_damageFlashCanvasGroup.alpha = 0f;
+				}
+			}
+
+			if (CinemachineCameraTarget == null)
+				return;
+
+			if (!_cameraTargetBaseCached)
+			{
+				_cameraTargetBaseLocalPos = CinemachineCameraTarget.transform.localPosition;
+				_cameraTargetBaseCached = true;
+			}
+
+			if (_damageShakeTimer > 0f)
+			{
+				_damageShakeTimer -= Time.deltaTime;
+				float t = Mathf.Clamp01(_damageShakeTimer / Mathf.Max(0.05f, DamageShakeDuration));
+				float amp = Mathf.Clamp(DamageShakeIntensity, 0f, 0.5f) * t;
+				Vector3 jitter = Random.insideUnitSphere * amp;
+				CinemachineCameraTarget.transform.localPosition = _cameraTargetBaseLocalPos + jitter;
+			}
+			else
+			{
+				CinemachineCameraTarget.transform.localPosition = _cameraTargetBaseLocalPos;
 			}
 		}
 	}

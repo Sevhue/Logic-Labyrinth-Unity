@@ -37,7 +37,13 @@ public class SuccessDoor : MonoBehaviour
     private bool transitionStarted;
     private int playersInsideTrigger;
     private float openedAtTime;
+    private float lastPlayerTriggerTouchTime = float.NegativeInfinity;
+    private BoxCollider triggerCollider;
+    private readonly Collider[] overlapResults = new Collider[16];
     [SerializeField] private float minSecondsAfterOpenBeforeTransition = 0.15f;
+    [SerializeField] private float recentPlayerTouchGraceSeconds = 0.75f;
+    [SerializeField] private int doorwayTriggerCount = 3;
+    [SerializeField] private float doorwayTriggerHorizontalSpread = 0.7f;
 
     void Start()
     {
@@ -50,6 +56,8 @@ public class SuccessDoor : MonoBehaviour
             bc.center = new Vector3(0f, 1.5f, 0f);
         }
         bc.isTrigger = true;
+        triggerCollider = bc;
+        EnsureRedundantDoorwayTriggers(bc);
 
         Debug.Log("[SuccessDoor] Component initialized on " + gameObject.name);
     }
@@ -83,6 +91,7 @@ public class SuccessDoor : MonoBehaviour
     private void OnTriggerEnter(Collider other)
     {
         if (!IsPlayerCollider(other)) return;
+        lastPlayerTriggerTouchTime = Time.time;
         playersInsideTrigger = Mathf.Max(1, playersInsideTrigger + 1);
         TryStartTransitionAfterEntry();
     }
@@ -90,6 +99,7 @@ public class SuccessDoor : MonoBehaviour
     private void OnTriggerStay(Collider other)
     {
         if (!IsPlayerCollider(other)) return;
+        lastPlayerTriggerTouchTime = Time.time;
         if (playersInsideTrigger <= 0) playersInsideTrigger = 1;
         TryStartTransitionAfterEntry();
     }
@@ -295,9 +305,81 @@ public class SuccessDoor : MonoBehaviour
 
         Debug.Log("[SuccessDoor] Door is open. Enter/stand in doorway to transition.");
 
-        // If player is already in the trigger when the door opens, allow transition quickly.
-        if (playersInsideTrigger > 0)
+        // If player just crossed during the opening animation or is currently overlapping,
+        // transition without requiring a second back-and-forth pass through the doorway.
+        bool playerRecentlyTouchedTrigger =
+            Time.time - lastPlayerTriggerTouchTime <= Mathf.Max(0f, recentPlayerTouchGraceSeconds);
+
+        if (playersInsideTrigger > 0 || playerRecentlyTouchedTrigger || IsPlayerOverlappingDoorwayTrigger())
             StartCoroutine(TryStartTransitionAfterShortDelay());
+    }
+
+    private bool IsPlayerOverlappingDoorwayTrigger()
+    {
+        BoxCollider[] triggers = GetComponents<BoxCollider>();
+        for (int t = 0; t < triggers.Length; t++)
+        {
+            BoxCollider trigger = triggers[t];
+            if (trigger == null || !trigger.enabled || !trigger.isTrigger) continue;
+
+            Bounds b = trigger.bounds;
+            int hitCount = Physics.OverlapBoxNonAlloc(
+                b.center,
+                b.extents,
+                overlapResults,
+                Quaternion.identity,
+                Physics.AllLayers,
+                QueryTriggerInteraction.Collide);
+
+            for (int i = 0; i < hitCount; i++)
+            {
+                if (IsPlayerCollider(overlapResults[i]))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void EnsureRedundantDoorwayTriggers(BoxCollider primary)
+    {
+        if (primary == null) return;
+
+        int targetCount = Mathf.Max(1, doorwayTriggerCount);
+        BoxCollider[] all = GetComponents<BoxCollider>();
+        List<BoxCollider> triggerCols = new List<BoxCollider>();
+        for (int i = 0; i < all.Length; i++)
+        {
+            if (all[i] != null && all[i].isTrigger)
+                triggerCols.Add(all[i]);
+        }
+
+        int missing = targetCount - triggerCols.Count;
+        for (int i = 0; i < missing; i++)
+        {
+            BoxCollider extra = gameObject.AddComponent<BoxCollider>();
+            extra.isTrigger = true;
+            extra.size = primary.size;
+            extra.center = primary.center;
+            triggerCols.Add(extra);
+        }
+
+        if (triggerCols.Count <= 1) return;
+
+        Vector3 center = primary.center;
+        float spread = Mathf.Max(0.05f, doorwayTriggerHorizontalSpread);
+        int extraIndex = 0;
+
+        for (int i = 0; i < triggerCols.Count; i++)
+        {
+            BoxCollider col = triggerCols[i];
+            if (col == null || col == primary) continue;
+
+            col.size = primary.size;
+            float t = (targetCount <= 2) ? 0f : Mathf.Lerp(-1f, 1f, (float)extraIndex / (targetCount - 2));
+            col.center = center + Vector3.right * (t * spread);
+            extraIndex++;
+        }
     }
 
     private IEnumerator TryStartTransitionAfterShortDelay()
