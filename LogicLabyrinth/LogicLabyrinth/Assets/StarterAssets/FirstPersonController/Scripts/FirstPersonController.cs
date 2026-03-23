@@ -1,5 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
+using System.Collections;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
@@ -82,6 +84,13 @@ namespace StarterAssets
 		public float DamageShakeDuration = 0.20f;
 		[Tooltip("Strength of hit camera shake.")]
 		public float DamageShakeIntensity = 0.09f;
+		[Tooltip("Seconds to fade in the death darkening overlay.")]
+		public float DeathOverlayFadeDuration = 0.45f;
+		[Tooltip("Seconds to keep the death screen visible before respawn.")]
+		public float DeathHoldDuration = 0.95f;
+		[Tooltip("Maximum darkness of death background overlay.")]
+		[Range(0f, 1f)]
+		public float DeathOverlayMaxAlpha = 0.72f;
 
 		public float CurrentHealth { get; private set; }
 		public float HealthPercent => MaxHealth > 0f ? CurrentHealth / MaxHealth : 0f;
@@ -92,6 +101,13 @@ namespace StarterAssets
 		private float _damageShakeTimer;
 		private Vector3 _cameraTargetBaseLocalPos;
 		private bool _cameraTargetBaseCached;
+		private bool _deathRoutineRunning;
+		private CanvasGroup _deathOverlayCanvasGroup;
+		private TextMeshProUGUI _deathTextTMP;
+		private TextMeshProUGUI _respawnPromptTMP;
+		private Vector3 _levelStartPosition;
+		private float _levelStartYaw;
+		private bool _hasLevelStartPose;
 
 		[Header("Cinemachine")]
 		[Tooltip("The follow target set in the Cinemachine Virtual Camera that the camera will follow")]
@@ -189,6 +205,12 @@ namespace StarterAssets
 			}
 			_lastStableGroundedPosition = transform.position;
 			_hasStableGroundedPosition = true;
+
+			// Cache the real player start pose for this scene so death respawn is not tied
+			// to gate SpawnPoint markers (SpawnPoint2..10, etc.).
+			_levelStartPosition = transform.position;
+			_levelStartYaw = transform.eulerAngles.y;
+			_hasLevelStartPose = true;
 		}
 
 		private void ApplyCollisionSafetySettings()
@@ -208,6 +230,9 @@ namespace StarterAssets
 		private void Update()
 		{
 			UpdateDamageFeedback();
+
+			if (IsDead)
+				return;
 
 			// If pause is open, clear tab-toggle state so resume returns to normal locked gameplay cursor.
 			if (PauseMenuController.IsPaused)
@@ -587,6 +612,8 @@ namespace StarterAssets
 			{
 				IsDead = true;
 				Debug.LogWarning("[FirstPersonController] Player health reached 0.");
+				if (!_deathRoutineRunning)
+					StartCoroutine(DeathAndRespawnRoutine());
 			}
 		}
 
@@ -662,6 +689,351 @@ namespace StarterAssets
 
 			_damageFlashCanvasGroup = flashGO.GetComponent<CanvasGroup>();
 			_damageFlashCanvasGroup.alpha = 0f;
+		}
+
+		private void EnsureDeathOverlay()
+		{
+			if (_deathOverlayCanvasGroup != null && _deathTextTMP != null && _respawnPromptTMP != null)
+				return;
+
+			Canvas targetCanvas = null;
+			Canvas[] allCanvases = FindObjectsByType<Canvas>(FindObjectsSortMode.None);
+			for (int i = 0; i < allCanvases.Length; i++)
+			{
+				Canvas c = allCanvases[i];
+				if (c != null && c.renderMode == RenderMode.ScreenSpaceOverlay && c.gameObject.name == "LevelCanvas")
+				{
+					targetCanvas = c;
+					break;
+				}
+			}
+
+			if (targetCanvas == null)
+			{
+				for (int i = 0; i < allCanvases.Length; i++)
+				{
+					Canvas c = allCanvases[i];
+					if (c != null && c.renderMode == RenderMode.ScreenSpaceOverlay && c.isRootCanvas)
+					{
+						targetCanvas = c;
+						break;
+					}
+				}
+			}
+
+			if (targetCanvas == null)
+			{
+				GameObject canvasGO = new GameObject("DeathOverlayCanvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+				targetCanvas = canvasGO.GetComponent<Canvas>();
+				targetCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+				targetCanvas.sortingOrder = 1100;
+				CanvasScaler scaler = canvasGO.GetComponent<CanvasScaler>();
+				scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+				scaler.referenceResolution = new Vector2(1920f, 1080f);
+			}
+
+			GameObject overlayGO = new GameObject("PlayerDeathOverlay", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(CanvasGroup));
+			overlayGO.transform.SetParent(targetCanvas.transform, false);
+
+			RectTransform overlayRT = overlayGO.GetComponent<RectTransform>();
+			overlayRT.anchorMin = Vector2.zero;
+			overlayRT.anchorMax = Vector2.one;
+			overlayRT.offsetMin = Vector2.zero;
+			overlayRT.offsetMax = Vector2.zero;
+
+			Image overlayImg = overlayGO.GetComponent<Image>();
+			overlayImg.color = Color.black;
+			overlayImg.raycastTarget = false;
+
+			_deathOverlayCanvasGroup = overlayGO.GetComponent<CanvasGroup>();
+			_deathOverlayCanvasGroup.alpha = 0f;
+
+			GameObject textGO = new GameObject("DeathText", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+			textGO.transform.SetParent(overlayGO.transform, false);
+
+			RectTransform textRT = textGO.GetComponent<RectTransform>();
+			textRT.anchorMin = new Vector2(0.5f, 0.5f);
+			textRT.anchorMax = new Vector2(0.5f, 0.5f);
+			textRT.pivot = new Vector2(0.5f, 0.5f);
+			textRT.anchoredPosition = new Vector2(0f, 8f);
+			textRT.sizeDelta = new Vector2(900f, 220f);
+
+			_deathTextTMP = textGO.GetComponent<TextMeshProUGUI>();
+			_deathTextTMP.text = "YOU DIED";
+			_deathTextTMP.alignment = TextAlignmentOptions.Center;
+			_deathTextTMP.fontSize = 84f;
+			_deathTextTMP.fontStyle = FontStyles.Bold | FontStyles.SmallCaps;
+			_deathTextTMP.color = new Color(0.92f, 0.12f, 0.12f, 0f);
+			_deathTextTMP.raycastTarget = false;
+
+			GameObject promptGO = new GameObject("RespawnPromptText", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+			promptGO.transform.SetParent(overlayGO.transform, false);
+
+			RectTransform promptRT = promptGO.GetComponent<RectTransform>();
+			promptRT.anchorMin = new Vector2(0.5f, 0.5f);
+			promptRT.anchorMax = new Vector2(0.5f, 0.5f);
+			promptRT.pivot = new Vector2(0.5f, 0.5f);
+			promptRT.anchoredPosition = new Vector2(0f, -90f);
+			promptRT.sizeDelta = new Vector2(900f, 70f);
+
+			_respawnPromptTMP = promptGO.GetComponent<TextMeshProUGUI>();
+			_respawnPromptTMP.text = "Press Space to Respawn";
+			_respawnPromptTMP.alignment = TextAlignmentOptions.Center;
+			_respawnPromptTMP.fontSize = 28f;
+			_respawnPromptTMP.fontStyle = FontStyles.Normal;
+			_respawnPromptTMP.color = new Color(0.75f, 0.75f, 0.75f, 0f);
+			_respawnPromptTMP.raycastTarget = false;
+		}
+
+		private IEnumerator DeathAndRespawnRoutine()
+		{
+			if (_deathRoutineRunning)
+				yield break;
+
+			_deathRoutineRunning = true;
+
+			// Pause the level timer while dead
+			if (LevelTimer.Instance != null)
+				LevelTimer.Instance.PauseTimer();
+
+			Vector3 deathPosition = transform.position;
+			DropAllCollectedGatesAtDeathPosition(deathPosition);
+
+			EnsureDeathOverlay();
+
+			float fadeDuration = Mathf.Max(0.05f, DeathOverlayFadeDuration);
+			float holdDuration = Mathf.Max(0.05f, DeathHoldDuration);
+			float maxDark = Mathf.Clamp01(DeathOverlayMaxAlpha);
+			Color deathTextBase = new Color(0.92f, 0.12f, 0.12f, 1f);
+
+			float t = 0f;
+			while (t < fadeDuration)
+			{
+				t += Time.deltaTime;
+				float a = Mathf.Clamp01(t / fadeDuration);
+				if (_deathOverlayCanvasGroup != null)
+					_deathOverlayCanvasGroup.alpha = maxDark * a;
+				if (_deathTextTMP != null)
+					_deathTextTMP.color = new Color(deathTextBase.r, deathTextBase.g, deathTextBase.b, a);
+				yield return null;
+			}
+
+			if (_deathOverlayCanvasGroup != null)
+				_deathOverlayCanvasGroup.alpha = maxDark;
+			if (_deathTextTMP != null)
+				_deathTextTMP.color = deathTextBase;
+
+			yield return new WaitForSeconds(holdDuration);
+
+			// Flash the respawn prompt and wait for the player to press Space
+			while (!Input.GetKeyDown(KeyCode.Space))
+			{
+				if (_respawnPromptTMP != null)
+				{
+					float flashAlpha = Mathf.Abs(Mathf.Sin(Time.time * 2.5f));
+					_respawnPromptTMP.color = new Color(0.75f, 0.75f, 0.75f, flashAlpha);
+				}
+				yield return null;
+			}
+
+			if (_respawnPromptTMP != null)
+				_respawnPromptTMP.color = new Color(0.75f, 0.75f, 0.75f, 0f);
+
+			RespawnAtSpawnPoint();
+
+			float fadeOutDuration = 0.35f;
+			t = 0f;
+			while (t < fadeOutDuration)
+			{
+				t += Time.deltaTime;
+				float a = 1f - Mathf.Clamp01(t / fadeOutDuration);
+				if (_deathOverlayCanvasGroup != null)
+					_deathOverlayCanvasGroup.alpha = maxDark * a;
+				if (_deathTextTMP != null)
+					_deathTextTMP.color = new Color(deathTextBase.r, deathTextBase.g, deathTextBase.b, a);
+				yield return null;
+			}
+
+			if (_deathOverlayCanvasGroup != null)
+				_deathOverlayCanvasGroup.alpha = 0f;
+			if (_deathTextTMP != null)
+				_deathTextTMP.color = new Color(deathTextBase.r, deathTextBase.g, deathTextBase.b, 0f);
+
+			_deathRoutineRunning = false;
+		}
+
+		private void RespawnAtSpawnPoint()
+		{
+			Vector3 spawnPos;
+			float spawnYaw;
+
+			if (_hasLevelStartPose)
+			{
+				spawnPos = _levelStartPosition;
+				spawnYaw = _levelStartYaw;
+			}
+			else if (!TryGetSpawnPoint(out spawnPos, out spawnYaw))
+			{
+				spawnPos = transform.position + Vector3.up * 0.3f;
+				spawnYaw = transform.eulerAngles.y;
+			}
+
+			bool wasEnabled = _controller != null && _controller.enabled;
+			if (wasEnabled) _controller.enabled = false;
+			transform.position = spawnPos;
+			transform.rotation = Quaternion.Euler(0f, spawnYaw, 0f);
+			Physics.SyncTransforms();
+			if (wasEnabled) _controller.enabled = true;
+
+			CurrentHealth = MaxHealth;
+			IsDead = false;
+			_nextDamageAllowedTime = Time.time + 0.35f;
+			_verticalVelocity = -2f;
+			_speed = 0f;
+			_antiWarpCooldown = 0.2f;
+			_jumpTimeoutDelta = JumpTimeout;
+			_fallTimeoutDelta = FallTimeout;
+
+			if (_damageFlashCanvasGroup != null)
+				_damageFlashCanvasGroup.alpha = 0f;
+
+			// Restart the level timer from zero on respawn
+			if (LevelTimer.Instance != null)
+				LevelTimer.Instance.StartTimer(LevelTimer.Instance.CurrentLevel);
+		}
+
+		private bool TryGetSpawnPoint(out Vector3 spawnPos, out float spawnYaw)
+		{
+			spawnPos = Vector3.zero;
+			spawnYaw = 0f;
+
+			// Prefer explicit player start marker names when present.
+			string[] preferredNames = new string[]
+			{
+				"PlayerSpawn",
+				"PlayerSpawnPoint",
+				"PlayerStart",
+				"StartPoint",
+				"RespawnPoint",
+				"Respawn"
+			};
+
+			for (int i = 0; i < preferredNames.Length; i++)
+			{
+				GameObject named = GameObject.Find(preferredNames[i]);
+				if (named != null)
+				{
+					spawnPos = named.transform.position + Vector3.up * 0.2f;
+					spawnYaw = named.transform.eulerAngles.y;
+					return true;
+				}
+			}
+
+			// Next, try the common SpawnPoint1 but reject gate spawner markers.
+			Transform[] allTransforms = FindObjectsByType<Transform>(FindObjectsSortMode.None);
+			Transform best = null;
+			for (int i = 0; i < allTransforms.Length; i++)
+			{
+				Transform t = allTransforms[i];
+				if (t == null) continue;
+				if (t.name != "SpawnPoint1" && t.name != "SpawnPoint") continue;
+				if (t.GetComponentInParent<SimpleGateSpawner>() != null) continue;
+				best = t;
+				break;
+			}
+
+			if (best == null)
+				return false;
+
+			spawnPos = best.position + Vector3.up * 0.2f;
+			spawnYaw = best.eulerAngles.y;
+			return true;
+		}
+
+		private void DropAllCollectedGatesAtDeathPosition(Vector3 deathPos)
+		{
+			InventoryManager inv = InventoryManager.Instance;
+			if (inv == null)
+				return;
+
+			SimpleGateCollector collector = GetComponent<SimpleGateCollector>();
+			if (collector == null)
+				collector = FindFirstObjectByType<SimpleGateCollector>();
+
+			GameObject andPrefab = collector != null ? collector.andGatePrefab : null;
+			GameObject orPrefab = collector != null ? collector.orGatePrefab : null;
+			GameObject notPrefab = collector != null ? collector.notGatePrefab : null;
+
+			int andCount = inv.GetGateCount("AND");
+			int orCount = inv.GetGateCount("OR");
+			int notCount = inv.GetGateCount("NOT");
+			int spawnIndex = 0;
+
+			for (int i = 0; i < andCount; i++)
+			{
+				if (!inv.RemoveGate("AND")) break;
+				SpawnDroppedGateAt(andPrefab, "AND", deathPos, spawnIndex++);
+			}
+
+			for (int i = 0; i < orCount; i++)
+			{
+				if (!inv.RemoveGate("OR")) break;
+				SpawnDroppedGateAt(orPrefab, "OR", deathPos, spawnIndex++);
+			}
+
+			for (int i = 0; i < notCount; i++)
+			{
+				if (!inv.RemoveGate("NOT")) break;
+				SpawnDroppedGateAt(notPrefab, "NOT", deathPos, spawnIndex++);
+			}
+		}
+
+		private void SpawnDroppedGateAt(GameObject prefab, string gateType, Vector3 center, int spawnIndex)
+		{
+			if (prefab == null)
+				return;
+
+			float angle = spawnIndex * 0.85f;
+			float radius = 0.8f + (0.18f * (spawnIndex % 4));
+			Vector3 ringOffset = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radius;
+			Vector3 probeStart = center + ringOffset + Vector3.up * 2f;
+			Vector3 spawnPos = center + ringOffset + Vector3.up * 0.25f;
+
+			if (Physics.Raycast(probeStart, Vector3.down, out RaycastHit floorHit, 5f, ~0, QueryTriggerInteraction.Ignore))
+				spawnPos = floorHit.point + Vector3.up * 0.3f;
+
+			GameObject dropped = Instantiate(prefab, spawnPos, Quaternion.identity);
+			dropped.name = $"Dropped_{gateType.ToUpper()}_Gate";
+
+			IgnoreDroppedGateWithPlayer(dropped);
+
+			GateSpawnDelay spawnDelay = dropped.AddComponent<GateSpawnDelay>();
+			spawnDelay.delay = 1.2f;
+		}
+
+		private void IgnoreDroppedGateWithPlayer(GameObject dropped)
+		{
+			if (dropped == null)
+				return;
+
+			Collider[] gateCols = dropped.GetComponentsInChildren<Collider>(true);
+			Collider[] playerCols = GetComponentsInChildren<Collider>(true);
+
+			if (gateCols == null || playerCols == null || gateCols.Length == 0 || playerCols.Length == 0)
+				return;
+
+			for (int i = 0; i < gateCols.Length; i++)
+			{
+				Collider gateCol = gateCols[i];
+				if (gateCol == null) continue;
+
+				for (int j = 0; j < playerCols.Length; j++)
+				{
+					Collider playerCol = playerCols[j];
+					if (playerCol == null) continue;
+					Physics.IgnoreCollision(gateCol, playerCol, true);
+				}
+			}
 		}
 
 		private void TriggerDamageFeedback()

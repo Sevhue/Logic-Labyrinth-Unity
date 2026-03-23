@@ -20,9 +20,7 @@ namespace com.IvanMurzak.Unity.MCP.Installer
 
         static Installer()
         {
-#if !IVAN_MURZAK_INSTALLER_PROJECT
-            AddScopedRegistryIfNeeded(ManifestPath);
-#endif
+            // Disabled locally: this installer was auto-adding MCP back to manifest on editor load.
         }
     }
 }

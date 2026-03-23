@@ -157,11 +157,11 @@
     },
     {
       "name": "reflection-method-call",
-      "enabled": true
+      "enabled": false
     },
     {
       "name": "reflection-method-find",
-      "enabled": true
+      "enabled": false
     },
     {
       "name": "scene-create",
