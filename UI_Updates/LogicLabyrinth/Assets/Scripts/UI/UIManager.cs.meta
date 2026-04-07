@@ -1,0 +1,33 @@
+fileFormatVersion: 2
+guid: 54deb7f1f68c29848b8d075a2caad53b
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - loggedOutPanel: {instanceID: 0}
+  - loggedInPanel: {instanceID: 0}
+  - loginPanel: {instanceID: 0}
+  - createAccountPanel: {instanceID: 0}
+  - optionsPanel: {instanceID: 0}
+  - mainLoginPanel: {instanceID: 0}
+  - completeProfilePanel: {instanceID: 0}
+  - accountProfilePanel: {instanceID: 0}
+  - leaderboardsPanel: {instanceID: 0}
+  - forgotPasswordPanel: {instanceID: 0}
+  - exitPopup: {instanceID: 0}
+  - logoutPopup: {instanceID: 0}
+  - savePopup: {instanceID: 0}
+  - levelSelectionPanel: {instanceID: 0}
+  - gameUI: {instanceID: 0}
+  - puzzleUI: {instanceID: 0}
+  - interactPrompt: {instanceID: 0}
+  - gateCountText: {instanceID: 0}
+  - puzzleCompletePanel: {instanceID: 0}
+  - gameCompletePanel: {instanceID: 0}
+  - menuCamera: {instanceID: 0}
+  - playerCamera: {instanceID: 0}
+  executionOrder: -20
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
