@@ -756,7 +756,8 @@ public class PuzzleTableController : MonoBehaviour
         attRect.offsetMax = Vector2.zero;
 
         attemptsText = attemptsLabel.AddComponent<TextMeshProUGUI>();
-        attemptsText.fontSize = 14;
+        attemptsText.fontSize = 20;
+        attemptsText.fontStyle = FontStyles.Bold;
         attemptsText.alignment = TextAlignmentOptions.Center;
         attemptsText.color = Color.white;
         UpdateAttemptsDisplay();

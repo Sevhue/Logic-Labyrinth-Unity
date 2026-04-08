@@ -1305,6 +1305,15 @@ public class UIManager : MonoBehaviour
     [ContextMenu("OnLoadGameButton")]
     public void OnLoadGameButton()
     {
+        var player = AccountManager.Instance != null ? AccountManager.Instance.GetCurrentPlayer() : null;
+        bool hasSavedGame = player != null && (player.savedLevel > 0 || player.lastCompletedLevel > 0);
+
+        if (!hasSavedGame)
+        {
+            ShowValidationMessage("NO SAVED GAME FOUND. START A NEW GAME FIRST.");
+            return;
+        }
+
         if (LevelManager.Instance != null)
         {
             LevelManager.Instance.ContinueGame();
@@ -1314,6 +1323,179 @@ public class UIManager : MonoBehaviour
             Debug.LogWarning("LevelManager not found!");
             ShowGameUI();
         }
+    }
+
+    private void ShowValidationMessage(string message)
+    {
+        if (validationPopup != null && validationMessageText != null)
+        {
+            StyleValidationPopup();
+            validationMessageText.text = message;
+            validationPopup.SetActive(true);
+            return;
+        }
+
+        Debug.LogWarning($"[UIManager] Validation popup unavailable. Message: {message}");
+    }
+
+    private void StyleValidationPopup()
+    {
+        if (validationPopup == null || validationMessageText == null)
+            return;
+
+        Image overlayImage = validationPopup.GetComponent<Image>();
+        if (overlayImage != null)
+            overlayImage.color = new Color(0.02f, 0.04f, 0.05f, 0.68f);
+
+        Image panelImage = FindLargestChildImage(validationPopup.transform);
+        Vector2 panelCenter = new Vector2(0f, 8f);
+        Vector2 panelSize = new Vector2(560f, 320f);
+
+        if (panelImage != null)
+        {
+            RectTransform panelRect = panelImage.rectTransform;
+            panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+            panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+            panelRect.pivot = new Vector2(0.5f, 0.5f);
+            panelRect.anchoredPosition = panelCenter;
+            panelRect.sizeDelta = panelSize;
+
+            panelImage.color = new Color(0.19f, 0.13f, 0.07f, 0.94f);
+
+            Outline panelOutline = GetOrAddComponent<Outline>(panelImage.gameObject);
+            panelOutline.effectColor = new Color(0.75f, 0.62f, 0.29f, 0.7f);
+            panelOutline.effectDistance = new Vector2(2f, -2f);
+
+            Shadow panelShadow = GetOrAddComponent<Shadow>(panelImage.gameObject);
+            panelShadow.effectColor = new Color(0f, 0f, 0f, 0.45f);
+            panelShadow.effectDistance = new Vector2(0f, -8f);
+        }
+
+        TMP_Text titleText = FindDescendantText(validationPopup.transform, "ValidationTitleText");
+        if (titleText != null)
+        {
+            RectTransform titleRect = titleText.rectTransform;
+            titleRect.localScale = Vector3.one;
+            titleRect.anchorMin = new Vector2(0.5f, 0.5f);
+            titleRect.anchorMax = new Vector2(0.5f, 0.5f);
+            titleRect.pivot = new Vector2(0.5f, 0.5f);
+            titleRect.anchoredPosition = panelCenter + new Vector2(0f, 106f);
+            titleRect.sizeDelta = new Vector2(panelSize.x - 120f, 46f);
+            titleText.text = "NOTICE";
+            titleText.alignment = TextAlignmentOptions.Center;
+            titleText.fontSize = 36f;
+            titleText.color = new Color(0.88f, 0.76f, 0.42f, 1f);
+        }
+
+        // Reparent message into the same panel space as the title so X=0 is the true panel centre
+        RectTransform messageRect = validationMessageText.rectTransform;
+        Transform messageParent = (titleText != null) ? titleText.transform.parent : validationPopup.transform;
+        messageRect.SetParent(messageParent, false);
+        messageRect.localScale = Vector3.one;
+        messageRect.anchorMin = new Vector2(0.5f, 0.5f);
+        messageRect.anchorMax = new Vector2(0.5f, 0.5f);
+        messageRect.pivot = new Vector2(0.5f, 0.5f);
+        messageRect.anchoredPosition = new Vector2(0f, 8f);
+        messageRect.sizeDelta = new Vector2(panelSize.x - 120f, 96f);
+        validationMessageText.alignment = TextAlignmentOptions.Center;
+        validationMessageText.fontSize = 24f;
+        validationMessageText.color = new Color(0.96f, 0.93f, 0.85f, 1f);
+        validationMessageText.enableWordWrapping = true;
+        validationMessageText.margin = new Vector4(40f, 0f, 40f, 0f);
+
+        Button confirmButton = validationPopup.GetComponentInChildren<Button>(true);
+        if (confirmButton != null)
+        {
+            RectTransform buttonRect = confirmButton.GetComponent<RectTransform>();
+            if (buttonRect != null)
+            {
+                buttonRect.localScale = Vector3.one;
+                buttonRect.anchorMin = new Vector2(0.5f, 0.5f);
+                buttonRect.anchorMax = new Vector2(0.5f, 0.5f);
+                buttonRect.pivot = new Vector2(0.5f, 0.5f);
+                buttonRect.anchoredPosition = panelCenter + new Vector2(0f, -108f);
+                buttonRect.sizeDelta = new Vector2(170f, 46f);
+            }
+
+            Image buttonImage = confirmButton.targetGraphic as Image;
+            if (buttonImage != null)
+            {
+                buttonImage.color = new Color(0.28f, 0.20f, 0.09f, 0.98f);
+
+                Outline buttonOutline = GetOrAddComponent<Outline>(buttonImage.gameObject);
+                buttonOutline.effectColor = new Color(0.78f, 0.66f, 0.31f, 0.9f);
+                buttonOutline.effectDistance = new Vector2(1f, -1f);
+            }
+
+            ColorBlock colors = confirmButton.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1f, 0.97f, 0.82f, 1f);
+            colors.pressedColor = new Color(0.92f, 0.84f, 0.55f, 1f);
+            colors.selectedColor = colors.highlightedColor;
+            colors.disabledColor = new Color(0.7f, 0.7f, 0.7f, 0.45f);
+            colors.fadeDuration = 0.08f;
+            confirmButton.colors = colors;
+
+            TMP_Text buttonText = confirmButton.GetComponentInChildren<TMP_Text>(true);
+            if (buttonText != null)
+            {
+                buttonText.text = "OKAY";
+                buttonText.alignment = TextAlignmentOptions.Center;
+                buttonText.fontSize = 24f;
+                buttonText.color = new Color(0.9f, 0.82f, 0.49f, 1f);
+            }
+        }
+    }
+
+    private static Image FindLargestChildImage(Transform root)
+    {
+        if (root == null)
+            return null;
+
+        Image[] images = root.GetComponentsInChildren<Image>(true);
+        Image best = null;
+        float bestArea = -1f;
+
+        for (int i = 0; i < images.Length; i++)
+        {
+            Image image = images[i];
+            if (image == null || image.transform == root)
+                continue;
+
+            RectTransform rect = image.rectTransform;
+            float area = Mathf.Abs(rect.rect.width * rect.rect.height);
+            if (area > bestArea)
+            {
+                best = image;
+                bestArea = area;
+            }
+        }
+
+        return best;
+    }
+
+    private static TMP_Text FindDescendantText(Transform root, string childName)
+    {
+        if (root == null)
+            return null;
+
+        Transform[] children = root.GetComponentsInChildren<Transform>(true);
+        for (int i = 0; i < children.Length; i++)
+        {
+            Transform child = children[i];
+            if (child != null && child.name == childName)
+                return child.GetComponent<TMP_Text>();
+        }
+
+        return null;
+    }
+
+    private static T GetOrAddComponent<T>(GameObject go) where T : Component
+    {
+        T component = go.GetComponent<T>();
+        if (component == null)
+            component = go.AddComponent<T>();
+        return component;
     }
 
     [ContextMenu("OnLogoutButton")]

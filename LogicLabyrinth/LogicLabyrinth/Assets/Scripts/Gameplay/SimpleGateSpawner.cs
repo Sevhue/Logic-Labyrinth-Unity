@@ -1,5 +1,8 @@
 using UnityEngine;
 using System.Collections.Generic;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 public class SimpleGateSpawner : MonoBehaviour
 {
@@ -15,6 +18,21 @@ public class SimpleGateSpawner : MonoBehaviour
     public int andCount = 2;
     [Tooltip("Remaining spawn points get NOT gates (bogus / decoys)")]
     public bool fillRestWithNOT = true;
+
+    [Header("Spawn Transform")]
+    [Tooltip("Scales every spawned gate uniformly. Lower this if gates appear too large at spawn points.")]
+    [Min(0.01f)] public float spawnedGateScaleMultiplier = 1f;
+
+    [Header("Editor Preview")]
+    [Tooltip("Always show SpawnPoint markers and indices in Scene view for easier placement.")]
+    public bool showSpawnPointMarkers = true;
+    [Min(0.01f)] public float spawnPointMarkerSize = 0.12f;
+    [Tooltip("Show actual random gate mesh previews at spawn points (editor-only, for testing placement).")]
+    public bool showRandomGateMeshPreview = true;
+    [Tooltip("Changes which random gate type appears on each spawn point preview.")]
+    public int previewRandomSeed = 7;
+    [Tooltip("When you select a SpawnPoint Transform, show gate-size previews at that point.")]
+    public bool previewOnSelectedSpawnPoint = true;
 
     void Start()
     {
@@ -154,7 +172,8 @@ public class SimpleGateSpawner : MonoBehaviour
     void SpawnGateAt(GameObject gatePrefab, Transform point)
     {
         if (gatePrefab == null || point == null) return;
-        Instantiate(gatePrefab, point.position, point.rotation);
+        GameObject spawned = Instantiate(gatePrefab, point.position, point.rotation);
+        spawned.transform.localScale *= spawnedGateScaleMultiplier;
     }
 
     /// <summary>
@@ -170,4 +189,146 @@ public class SimpleGateSpawner : MonoBehaviour
             list[j] = temp;
         }
     }
+
+#if UNITY_EDITOR
+    void OnDrawGizmos()
+    {
+        if (spawnPoints == null || spawnPoints.Count == 0) return;
+
+        if (showSpawnPointMarkers)
+        {
+            for (int i = 0; i < spawnPoints.Count; i++)
+            {
+                Transform p = spawnPoints[i];
+                if (p == null) continue;
+
+                if (showRandomGateMeshPreview)
+                {
+                    GameObject previewPrefab = GetRandomPreviewPrefabForIndex(i);
+                    DrawPrefabMeshPreview(previewPrefab, p, new Color(1f, 0.95f, 0.7f, 0.22f), new Color(1f, 0.8f, 0.35f, 0.95f));
+                }
+                else
+                {
+                    Gizmos.color = new Color(1f, 0.75f, 0.2f, 0.9f);
+                    Gizmos.DrawSphere(p.position, spawnPointMarkerSize);
+                }
+
+                Handles.color = new Color(1f, 0.9f, 0.55f, 1f);
+                Handles.Label(p.position + Vector3.up * 0.18f, $"SpawnPoint{i + 1}");
+            }
+        }
+
+        if (!previewOnSelectedSpawnPoint) return;
+
+        Transform selected = Selection.activeTransform;
+        if (selected == null) return;
+
+        bool isSpawnPoint = false;
+        for (int i = 0; i < spawnPoints.Count; i++)
+        {
+            if (spawnPoints[i] == selected)
+            {
+                isSpawnPoint = true;
+                break;
+            }
+        }
+
+        if (!isSpawnPoint) return;
+
+        DrawPrefabPreview(andGatePrefab, selected, new Color(0.15f, 0.85f, 1f, 0.95f), "AND");
+        DrawPrefabPreview(orGatePrefab, selected, new Color(0.35f, 1f, 0.35f, 0.95f), "OR");
+        DrawPrefabPreview(notGatePrefab, selected, new Color(1f, 0.8f, 0.2f, 0.95f), "NOT");
+    }
+
+    void DrawPrefabPreview(GameObject prefab, Transform point, Color color, string label)
+    {
+        if (prefab == null || point == null) return;
+        if (!TryGetPrefabLocalBounds(prefab, out Bounds bounds)) return;
+
+        Vector3 scaledCenter = bounds.center * spawnedGateScaleMultiplier;
+        Vector3 scaledSize = bounds.size * spawnedGateScaleMultiplier;
+
+        Matrix4x4 prev = Gizmos.matrix;
+        Gizmos.matrix = Matrix4x4.TRS(point.position, point.rotation, Vector3.one);
+        Gizmos.color = color;
+        Gizmos.DrawWireCube(scaledCenter, scaledSize);
+        Gizmos.matrix = prev;
+
+        Handles.color = color;
+        Handles.Label(point.position + Vector3.up * 0.15f, label);
+    }
+
+    GameObject GetRandomPreviewPrefabForIndex(int index)
+    {
+        List<GameObject> prefabs = new List<GameObject>();
+        if (andGatePrefab != null) prefabs.Add(andGatePrefab);
+        if (orGatePrefab != null) prefabs.Add(orGatePrefab);
+        if (notGatePrefab != null) prefabs.Add(notGatePrefab);
+        if (prefabs.Count == 0) return null;
+
+        int hash = Mathf.Abs((previewRandomSeed + 1) * 73856093 ^ (index + 1) * 19349663);
+        return prefabs[hash % prefabs.Count];
+    }
+
+    void DrawPrefabMeshPreview(GameObject prefab, Transform point, Color fillColor, Color wireColor)
+    {
+        if (prefab == null || point == null) return;
+
+        MeshFilter[] meshFilters = prefab.GetComponentsInChildren<MeshFilter>(true);
+        if (meshFilters == null || meshFilters.Length == 0)
+        {
+            Gizmos.color = wireColor;
+            Gizmos.DrawSphere(point.position, spawnPointMarkerSize);
+            return;
+        }
+
+        Matrix4x4 root = Matrix4x4.TRS(point.position, point.rotation, Vector3.one * spawnedGateScaleMultiplier);
+
+        for (int i = 0; i < meshFilters.Length; i++)
+        {
+            MeshFilter mf = meshFilters[i];
+            if (mf == null || mf.sharedMesh == null) continue;
+
+            Matrix4x4 matrix = root * mf.transform.localToWorldMatrix;
+            Matrix4x4 prev = Gizmos.matrix;
+            Gizmos.matrix = matrix;
+            Gizmos.color = fillColor;
+            Gizmos.DrawMesh(mf.sharedMesh);
+            Gizmos.color = wireColor;
+            Gizmos.DrawWireMesh(mf.sharedMesh);
+            Gizmos.matrix = prev;
+        }
+    }
+
+    bool TryGetPrefabLocalBounds(GameObject prefab, out Bounds bounds)
+    {
+        Renderer[] renderers = prefab.GetComponentsInChildren<Renderer>(true);
+        if (renderers == null || renderers.Length == 0)
+        {
+            bounds = default;
+            return false;
+        }
+
+        bool initialized = false;
+        bounds = new Bounds(Vector3.zero, Vector3.zero);
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer r = renderers[i];
+            if (r == null) continue;
+
+            if (!initialized)
+            {
+                bounds = r.bounds;
+                initialized = true;
+            }
+            else
+            {
+                bounds.Encapsulate(r.bounds);
+            }
+        }
+
+        return initialized;
+    }
+#endif
 }

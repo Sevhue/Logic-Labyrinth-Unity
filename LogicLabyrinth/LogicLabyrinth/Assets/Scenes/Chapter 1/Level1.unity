@@ -780,7 +780,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 12.815, y: -5, z: 25.681}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 0.32147, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -2754,6 +2754,11 @@ MonoBehaviour:
   dialoguePrefab: {fileID: 8114272762433084387, guid: 9f04e775581195b44b85c78514d6c9a9, type: 3}
   onlyLevel1: 1
   dialogueDuration: 4
+  showInstructionBanner: 0
+  showDialogueBackground: 0
+  postDialogueBoardScale: 0.94
+  postDialogueBoardYOffset: 56
+  postDialogueTypeCharsPerSecond: 42
 --- !u!4 &150519757
 Transform:
   m_ObjectHideFlags: 0
@@ -6647,6 +6652,12 @@ MonoBehaviour:
   fogColor: {r: 0.02, g: 0.02, b: 0.03, a: 1}
   fogDensity: 0.06
   directionalLightIntensity: 0.02
+  forceOnlyTorchLights: 1
+  torchNameKeywords:
+  - torch
+  - brazi
+  - sconce
+  - flame
   torchLightBoost: 1.5
   torchExtraRange: 5
 --- !u!4 &406540035
@@ -9277,7 +9288,11 @@ MonoBehaviour:
   shinePulseSpeed: 2.5
   shineIntensity: 3
   shineRange: 4
+  successGlowDuration: 1
   showLegacyPickupPopup: 0
+  showSuccessKeyDoorHint: 1
+  successKeyHintDelay: 0.2
+  successKeyHintVisibleTime: 1.5
 --- !u!64 &603571173
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -9359,6 +9374,9 @@ MonoBehaviour:
   pulseSpeed: 2
   baseLightIntensity: 2
   baseLightRange: 3
+  enableRunHint: 1
+  runHintDelaySeconds: 4
+  minWalkDistanceForHint: 1.5
 --- !u!1 &609183235
 GameObject:
   m_ObjectHideFlags: 0
@@ -9522,6 +9540,13 @@ MonoBehaviour:
   candleLightColor: {r: 1, g: 0.85, b: 0.55, a: 1}
   candleLightIntensity: 1.5
   candleLightRange: 4
+  enableTutorialShineInLevel1: 1
+  tutorialShineBaseIntensity: 1.3
+  tutorialShinePulseAmplitude: 0.45
+  tutorialShinePulseSpeed: 2.2
+  tutorialShineRange: 3.8
+  tutorialEmissionBase: 0.8
+  tutorialEmissionPulse: 0.7
 --- !u!1 &626632443
 GameObject:
   m_ObjectHideFlags: 0
@@ -16807,6 +16832,11 @@ MonoBehaviour:
   andGateText: {fileID: 0}
   orGateText: {fileID: 0}
   notGateText: {fileID: 0}
+  enableDropGateHint: 1
+  dropGateHintThreshold: 3
+  dropGateHintInitialDelay: 1.5
+  enableTabCursorHint: 1
+  tabCursorHintInitialDelay: 1
 --- !u!4 &1024935314
 Transform:
   m_ObjectHideFlags: 0
@@ -23048,7 +23078,11 @@ MonoBehaviour:
   shinePulseSpeed: 2.5
   shineIntensity: 3
   shineRange: 4
+  successGlowDuration: 1
   showLegacyPickupPopup: 0
+  showSuccessKeyDoorHint: 1
+  successKeyHintDelay: 0.2
+  successKeyHintVisibleTime: 1.5
 --- !u!1001 &1406605448
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -28786,6 +28820,10 @@ MonoBehaviour:
   orCount: 3
   andCount: 2
   fillRestWithNOT: 1
+  spawnedGateScaleMultiplier: 1
+  showSpawnPointMarkers: 1
+  spawnPointMarkerSize: 0.12
+  previewOnSelectedSpawnPoint: 1
 --- !u!4 &1701048499
 Transform:
   m_ObjectHideFlags: 0
@@ -39043,6 +39081,10 @@ MonoBehaviour:
   pulseSpeed: 2
   baseLightIntensity: 2
   baseLightRange: 3
+  minSecondsAfterOpenBeforeTransition: 0.15
+  recentPlayerTouchGraceSeconds: 0.75
+  doorwayTriggerCount: 3
+  doorwayTriggerHorizontalSpread: 0.7
 --- !u!1 &1927861962 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 6312544953983036060, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
@@ -50040,11 +50082,25 @@ MonoBehaviour:
   GroundLayers:
     serializedVersion: 2
     m_Bits: 4294967295
+  SafeSkinWidth: 0.1
+  SafeStepOffset: 0.3
+  SafeSlopeLimit: 70
+  DebugInvisibleWallHits: 1
+  DisableAntiWarpInLevel6: 1
   MaxStamina: 100
   StaminaDrainRate: 25
   StaminaRegenRate: 15
   StaminaRegenDelay: 1
   MinStaminaToSprint: 10
+  MaxHealth: 100
+  DamageCooldownSeconds: 0.25
+  DamageFlashDuration: 0.2
+  DamageFlashMaxAlpha: 0.3
+  DamageShakeDuration: 0.2
+  DamageShakeIntensity: 0.09
+  DeathOverlayFadeDuration: 0.45
+  DeathHoldDuration: 0.95
+  DeathOverlayMaxAlpha: 0.72
   CinemachineCameraTarget: {fileID: 725064021795477722}
   TopClamp: 89
   BottomClamp: -89

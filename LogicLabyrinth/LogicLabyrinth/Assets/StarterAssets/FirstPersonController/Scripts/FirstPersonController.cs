@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections;
+using System.Collections.Generic;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
@@ -51,6 +52,12 @@ namespace StarterAssets
 		public float SafeSkinWidth = 0.10f;
 		[Tooltip("Target CharacterController step offset enforced at runtime.")]
 		public float SafeStepOffset = 0.30f;
+		[Tooltip("Maximum slope angle that is walkable. Raise this if sloped floors feel like invisible walls.")]
+		public float SafeSlopeLimit = 70f;
+		[Tooltip("Log one warning when bumping into a blocking collider with no visible renderer (helps find invisible walls).")]
+		public bool DebugInvisibleWallHits = true;
+		[Tooltip("Disable anti-warp correction in Level6 to avoid false position rewinds that can feel like invisible walls.")]
+		public bool DisableAntiWarpInLevel6 = true;
 
 		[Header("Stamina")]
 		[Tooltip("Maximum stamina")]
@@ -128,6 +135,11 @@ namespace StarterAssets
 		private Vector3 _lastStableGroundedPosition;
 		private bool _hasStableGroundedPosition;
 		private float _antiWarpCooldown;
+		private readonly HashSet<int> _loggedHiddenBlockerColliders = new HashSet<int>();
+		private float _blockedInputTimer;
+		private float _nextBlockerLogTime;
+		private Vector3 _lastGroundNormal = Vector3.up;
+		private bool _hasLastGroundNormal;
 
 		// timeout deltatime
 		private float _jumpTimeoutDelta;
@@ -146,8 +158,11 @@ namespace StarterAssets
 		private const float MaxVerticalSnapPerFrame = 4.0f;
 		private const float MaxHorizontalSnapPerFrame = 5.0f;
 		private const float MaxTotalSnapPerFrame = 7.0f;
-		private const float AbsurdCoordinateLimit = 500.0f;
+		private const float AbsurdCoordinateLimit = 5000.0f;
+		private const float Level6AbsurdCoordinateLimit = 50000.0f;
 		private const float MinAllowedY = -150.0f;
+		private const float Level6MinAllowedY = -1000.0f;
+		private const float MaxAllowedDropFromLevelStart = 25.0f;
 
 		private bool IsCurrentDeviceMouse
 		{
@@ -222,9 +237,10 @@ namespace StarterAssets
 				_controller.skinWidth = targetSkin;
 
 			_controller.stepOffset = Mathf.Clamp(SafeStepOffset, 0.2f, 0.5f);
+			_controller.slopeLimit = Mathf.Clamp(SafeSlopeLimit, 45f, 89f);
 			_controller.minMoveDistance = 0f;
 
-			Debug.Log($"[FirstPersonController] Collision safety applied: skinWidth={_controller.skinWidth:F3}, stepOffset={_controller.stepOffset:F3}, minMoveDistance={_controller.minMoveDistance:F3}");
+			Debug.Log($"[FirstPersonController] Collision safety applied: skinWidth={_controller.skinWidth:F3}, stepOffset={_controller.stepOffset:F3}, slopeLimit={_controller.slopeLimit:F1}, minMoveDistance={_controller.minMoveDistance:F3}");
 		}
 
 		private void Update()
@@ -329,6 +345,16 @@ namespace StarterAssets
 				GroundLayers,
 				QueryTriggerInteraction.Ignore
 			);
+
+			if (sphereGrounded)
+			{
+				_lastGroundNormal = hit.normal;
+				_hasLastGroundNormal = true;
+			}
+			else
+			{
+				_hasLastGroundNormal = false;
+			}
 			
 			// Also check CC's built-in grounded (handles edge cases)
 			Grounded = sphereGrounded || _controller.isGrounded;
@@ -359,8 +385,9 @@ namespace StarterAssets
 		private void Move()
 		{
 			Vector3 preMovePosition = transform.position;
+			bool antiWarpEnabled = !(DisableAntiWarpInLevel6 && gameObject.scene.name == "Level6");
 
-			if (_antiWarpCooldown > 0f)
+			if (antiWarpEnabled && _antiWarpCooldown > 0f)
 			{
 				_antiWarpCooldown -= Time.deltaTime;
 				_controller.Move(new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
@@ -440,26 +467,77 @@ namespace StarterAssets
 			}
 
 			// move the player
-			_controller.Move(inputDirection.normalized * (_speed * Time.deltaTime) + new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime);
+			Vector3 desiredMovement = inputDirection.normalized * (_speed * Time.deltaTime) + new Vector3(0.0f, _verticalVelocity, 0.0f) * Time.deltaTime;
+			CollisionFlags moveFlags = _controller.Move(desiredMovement);
 
 			Vector3 postMovePosition = transform.position;
 			Vector3 frameDelta = postMovePosition - preMovePosition;
+			
+			// ===== DEBUG: Detect invisible walls / slope blockers =====
+			float horizontalDesiredMag = new Vector2(desiredMovement.x, desiredMovement.z).magnitude;
+			float horizontalAchievedMag = new Vector2(frameDelta.x, frameDelta.z).magnitude;
+
+			
+			// Log only when horizontal movement is meaningfully blocked, or the controller reports side contact.
+			bool movementBlocked = horizontalDesiredMag > 0.001f && horizontalAchievedMag < horizontalDesiredMag * 0.5f && _input.move != Vector2.zero;
+			bool sideBlocked = (moveFlags & CollisionFlags.Sides) != 0 && _input.move != Vector2.zero;
+			bool slopeBlocked = false;
+			if (_hasLastGroundNormal && _input.move != Vector2.zero)
+			{
+				float slopeAngle = Vector3.Angle(_lastGroundNormal, Vector3.up);
+				if (slopeAngle > _controller.slopeLimit - 0.5f)
+				{
+					Vector3 uphillDir = Vector3.ProjectOnPlane(Vector3.up, _lastGroundNormal).normalized;
+					float uphillPush = Vector3.Dot(inputDirection.normalized, uphillDir);
+					slopeBlocked = uphillPush > 0.15f;
+				}
+			}
+
+			bool likelyBlocked = (movementBlocked || sideBlocked || slopeBlocked) && _input.move != Vector2.zero;
+			if (likelyBlocked)
+			{
+				_blockedInputTimer += Time.deltaTime;
+				if (_blockedInputTimer >= 0.12f && Time.time >= _nextBlockerLogTime)
+				{
+					Vector3 moveDir = inputDirection.normalized;
+					LogCurrentBlockers(moveDir, moveFlags, horizontalDesiredMag, horizontalAchievedMag, movementBlocked, sideBlocked, slopeBlocked);
+					_nextBlockerLogTime = Time.time + 0.35f;
+				}
+			}
+			else
+			{
+				_blockedInputTimer = 0f;
+			}
+			// =========== END DEBUG ===========
+			
 			float verticalDelta = postMovePosition.y - preMovePosition.y;
 			float horizontalDelta = new Vector2(frameDelta.x, frameDelta.z).magnitude;
+
+			bool hasSideContact = (moveFlags & CollisionFlags.Sides) != 0;
 
 			bool suspiciousVerticalPop =
 				verticalDelta > MaxVerticalSnapPerFrame &&
 				Grounded &&
-				!_input.jump;
+				!_input.jump &&
+				!hasSideContact;
 
 			bool suspiciousPositionWarp =
 				!_input.jump &&
-				(horizontalDelta > MaxHorizontalSnapPerFrame || frameDelta.magnitude > MaxTotalSnapPerFrame);
+				(horizontalDelta > MaxHorizontalSnapPerFrame || frameDelta.magnitude > MaxTotalSnapPerFrame) &&
+				!hasSideContact;
 
-			if (suspiciousVerticalPop || suspiciousPositionWarp)
+			if (antiWarpEnabled && (suspiciousVerticalPop || suspiciousPositionWarp))
 			{
-				// Restore to the immediate pre-move position to avoid snapping back to an old checkpoint.
 				Vector3 restorePos = preMovePosition;
+				if (!IsReasonableSafePosition(restorePos))
+				{
+					if (_hasStableGroundedPosition && IsReasonableSafePosition(_lastStableGroundedPosition))
+						restorePos = _lastStableGroundedPosition;
+					else if (_hasLevelStartPose)
+						restorePos = _levelStartPosition;
+					else
+						restorePos = Vector3.zero;
+				}
 
 				bool wasEnabled = _controller.enabled;
 				if (wasEnabled) _controller.enabled = false;
@@ -479,7 +557,7 @@ namespace StarterAssets
 			else if (Grounded && !_input.jump)
 			{
 				float controllerVerticalSpeed = Mathf.Abs(_controller.velocity.y);
-				if (controllerVerticalSpeed < 1.5f)
+				if (controllerVerticalSpeed < 1.5f && IsReasonableSafePosition(transform.position))
 				{
 					_lastStableGroundedPosition = transform.position;
 					_hasStableGroundedPosition = true;
@@ -487,19 +565,94 @@ namespace StarterAssets
 			}
 		}
 
+		private bool IsReasonableSafePosition(Vector3 pos)
+		{
+			if (float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z))
+				return false;
+
+			if (Mathf.Abs(pos.x) > AbsurdCoordinateLimit || Mathf.Abs(pos.z) > AbsurdCoordinateLimit)
+				return false;
+
+			float minReasonableY = MinAllowedY;
+			if (_hasLevelStartPose)
+				minReasonableY = Mathf.Max(MinAllowedY, _levelStartPosition.y - MaxAllowedDropFromLevelStart);
+
+			return pos.y >= minReasonableY;
+		}
+
+		private void LogCurrentBlockers(
+			Vector3 moveDir,
+			CollisionFlags moveFlags,
+			float desired,
+			float achieved,
+			bool movementBlocked,
+			bool sideBlocked,
+			bool slopeBlocked)
+		{
+			if (_controller == null)
+				return;
+
+			Vector3 center = transform.position + _controller.center;
+			Vector3 rayStartPos = center;
+			float castDistance = 3f;
+
+			RaycastHit[] castHits = Physics.SphereCastAll(
+				rayStartPos,
+				Mathf.Max(0.05f, _controller.radius * 0.85f),
+				moveDir,
+				castDistance,
+				~0,
+				QueryTriggerInteraction.Collide);
+
+			HashSet<int> seen = new HashSet<int>();
+			string blockerInfo = "";
+			int added = 0;
+
+			for (int i = 0; i < castHits.Length; i++)
+			{
+				Collider col = castHits[i].collider;
+				if (col == null) continue;
+				if (col.transform.root == transform.root) continue;
+
+				int id = col.GetInstanceID();
+				if (seen.Contains(id)) continue;
+				seen.Add(id);
+
+				Renderer r = col.GetComponentInParent<Renderer>();
+				bool visible = r != null && r.enabled && r.gameObject.activeInHierarchy;
+				float hitSlope = Vector3.Angle(castHits[i].normal, Vector3.up);
+
+				blockerInfo += $"[{added}] name={col.name}, trigger={col.isTrigger}, visible={visible}, dist={castHits[i].distance:F2}, slope={hitSlope:F1}, path={GetPath(col.transform)} | ";
+				added++;
+				if (added >= 8) break;
+			}
+
+			if (added == 0)
+				blockerInfo = "no forward spherecast hits";
+
+			float groundSlope = _hasLastGroundNormal ? Vector3.Angle(_lastGroundNormal, Vector3.up) : -1f;
+			Debug.LogWarning($"[BLOCKER DEBUG] moveBlocked={movementBlocked} side={sideBlocked} slopeBlocked={slopeBlocked} desired={desired:F4} achieved={achieved:F4} flags={moveFlags} groundSlope={groundSlope:F1} slopeLimit={_controller.slopeLimit:F1} info={blockerInfo}");
+			Debug.DrawRay(rayStartPos, moveDir * castDistance, Color.red, 0.8f);
+		}
+
 		private bool TryRecoverFromAbsurdPosition(string reason)
 		{
 			Vector3 pos = transform.position;
+			bool isLevel6 = gameObject.scene.name == "Level6";
+			float sceneAbsurdLimit = isLevel6 ? Level6AbsurdCoordinateLimit : AbsurdCoordinateLimit;
+			float sceneMinY = isLevel6 ? Level6MinAllowedY : MinAllowedY;
 			bool absurd =
 				float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z) ||
-				Mathf.Abs(pos.x) > AbsurdCoordinateLimit ||
-				Mathf.Abs(pos.z) > AbsurdCoordinateLimit ||
-				pos.y < MinAllowedY;
+				Mathf.Abs(pos.x) > sceneAbsurdLimit ||
+				Mathf.Abs(pos.z) > sceneAbsurdLimit ||
+				pos.y < sceneMinY;
 
 			if (!absurd)
 				return false;
 
-			Vector3 restorePos = _hasStableGroundedPosition ? _lastStableGroundedPosition : Vector3.zero;
+			Vector3 restorePos = (_hasStableGroundedPosition && IsReasonableSafePosition(_lastStableGroundedPosition))
+				? _lastStableGroundedPosition
+				: (_hasLevelStartPose ? _levelStartPosition : Vector3.zero);
 
 			bool wasEnabled = _controller != null && _controller.enabled;
 			if (wasEnabled) _controller.enabled = false;
@@ -632,6 +785,30 @@ namespace StarterAssets
 			SpikeTrapHazard hazard = hit.collider.GetComponentInParent<SpikeTrapHazard>();
 			if (hazard != null)
 				hazard.TryDamage(gameObject);
+
+			if (!DebugInvisibleWallHits) return;
+			if (hit.collider.isTrigger) return;
+
+			Renderer r = hit.collider.GetComponentInParent<Renderer>();
+			if (r != null && r.enabled && r.gameObject.activeInHierarchy) return;
+
+			int colliderId = hit.collider.GetInstanceID();
+			if (_loggedHiddenBlockerColliders.Contains(colliderId)) return;
+			_loggedHiddenBlockerColliders.Add(colliderId);
+
+			Debug.LogWarning($"[InvisibleWallCandidate] scene='{gameObject.scene.name}' collider='{hit.collider.name}' path='{GetPath(hit.collider.transform)}' point=({hit.point.x:F2},{hit.point.y:F2},{hit.point.z:F2})");
+		}
+
+		private static string GetPath(Transform t)
+		{
+			if (t == null) return "<null>";
+			string path = t.name;
+			while (t.parent != null)
+			{
+				t = t.parent;
+				path = t.name + "/" + path;
+			}
+			return path;
 		}
 
 		private void EnsureDamageFlashOverlay()

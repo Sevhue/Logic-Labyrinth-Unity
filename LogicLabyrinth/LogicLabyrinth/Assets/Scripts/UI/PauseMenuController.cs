@@ -2094,6 +2094,15 @@ public class PauseMenuController : MonoBehaviour
         if (panel != null)
         {
             panel.gameObject.SetActive(true);
+
+            // Use a subtle neutral dim overlay instead of the heavy brown fullscreen sprite.
+            Image panelImage = panel.GetComponent<Image>();
+            if (panelImage != null)
+            {
+                panelImage.sprite = null;
+                panelImage.color = new Color(0f, 0f, 0f, 0.22f);
+            }
+
             Debug.Log("[PauseMenu] PausePanel child activated.");
         }
         else
@@ -2476,6 +2485,58 @@ public class PauseMenuController : MonoBehaviour
             Button btn = backBtn.GetComponent<Button>();
             if (btn != null)
             {
+                RectTransform backRect = backBtn as RectTransform;
+                if (backRect != null)
+                {
+                    RectTransform panelRect = DeepFind(settingsInstance.transform, "Panel") as RectTransform;
+                    if (panelRect != null && backRect.parent != panelRect)
+                        backRect.SetParent(panelRect, false);
+
+                    backRect.anchorMin = new Vector2(1f, 1f);
+                    backRect.anchorMax = new Vector2(1f, 1f);
+                    backRect.pivot = new Vector2(1f, 1f);
+                    backRect.anchoredPosition = new Vector2(-10f, -10f);
+                    backRect.sizeDelta = new Vector2(54f, 40f);
+                }
+
+                // Hide any existing text labels under BackButton.
+                TextMeshProUGUI[] tmpLabels = backBtn.GetComponentsInChildren<TextMeshProUGUI>(true);
+                for (int i = 0; i < tmpLabels.Length; i++)
+                    tmpLabels[i].enabled = false;
+
+                Text[] legacyLabels = backBtn.GetComponentsInChildren<Text>(true);
+                for (int i = 0; i < legacyLabels.Length; i++)
+                    legacyLabels[i].enabled = false;
+
+                // Remove sprite that visually contains "< BACK" and render this as a plain close button.
+                Image image = backBtn.GetComponent<Image>();
+                if (image != null)
+                {
+                    image.sprite = null;
+                    image.color = new Color(0.35f, 0.12f, 0.12f, 0.9f);
+                }
+
+                Transform xLabel = backBtn.Find("RuntimeXLabel");
+                if (xLabel == null)
+                {
+                    GameObject xLabelGO = new GameObject("RuntimeXLabel");
+                    xLabelGO.transform.SetParent(backBtn, false);
+
+                    RectTransform xRect = xLabelGO.AddComponent<RectTransform>();
+                    xRect.anchorMin = Vector2.zero;
+                    xRect.anchorMax = Vector2.one;
+                    xRect.offsetMin = Vector2.zero;
+                    xRect.offsetMax = Vector2.zero;
+
+                    TextMeshProUGUI xText = xLabelGO.AddComponent<TextMeshProUGUI>();
+                    xText.text = "X";
+                    xText.fontSize = 28f;
+                    xText.fontStyle = FontStyles.Bold;
+                    xText.alignment = TextAlignmentOptions.Center;
+                    xText.color = Color.white;
+                    xText.raycastTarget = false;
+                }
+
                 btn.interactable = true;
                 btn.onClick = new Button.ButtonClickedEvent();
                 btn.onClick.AddListener(CloseSettings);

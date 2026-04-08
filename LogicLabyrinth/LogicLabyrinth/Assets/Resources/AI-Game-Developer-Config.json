@@ -1,7 +1,5 @@
 {
   "logLevel": 3,
-  "keepServerRunning": false,
-  "transportMethod": 1,
   "tools": [
     {
       "name": "assets-copy",
@@ -157,11 +155,11 @@
     },
     {
       "name": "reflection-method-call",
-      "enabled": false
+      "enabled": true
     },
     {
       "name": "reflection-method-find",
-      "enabled": false
+      "enabled": true
     },
     {
       "name": "scene-create",
@@ -406,5 +404,5 @@
   ],
   "host": "http://localhost:50076",
   "timeoutMs": 10000,
-  "keepConnected": true
+  "keepConnected": false
 }

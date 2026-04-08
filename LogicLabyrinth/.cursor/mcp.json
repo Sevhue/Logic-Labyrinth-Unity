@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "ai-game-developer": {
+      "type": "stdio",
+      "command": "C:/Users/cleve/Documents/GitHub/Logic-Labyrinth-Unity/LogicLabyrinth/LogicLabyrinth/Library/mcp-server/win-x64/unity-mcp-server.exe",
+      "args": [
+        "port=50076",
+        "plugin-timeout=10000",
+        "client-transport=stdio",
+        "authorization=required",
+        "token=e0cbJsrhlFQi9tmAK-DBo_7nsMss4MMs9a_XfXU-c58"
+      ]
+    }
+  }
+}

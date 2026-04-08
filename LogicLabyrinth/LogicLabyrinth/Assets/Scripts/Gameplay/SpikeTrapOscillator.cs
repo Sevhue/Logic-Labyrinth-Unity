@@ -225,6 +225,11 @@ public static class SpikeTrapOscillatorBootstrap
     private static bool initialized;
     private static Material fallbackTrapMaterial;
 
+    private static bool IsSupportedTrapScene(string sceneName)
+    {
+        return sceneName == "Level5" || sceneName == "Level6" || sceneName == "Level8";
+    }
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Init()
     {
@@ -243,7 +248,7 @@ public static class SpikeTrapOscillatorBootstrap
     private static void TryAttachToCurrentScene()
     {
         Scene scene = SceneManager.GetActiveScene();
-        if (scene.name != "Level5" && scene.name != "Level6") return;
+        if (!IsSupportedTrapScene(scene.name)) return;
 
         int oscillatorAdded = 0;
         int hazardAdded = 0;
@@ -310,8 +315,11 @@ public static class SpikeTrapOscillatorBootstrap
 
     public static void TryRepairTrapMaterialsInActiveScene()
     {
+        if (!Application.isPlaying)
+            return;
+
         Scene scene = SceneManager.GetActiveScene();
-        if (scene.name != "Level5" && scene.name != "Level6") return;
+        if (!IsSupportedTrapScene(scene.name)) return;
 
         Transform[] all = Object.FindObjectsByType<Transform>(FindObjectsSortMode.None);
         RepairTrapMaterials(all);

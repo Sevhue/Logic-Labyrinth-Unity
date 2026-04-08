@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Attach to the candle GameObject in the scene.
@@ -21,6 +22,15 @@ public class CollectibleCandle : MonoBehaviour
     public float candleLightIntensity = 1.5f;
     public float candleLightRange = 4f;
 
+    [Header("Tutorial Shine (Level1)")]
+    public bool enableTutorialShineInLevel1 = true;
+    public float tutorialShineBaseIntensity = 1.3f;
+    public float tutorialShinePulseAmplitude = 0.45f;
+    public float tutorialShinePulseSpeed = 2.2f;
+    public float tutorialShineRange = 3.8f;
+    public float tutorialEmissionBase = 0.8f;
+    public float tutorialEmissionPulse = 0.7f;
+
     /// <summary>True after the player picks up the candle.</summary>
     public bool IsCollected { get; private set; } = false;
 
@@ -36,6 +46,9 @@ public class CollectibleCandle : MonoBehaviour
     private static Light equippedCandleLight;
 
     private Vector3 startLocalPos;
+    private Light tutorialShineLight;
+    private Material[] tutorialMats;
+    private Coroutine tutorialShineCoroutine;
 
     void Start()
     {
@@ -73,6 +86,7 @@ public class CollectibleCandle : MonoBehaviour
         }
         bc.isTrigger = true;
 
+        TryEnableTutorialShine();
         StartCoroutine(BobAndSpin());
     }
 
@@ -85,6 +99,7 @@ public class CollectibleCandle : MonoBehaviour
         IsCollected = true;
 
         Debug.Log("[CollectibleCandle] Candle collected!");
+        DisableTutorialShine();
 
         // ── Save the actual mesh and materials BEFORE destroying the object ──
         MeshFilter mf = GetComponentInChildren<MeshFilter>();
@@ -155,6 +170,90 @@ public class CollectibleCandle : MonoBehaviour
         }
 
         Destroy(gameObject);
+    }
+
+    private void TryEnableTutorialShine()
+    {
+        if (!enableTutorialShineInLevel1)
+            return;
+
+        Scene scene = SceneManager.GetActiveScene();
+        if (scene.name != "Level1")
+            return;
+
+        GameObject lightGO = new GameObject("TutorialCandleShine");
+        lightGO.transform.SetParent(transform, false);
+        lightGO.transform.localPosition = new Vector3(0f, 0.2f, 0f);
+
+        tutorialShineLight = lightGO.AddComponent<Light>();
+        tutorialShineLight.type = LightType.Point;
+        tutorialShineLight.color = candleLightColor;
+        tutorialShineLight.range = tutorialShineRange;
+        tutorialShineLight.intensity = tutorialShineBaseIntensity;
+        tutorialShineLight.shadows = LightShadows.None;
+
+        Renderer[] rends = GetComponentsInChildren<Renderer>(true);
+        if (rends != null && rends.Length > 0)
+        {
+            var mats = new System.Collections.Generic.List<Material>();
+            for (int i = 0; i < rends.Length; i++)
+            {
+                if (rends[i] == null || rends[i].materials == null) continue;
+                Material[] rm = rends[i].materials;
+                for (int m = 0; m < rm.Length; m++)
+                {
+                    if (rm[m] != null)
+                        mats.Add(rm[m]);
+                }
+            }
+            tutorialMats = mats.ToArray();
+        }
+
+        tutorialShineCoroutine = StartCoroutine(PulseTutorialShine());
+    }
+
+    private IEnumerator PulseTutorialShine()
+    {
+        while (!IsCollected)
+        {
+            float pulse = 0.5f + (0.5f * Mathf.Sin(Time.time * tutorialShinePulseSpeed));
+
+            if (tutorialShineLight != null)
+            {
+                tutorialShineLight.intensity = tutorialShineBaseIntensity + (pulse * tutorialShinePulseAmplitude);
+            }
+
+            if (tutorialMats != null)
+            {
+                Color emission = candleLightColor * (tutorialEmissionBase + (pulse * tutorialEmissionPulse));
+                for (int i = 0; i < tutorialMats.Length; i++)
+                {
+                    Material mat = tutorialMats[i];
+                    if (mat == null) continue;
+                    if (!mat.HasProperty("_EmissionColor")) continue;
+
+                    mat.EnableKeyword("_EMISSION");
+                    mat.SetColor("_EmissionColor", emission);
+                }
+            }
+
+            yield return null;
+        }
+    }
+
+    private void DisableTutorialShine()
+    {
+        if (tutorialShineCoroutine != null)
+        {
+            StopCoroutine(tutorialShineCoroutine);
+            tutorialShineCoroutine = null;
+        }
+
+        if (tutorialShineLight != null)
+        {
+            Destroy(tutorialShineLight.gameObject);
+            tutorialShineLight = null;
+        }
     }
 
     private GameObject CreatePickupMessage()

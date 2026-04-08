@@ -28,8 +28,14 @@ public class LevelManager : MonoBehaviour
     public float safetyCheckInterval = 0.25f;
     [Tooltip("Enable automatic out-of-bounds rescue teleports. Disable for collision debugging to prevent forced position rewinds.")]
     public bool enableOutOfBoundsRescue = false;
+    [Tooltip("Skip out-of-bounds rescue teleports in Level6 where large geometry and vertical layouts can cause false positives.")]
+    public bool disableOutOfBoundsRescueInLevel6 = true;
     [Tooltip("Attach PlayerMotionDebugLogger at runtime in level scenes.")]
     public bool enableMotionDebugLogger = true;
+
+    [Header("Level6 Hotfix")]
+    [Tooltip("Disable likely invisible, non-trigger colliders in Level6 to remove unintended blocker volumes.")]
+    public bool disableLevel6InvisibleBlockers = false;
 
 
     public PuzzleVariant currentLevelPuzzle;
@@ -192,6 +198,114 @@ public class LevelManager : MonoBehaviour
         if (scene.name.StartsWith("Level") && enableMotionDebugLogger)
             StartCoroutine(AttachMotionDebugLoggerNextFrame());
 
+        if (scene.name == "Level6" && disableLevel6InvisibleBlockers)
+            StartCoroutine(DisableLikelyInvisibleBlockersInLevel6NextFrame());
+
+    }
+
+    private System.Collections.IEnumerator DisableLikelyInvisibleBlockersInLevel6NextFrame()
+    {
+        // Wait one frame so scene bootstrap scripts can finish adding runtime objects.
+        yield return null;
+
+        Scene active = SceneManager.GetActiveScene();
+        if (active.name != "Level6")
+            yield break;
+
+        Collider[] allColliders = FindObjectsByType<Collider>(FindObjectsSortMode.None);
+        if (allColliders == null || allColliders.Length == 0)
+            yield break;
+
+        int disabledCount = 0;
+        var disabledDetails = new System.Collections.Generic.List<string>();
+
+        for (int i = 0; i < allColliders.Length; i++)
+        {
+            Collider col = allColliders[i];
+            if (col == null || !col.enabled || col.isTrigger)
+                continue;
+
+            if (!col.gameObject.activeInHierarchy)
+                continue;
+
+            // Keep any collider that is represented by visible geometry.
+            if (HasAnyEnabledRendererNearby(col.transform))
+                continue;
+
+            // Keep known gameplay/self colliders that should never be stripped.
+            if (col is CharacterController)
+                continue;
+            if (col.GetComponentInParent<StarterAssets.FirstPersonController>() != null)
+                continue;
+            if (col.CompareTag("Player"))
+                continue;
+
+            string lowerName = col.gameObject.name.ToLowerInvariant();
+            bool explicitlySuspicious =
+                lowerName.Contains("invisible") ||
+                lowerName.Contains("block") ||
+                lowerName.Contains("barrier") ||
+                lowerName.Contains("boundary") ||
+                lowerName.Contains("wall");
+
+            // Conservative rule: only disable explicitly suspicious collider names that
+            // are also not represented by visible geometry.
+            if (explicitlySuspicious && !HasAnyEnabledRendererNearby(col.transform))
+            {
+                col.enabled = false;
+                disabledCount++;
+
+                if (disabledDetails.Count < 20)
+                {
+                    string path = GetHierarchyPath(col.transform);
+                    disabledDetails.Add($"{col.GetType().Name} @ {path}");
+                }
+            }
+        }
+
+        Debug.Log($"[LevelManager] Level6 invisible-blocker hotfix disabled {disabledCount} collider(s).");
+        for (int i = 0; i < disabledDetails.Count; i++)
+            Debug.Log($"[LevelManager]   disabled[{i + 1}]: {disabledDetails[i]}");
+    }
+
+    private static bool HasAnyEnabledRendererNearby(Transform t)
+    {
+        if (t == null)
+            return false;
+
+        Renderer[] ownAndChildren = t.GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < ownAndChildren.Length; i++)
+        {
+            Renderer r = ownAndChildren[i];
+            if (r != null && r.enabled)
+                return true;
+        }
+
+        Renderer[] parents = t.GetComponentsInParent<Renderer>(true);
+        for (int i = 0; i < parents.Length; i++)
+        {
+            Renderer r = parents[i];
+            if (r != null && r.enabled)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string GetHierarchyPath(Transform t)
+    {
+        if (t == null)
+            return "<null>";
+
+        string path = t.name;
+        Transform cur = t.parent;
+        while (cur != null)
+        {
+            path = cur.name + "/" + path;
+            cur = cur.parent;
+        }
+
+        return path;
     }
 
     private System.Collections.IEnumerator AttachMotionDebugLoggerNextFrame()
@@ -661,6 +775,13 @@ public class LevelManager : MonoBehaviour
         {
             Scene active = SceneManager.GetActiveScene();
             if (!active.name.StartsWith("Level"))
+            {
+                invalidStreak = 0;
+                yield return new WaitForSeconds(safetyCheckInterval);
+                continue;
+            }
+
+            if (disableOutOfBoundsRescueInLevel6 && active.name == "Level6")
             {
                 invalidStreak = 0;
                 yield return new WaitForSeconds(safetyCheckInterval);
