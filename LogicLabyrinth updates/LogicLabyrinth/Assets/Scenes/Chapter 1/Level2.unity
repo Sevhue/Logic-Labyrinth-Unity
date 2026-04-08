@@ -12624,6 +12624,15 @@ MonoBehaviour:
   StaminaRegenRate: 15
   StaminaRegenDelay: 1
   MinStaminaToSprint: 10
+  MaxHealth: 100
+  DamageCooldownSeconds: 0.25
+  DamageFlashDuration: 0.2
+  DamageFlashMaxAlpha: 0.3
+  DamageShakeDuration: 0.2
+  DamageShakeIntensity: 0.09
+  DeathOverlayFadeDuration: 0.45
+  DeathHoldDuration: 0.95
+  DeathOverlayMaxAlpha: 0.72
   CinemachineCameraTarget: {fileID: 1759548563}
   TopClamp: 89
   BottomClamp: -89
@@ -21704,6 +21713,9 @@ MonoBehaviour:
   baseLightIntensity: 2
   baseLightRange: 3
   minSecondsAfterOpenBeforeTransition: 0.15
+  recentPlayerTouchGraceSeconds: 0.75
+  doorwayTriggerCount: 3
+  doorwayTriggerHorizontalSpread: 0.7
 --- !u!1 &1364984088 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: -6944363349700419941, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
@@ -26063,6 +26075,37 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1673656088}
   m_CullTransparentMesh: 1
+--- !u!1 &1674320428
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1674320429}
+  m_Layer: 0
+  m_Name: Celiling
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1674320429
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1674320428}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -37.82066, y: -0.95793, z: -5.01827}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &1675027866
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -30871,3 +30914,4 @@ SceneRoots:
   - {fileID: 1472299309}
   - {fileID: 1364983685}
   - {fileID: 185984108}
+  - {fileID: 1674320429}
