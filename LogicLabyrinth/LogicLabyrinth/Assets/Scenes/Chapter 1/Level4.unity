@@ -1202,6 +1202,12 @@ MonoBehaviour:
   fogColor: {r: 0.01, g: 0.01, b: 0.02, a: 1}
   fogDensity: 0.12
   directionalLightIntensity: 0.02
+  forceOnlyTorchLights: 1
+  torchNameKeywords:
+  - torch
+  - brazi
+  - sconce
+  - flame
   torchLightBoost: 1.5
   torchExtraRange: 5
 --- !u!4 &99225377
@@ -22166,7 +22172,11 @@ MonoBehaviour:
   shinePulseSpeed: 2.5
   shineIntensity: 3
   shineRange: 4
+  successGlowDuration: 1
   showLegacyPickupPopup: 0
+  showSuccessKeyDoorHint: 1
+  successKeyHintDelay: 0.2
+  successKeyHintVisibleTime: 1.5
 --- !u!64 &1355016323
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -24349,11 +24359,19 @@ MonoBehaviour:
   GroundLayers:
     serializedVersion: 2
     m_Bits: 4294967295
+  SafeSkinWidth: 0.1
+  SafeStepOffset: 0.3
   MaxStamina: 100
   StaminaDrainRate: 25
   StaminaRegenRate: 15
   StaminaRegenDelay: 1
   MinStaminaToSprint: 10
+  MaxHealth: 100
+  DamageCooldownSeconds: 0.25
+  DamageFlashDuration: 0.2
+  DamageFlashMaxAlpha: 0.3
+  DamageShakeDuration: 0.2
+  DamageShakeIntensity: 0.09
   CinemachineCameraTarget: {fileID: 227366898}
   TopClamp: 89
   BottomClamp: -89
@@ -25245,6 +25263,11 @@ MonoBehaviour:
   andGateText: {fileID: 0}
   orGateText: {fileID: 0}
   notGateText: {fileID: 0}
+  enableDropGateHint: 1
+  dropGateHintThreshold: 3
+  dropGateHintInitialDelay: 1.5
+  enableTabCursorHint: 1
+  tabCursorHintInitialDelay: 1
 --- !u!4 &1584786764
 Transform:
   m_ObjectHideFlags: 0
@@ -29092,6 +29115,10 @@ MonoBehaviour:
   pulseSpeed: 2
   baseLightIntensity: 2
   baseLightRange: 3
+  minSecondsAfterOpenBeforeTransition: 0.15
+  recentPlayerTouchGraceSeconds: 0.75
+  doorwayTriggerCount: 3
+  doorwayTriggerHorizontalSpread: 0.7
 --- !u!64 &1986933474
 MeshCollider:
   m_ObjectHideFlags: 0
