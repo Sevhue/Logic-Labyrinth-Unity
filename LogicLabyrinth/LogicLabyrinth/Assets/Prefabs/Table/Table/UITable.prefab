@@ -1190,7 +1190,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &4838770525725520671
 RectTransform:
   m_ObjectHideFlags: 0
@@ -1288,7 +1288,16 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PuzzleTableController
   answerKey: 0100000001000000010000000000000000000000
   maxAttempts: 3
+  selectedQuestionIndex: -1
+  currentLevelNumber: 1
+  selectedQuestionExpression: 
+  requiredAnd: 0
+  requiredOr: 0
+  requiredNot: 0
   puzzleContent: {fileID: 0}
+  questionNumberText: {fileID: 0}
+  legacyBoardScale: 1.08
+  legacyBoardYOffset: 0
 --- !u!1 &4668680285667232727
 GameObject:
   m_ObjectHideFlags: 0
