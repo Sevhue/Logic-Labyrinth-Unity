@@ -45,7 +45,7 @@ public class PauseMenuController : MonoBehaviour
     public string mayaReturnBaseUrl = "http://localhost:8787/maya-return";
 
     [Tooltip("When backend is unreachable, allow a local sandbox fallback so store checkout can still proceed in development.")]
-    public bool allowMayaOfflineFallback = true;
+    public bool allowMayaOfflineFallback = false;
 
     [Tooltip("Allow manual completion button for Maya sandbox when status remains pending in development.")]
     public bool allowMayaSandboxManualConfirm = true;
@@ -726,8 +726,8 @@ public class PauseMenuController : MonoBehaviour
         bool alreadyOwned = AccountManager.Instance != null && AccountManager.Instance.HasStoreItem(itemKey) && !itemKey.Equals("Adrenaline", StringComparison.OrdinalIgnoreCase);
 
         string reference = $"LL-{DateTime.UtcNow:HHmmssfff}";
-        string checkoutId = $"chk_sandbox_{DateTime.UtcNow:yyyyMMddHHmmssfff}";
-        pendingCheckoutRedirectUrl = $"https://payments-web-sandbox.maya.ph/v2/checkout?checkoutId={checkoutId}";
+        pendingCheckoutId = null;
+        pendingCheckoutRedirectUrl = null;
         pendingCheckoutReference = reference;
         pendingCheckoutGranted = false;
 
@@ -1247,12 +1247,47 @@ public class PauseMenuController : MonoBehaviour
             }
 
             pendingCheckoutId = response.checkoutId;
-            pendingCheckoutRedirectUrl = response.redirectUrl;
+            pendingCheckoutRedirectUrl = NormalizeMayaHostedCheckoutUrl(response.redirectUrl, response.checkoutId);
 
             Application.OpenURL(pendingCheckoutRedirectUrl);
             ShowAwaitingVerificationScreen(itemKey, quantity, price, reference);
             checkoutInProgress = false;
         }
+    }
+
+    private static string NormalizeMayaHostedCheckoutUrl(string redirectUrl, string checkoutId)
+    {
+        string id = string.IsNullOrWhiteSpace(checkoutId) ? "" : checkoutId.Trim();
+
+        if (string.IsNullOrWhiteSpace(redirectUrl))
+            return string.IsNullOrWhiteSpace(id)
+                ? ""
+                : $"https://payments-web-sandbox.maya.ph/v2/checkout?id={UnityWebRequest.EscapeURL(id)}";
+
+        if (!Uri.TryCreate(redirectUrl, UriKind.Absolute, out Uri uri))
+            return redirectUrl;
+
+        string path = uri.AbsolutePath ?? "";
+        if (path.IndexOf("/v2/checkout/result", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            string finalId = id;
+            if (string.IsNullOrWhiteSpace(finalId))
+            {
+                string q = uri.Query ?? "";
+                int idx = q.IndexOf("id=", StringComparison.OrdinalIgnoreCase);
+                if (idx >= 0)
+                {
+                    int start = idx + 3;
+                    int end = q.IndexOf('&', start);
+                    finalId = end >= 0 ? q.Substring(start, end - start) : q.Substring(start);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(finalId))
+                return $"{uri.Scheme}://{uri.Host}/v2/checkout?id={UnityWebRequest.EscapeURL(finalId)}";
+        }
+
+        return redirectUrl;
     }
 
     private void EnterOfflineCheckoutFallback(string itemKey, int quantity, decimal price, string reference)

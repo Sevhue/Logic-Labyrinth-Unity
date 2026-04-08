@@ -9971,6 +9971,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::CollectibleCandle
   bobSpeed: 1.2
   bobHeight: 0.12
+  alwaysSpawnInLevel1: 1
   candleLightColor: {r: 1, g: 0.85, b: 0.55, a: 1}
   candleLightIntensity: 1.5
   candleLightRange: 4
@@ -30093,6 +30094,7 @@ MonoBehaviour:
   andCount: 2
   fillRestWithNOT: 1
   spawnedGateScaleMultiplier: 1
+  useSpawnPointScale: 1
   showSpawnPointMarkers: 1
   spawnPointMarkerSize: 0.12
   showRandomGateMeshPreview: 1
@@ -52644,6 +52646,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1751031907074868969}
+  - component: {fileID: 2361619640800466042}
   m_Layer: 0
   m_Name: FirstPersonPlayer
   m_TagString: Player
@@ -52651,6 +52654,14 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
+--- !u!81 &2361619640800466042
+AudioListener:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2361619640800466041}
+  m_Enabled: 1
 --- !u!114 &2889487488282725233
 MonoBehaviour:
   m_ObjectHideFlags: 0

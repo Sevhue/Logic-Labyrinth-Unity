@@ -17,6 +17,9 @@ public class CollectibleCandle : MonoBehaviour
     public float bobSpeed = 1.2f;
     public float bobHeight = 0.12f;
 
+    [Header("Scene Spawn Rules")]
+    public bool alwaysSpawnInLevel1 = true;
+
     [Header("Candle Light (when equipped)")]
     public Color candleLightColor = new Color(1f, 0.85f, 0.55f, 1f);
     public float candleLightIntensity = 1.5f;
@@ -44,6 +47,8 @@ public class CollectibleCandle : MonoBehaviour
     // Runtime references for the equipped candle
     private static GameObject equippedCandleModel;
     private static Light equippedCandleLight;
+    private static int resolvedSceneHandle = int.MinValue;
+    private static int selectedCandleInstanceId = int.MinValue;
 
     private Vector3 startLocalPos;
     private Light tutorialShineLight;
@@ -52,6 +57,12 @@ public class CollectibleCandle : MonoBehaviour
 
     void Start()
     {
+        if (!ShouldSpawnInCurrentScene())
+        {
+            gameObject.SetActive(false);
+            return;
+        }
+
         startLocalPos = transform.localPosition;
 
         // Fix negative scale BEFORE adding collider to avoid
@@ -88,6 +99,32 @@ public class CollectibleCandle : MonoBehaviour
 
         TryEnableTutorialShine();
         StartCoroutine(BobAndSpin());
+    }
+
+    private bool ShouldSpawnInCurrentScene()
+    {
+        Scene scene = SceneManager.GetActiveScene();
+        if (alwaysSpawnInLevel1 && scene.name == "Level1")
+            return true;
+
+        ResolveSceneCandleSelection(scene);
+        return selectedCandleInstanceId == GetInstanceID();
+    }
+
+    private void ResolveSceneCandleSelection(Scene scene)
+    {
+        if (resolvedSceneHandle == scene.handle)
+            return;
+
+        resolvedSceneHandle = scene.handle;
+        selectedCandleInstanceId = int.MinValue;
+
+        CollectibleCandle[] candles = FindObjectsByType<CollectibleCandle>(FindObjectsSortMode.None);
+        if (candles == null || candles.Length == 0)
+            return;
+
+        int chosenIndex = Random.Range(0, candles.Length);
+        selectedCandleInstanceId = candles[chosenIndex].GetInstanceID();
     }
 
     /// <summary>

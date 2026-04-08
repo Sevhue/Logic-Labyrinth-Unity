@@ -223,6 +223,19 @@ app.get('/api/maya/checkout-status/:checkoutId', async (req, res) => {
     return res.status(400).json({ message: 'checkoutId is required.' });
   }
 
+  // Prefer redirect callback signals first. This is the most reliable sandbox source
+  // when status API access is blocked (e.g., key-scope K004).
+  const redirectSignal = redirectSignals.get(checkoutId);
+  if (redirectSignal) {
+    return res.json({
+      checkoutId,
+      status: redirectSignal.status,
+      paid: Boolean(redirectSignal.paid),
+      source: redirectSignal.source,
+      updatedAt: redirectSignal.updatedAt
+    });
+  }
+
   try {
     const authHeader = buildBasicAuthHeader();
 

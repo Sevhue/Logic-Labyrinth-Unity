@@ -1,5 +1,7 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+using TMPro;
 using System.Globalization;
 
 public class LevelManager : MonoBehaviour
@@ -638,9 +640,9 @@ public class LevelManager : MonoBehaviour
                     Debug.Log($"[ContinueGame] >>> No mid-level save (savedLevel=0). Loading Level {levelToLoad} from spawn.");
                 }
 
-                Debug.Log($"[ContinueGame] Setting isLoadingGame=true, shouldRestorePosition={shouldRestorePosition}, calling LoadLevel({levelToLoad})");
+                Debug.Log($"[ContinueGame] Setting isLoadingGame=true, shouldRestorePosition={shouldRestorePosition}, starting transition to Level {levelToLoad}");
                 isLoadingGame = true;
-                LoadLevel(levelToLoad);
+                StartCoroutine(LoadLevelWithSplash(levelToLoad));
             }
             else
             {
@@ -651,6 +653,75 @@ public class LevelManager : MonoBehaviour
                 }
             }
         });
+    }
+
+    private System.Collections.IEnumerator LoadLevelWithSplash(int levelToLoad)
+    {
+        GameObject overlay = CreateLoadOverlay(levelToLoad);
+        if (overlay != null)
+        {
+            Object.DontDestroyOnLoad(overlay);
+            // Keep this short so load game stays responsive while still showing LEVEL X.
+            yield return new WaitForSeconds(0.9f);
+            overlay.AddComponent<FadeOverlayAutoDestroy>();
+        }
+
+        LoadLevel(levelToLoad);
+    }
+
+    private GameObject CreateLoadOverlay(int levelNumber)
+    {
+        GameObject root = new GameObject("LoadGame_FadeOverlay");
+
+        Canvas canvas = root.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 999;
+
+        CanvasScaler scaler = root.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+
+        root.AddComponent<GraphicRaycaster>();
+
+        CanvasGroup cg = root.AddComponent<CanvasGroup>();
+        cg.alpha = 1f;
+        cg.blocksRaycasts = true;
+        cg.interactable = false;
+
+        GameObject bg = new GameObject("BlackOverlay");
+        bg.transform.SetParent(root.transform, false);
+        RectTransform bgRt = bg.AddComponent<RectTransform>();
+        bgRt.anchorMin = Vector2.zero;
+        bgRt.anchorMax = Vector2.one;
+        bgRt.offsetMin = Vector2.zero;
+        bgRt.offsetMax = Vector2.zero;
+        Image bgImg = bg.AddComponent<Image>();
+        bgImg.color = Color.black;
+        bgImg.raycastTarget = true;
+
+        GameObject textGO = new GameObject("LevelTransitionText");
+        textGO.transform.SetParent(root.transform, false);
+        RectTransform textRt = textGO.AddComponent<RectTransform>();
+        textRt.anchorMin = new Vector2(0.1f, 0.35f);
+        textRt.anchorMax = new Vector2(0.9f, 0.65f);
+        textRt.offsetMin = Vector2.zero;
+        textRt.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI tmp = textGO.AddComponent<TextMeshProUGUI>();
+        tmp.text = $"LEVEL {levelNumber}";
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.enableAutoSizing = true;
+        tmp.fontSizeMin = 64;
+        tmp.fontSizeMax = 180;
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.color = new Color(0.95f, 0.87f, 0.62f, 1f);
+        tmp.raycastTarget = false;
+
+        Outline outline = textGO.AddComponent<Outline>();
+        outline.effectColor = new Color(0.15f, 0.1f, 0.05f, 0.95f);
+        outline.effectDistance = new Vector2(4f, 4f);
+
+        return root;
     }
 
     /// <summary>

@@ -253,12 +253,12 @@ public class AdrenalineConsumableController : MonoBehaviour
         if (attachedToCamera)
         {
             sipPos = startPos + new Vector3(-0.07f, 0.14f, -0.19f);
-            sipRot = startRot * Quaternion.Euler(-55f, -8f, 65f);
+            sipRot = startRot * Quaternion.Euler(-55f, 8f, -65f);
         }
         else
         {
             sipPos = startPos + new Vector3(0.01f, 0.02f, 0.03f);
-            sipRot = startRot * Quaternion.Euler(-35f, 10f, 45f);
+            sipRot = startRot * Quaternion.Euler(-35f, -10f, -45f);
         }
 
         const float inDuration = 0.28f;

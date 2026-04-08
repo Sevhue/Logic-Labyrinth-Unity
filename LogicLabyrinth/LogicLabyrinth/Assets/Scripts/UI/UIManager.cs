@@ -77,6 +77,7 @@ public class UIManager : MonoBehaviour
 
     private GameObject playerObject;
     private bool isInitialized = false;
+    private System.Action validationConfirmAction;
 
 
     private static UIManager _currentInstance;
@@ -1327,6 +1328,13 @@ public class UIManager : MonoBehaviour
 
     private void ShowValidationMessage(string message)
     {
+        ShowValidationMessage(message, null);
+    }
+
+    private void ShowValidationMessage(string message, System.Action onConfirm)
+    {
+        validationConfirmAction = onConfirm;
+
         if (validationPopup != null && validationMessageText != null)
         {
             StyleValidationPopup();
@@ -1444,7 +1452,18 @@ public class UIManager : MonoBehaviour
                 buttonText.fontSize = 24f;
                 buttonText.color = new Color(0.9f, 0.82f, 0.49f, 1f);
             }
+
+            confirmButton.onClick.RemoveAllListeners();
+            confirmButton.onClick.AddListener(OnValidationConfirmButtonClicked);
         }
+    }
+
+    private void OnValidationConfirmButtonClicked()
+    {
+        System.Action action = validationConfirmAction;
+        validationConfirmAction = null;
+        CloseValidationPopup();
+        action?.Invoke();
     }
 
     private static Image FindLargestChildImage(Transform root)

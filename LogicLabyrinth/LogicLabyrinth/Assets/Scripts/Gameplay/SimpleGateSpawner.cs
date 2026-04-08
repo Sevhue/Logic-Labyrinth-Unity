@@ -22,6 +22,8 @@ public class SimpleGateSpawner : MonoBehaviour
     [Header("Spawn Transform")]
     [Tooltip("Scales every spawned gate uniformly. Lower this if gates appear too large at spawn points.")]
     [Min(0.01f)] public float spawnedGateScaleMultiplier = 1f;
+    [Tooltip("Also apply each SpawnPoint transform scale to that spawned gate. Scale SpawnPoints in Scene view for per-location sizing.")]
+    public bool useSpawnPointScale = true;
 
     [Header("Editor Preview")]
     [Tooltip("Always show SpawnPoint markers and indices in Scene view for easier placement.")]
@@ -173,7 +175,9 @@ public class SimpleGateSpawner : MonoBehaviour
     {
         if (gatePrefab == null || point == null) return;
         GameObject spawned = Instantiate(gatePrefab, point.position, point.rotation);
-        spawned.transform.localScale *= spawnedGateScaleMultiplier;
+        Vector3 pointScale = useSpawnPointScale ? AbsVec(point.localScale) : Vector3.one;
+        Vector3 finalScale = pointScale * spawnedGateScaleMultiplier;
+        spawned.transform.localScale = Vector3.Scale(spawned.transform.localScale, finalScale);
     }
 
     /// <summary>
@@ -245,13 +249,12 @@ public class SimpleGateSpawner : MonoBehaviour
         if (prefab == null || point == null) return;
         if (!TryGetPrefabLocalBounds(prefab, out Bounds bounds)) return;
 
-        Vector3 scaledCenter = bounds.center * spawnedGateScaleMultiplier;
-        Vector3 scaledSize = bounds.size * spawnedGateScaleMultiplier;
+        Vector3 previewScale = GetPreviewScale(point);
 
         Matrix4x4 prev = Gizmos.matrix;
-        Gizmos.matrix = Matrix4x4.TRS(point.position, point.rotation, Vector3.one);
+        Gizmos.matrix = Matrix4x4.TRS(point.position, point.rotation, previewScale);
         Gizmos.color = color;
-        Gizmos.DrawWireCube(scaledCenter, scaledSize);
+        Gizmos.DrawWireCube(bounds.center, bounds.size);
         Gizmos.matrix = prev;
 
         Handles.color = color;
@@ -282,7 +285,7 @@ public class SimpleGateSpawner : MonoBehaviour
             return;
         }
 
-        Matrix4x4 root = Matrix4x4.TRS(point.position, point.rotation, Vector3.one * spawnedGateScaleMultiplier);
+        Matrix4x4 root = Matrix4x4.TRS(point.position, point.rotation, GetPreviewScale(point));
 
         for (int i = 0; i < meshFilters.Length; i++)
         {
@@ -298,6 +301,17 @@ public class SimpleGateSpawner : MonoBehaviour
             Gizmos.DrawWireMesh(mf.sharedMesh);
             Gizmos.matrix = prev;
         }
+    }
+
+    Vector3 GetPreviewScale(Transform point)
+    {
+        Vector3 pointScale = (useSpawnPointScale && point != null) ? AbsVec(point.localScale) : Vector3.one;
+        return pointScale * spawnedGateScaleMultiplier;
+    }
+
+    static Vector3 AbsVec(Vector3 v)
+    {
+        return new Vector3(Mathf.Abs(v.x), Mathf.Abs(v.y), Mathf.Abs(v.z));
     }
 
     bool TryGetPrefabLocalBounds(GameObject prefab, out Bounds bounds)
