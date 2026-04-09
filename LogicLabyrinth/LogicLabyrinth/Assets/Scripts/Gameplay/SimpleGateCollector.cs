@@ -318,7 +318,6 @@ public class SimpleGateCollector : MonoBehaviour
                     float dot = Vector3.Dot(ray.direction, toGate);
                     float dist = Vector3.Distance(ray.origin, interactable.transform.position);
                     if (dot > 0.75f && dist < 2f && dist < bestDistance
-                        && IsDirectlyAimable(interactable.transform)
                         && gateObjectDistance <= MaxGateCollectDistance)
                     {
                         bestDistance = dist;
@@ -326,7 +325,6 @@ public class SimpleGateCollector : MonoBehaviour
                     }
                 }
                 else if (hitDist < bestDistance
-                         && IsDirectlyAimable(interactable.transform)
                          && gateObjectDistance <= MaxGateCollectDistance)
                 {
                     bestDistance = hitDist;
@@ -543,12 +541,6 @@ public class SimpleGateCollector : MonoBehaviour
     {
         if (currentInteractable == null) return;
         if (playerCamera == null) return;
-        if (!IsDirectlyAimable(currentInteractable.transform))
-        {
-            currentInteractable = null;
-            HidePrompt();
-            return;
-        }
         if (GetGateDistanceFromCamera(playerCamera.transform.position, currentInteractable) > MaxGateCollectDistance)
         {
             currentInteractable = null;
