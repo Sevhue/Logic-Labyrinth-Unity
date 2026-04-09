@@ -280,9 +280,11 @@ public class CollectibleKey : MonoBehaviour
             Destroy(msgUI);
         }
 
-        Destroy(gameObject);
+        gameObject.SetActive(false);
     }
 
+    /// <summary>
+    /// Re-enables and resets this key to its original placement so the tutorial flow can
     private GameObject CreatePickupMessage()
     {
         GameObject msgUI = new GameObject("KeyPickupMessage");

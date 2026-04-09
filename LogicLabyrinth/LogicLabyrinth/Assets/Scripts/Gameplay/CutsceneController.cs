@@ -142,6 +142,9 @@ public class CutsceneController : MonoBehaviour
         // Add TutorialDoor component early so door interaction works at all times
         EnsureTutorialDoorComponent();
 
+        // Disable tutorial key at start so it can't be picked up before table quest
+        DisableTutorialKeyAtStart();
+
         StartCoroutine(StartCutsceneDelayed());
     }
 
@@ -185,6 +188,19 @@ public class CutsceneController : MonoBehaviour
         }
     }
 
+    private void DisableTutorialKeyAtStart()
+    {
+        CollectibleKey[] keys = FindObjectsByType<CollectibleKey>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < keys.Length; i++)
+        {
+            CollectibleKey key = keys[i];
+            if (key == null || key.keyType != CollectibleKey.KeyType.Tutorial) continue;
+            key.gameObject.SetActive(false);
+            Debug.Log("[Cutscene] Tutorial key disabled at start.");
+            return;
+        }
+    }
+
     void Update()
     {
         // ── Phase 1: Cutscene panels ──
@@ -224,6 +240,29 @@ public class CutsceneController : MonoBehaviour
         {
             waitingForTableClose = false;
             StartDoorTutorial();
+        }
+
+        // If the player grabs the tutorial key before opening the table,
+        // keep the quest text in sync with that path to avoid stale guidance.
+        if (tutorialQuestStage == TutorialQuestStage.OpenTable && TutorialDoor.TutorialKeyCollected)
+        {
+            if (doorQuestTypingRoutine != null)
+            {
+                StopCoroutine(doorQuestTypingRoutine);
+                doorQuestTypingRoutine = null;
+            }
+
+            if (doorQuestHeadingTMP != null)
+                doorQuestHeadingTMP.text = "TO DO";
+
+            if (openDoorQuestTaskTMP != null)
+            {
+                openDoorQuestTaskTMP.text = "FIND THE KEY";
+                openDoorQuestTaskTMP.color = new Color(0.70f, 1f, 0.73f, 1f);
+            }
+
+            if (openDoorQuestCheckboxTMP != null)
+                openDoorQuestCheckboxTMP.text = "[v]";
         }
 
         if (doorTutorialStarted)
@@ -1087,6 +1126,27 @@ public class CutsceneController : MonoBehaviour
         SetQuestRowVisible(openDoorQuestCheckboxTMP, openDoorQuestTaskTMP, false);
 
         StartCoroutine(RunTableDialogue());
+        
+        // Enable the tutorial key after table dialogue finishes so it can't be picked up before.
+        ActivateTutorialKeyAfterDelay(4f);
+    }
+
+    private void ActivateTutorialKeyAfterDelay(float delay)
+    {
+        StartCoroutine(ActivateTutorialKeyDelayedRoutine(delay));
+    }
+
+    private IEnumerator ActivateTutorialKeyDelayedRoutine(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        CollectibleKey[] keys = FindObjectsByType<CollectibleKey>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < keys.Length; i++)
+        {
+            CollectibleKey key = keys[i];
+            if (key == null || key.keyType != CollectibleKey.KeyType.Tutorial) continue;
+            key.gameObject.SetActive(true);
+            yield break;
+        }
     }
 
     private IEnumerator RunDoorQuestIntroTyping()

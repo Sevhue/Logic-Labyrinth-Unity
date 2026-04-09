@@ -3,10 +3,12 @@ using UnityEngine.UI;
 using TMPro;
 using UnityEngine.SceneManagement;
 using System.Collections;
+using System.Collections.Generic;
 
 public class UIManager : MonoBehaviour
 {
     public static UIManager Instance;
+    private TMP_Dropdown profileBestRunsDropdown;
 
     [Header("Main Menu Panels")]
     public GameObject loggedOutPanel;
@@ -453,6 +455,20 @@ public class UIManager : MonoBehaviour
             accountProfilePanel.SetActive(true);
             WireAccountProfilePanelButtons();
             PopulateAccountProfileFields();
+
+            AccountManager.Instance.RefreshPlayerDataFromFirebase(success =>
+            {
+                if (accountProfilePanel == null || !accountProfilePanel.activeInHierarchy)
+                    return;
+
+                PopulateAccountProfileFields();
+
+                if (ProfileManager.Instance != null)
+                {
+                    ProfileManager.Instance.LoadCurrentProfileFromPlayer();
+                    ProfileManager.Instance.RefreshProfileDisplay();
+                }
+            });
         }
         SetCursorState(false);
 
@@ -530,31 +546,269 @@ public class UIManager : MonoBehaviour
         SetProfileField("Gender", p.gender);
 
         // ── Stats section (Boarder) ──
-        // The "Boarder" child has 4 Text (TMP) children for: Maze Depth, level, Puzzle Solved, count
-        // We'll search for specific text content and update the value texts
         Transform boarder = FindChildRecursive(accountProfilePanel.transform, "Boarder");
         if (boarder != null)
         {
             TextMeshProUGUI[] statTexts = boarder.GetComponentsInChildren<TextMeshProUGUI>(true);
+            int puzzleCount = p.completedPuzzles != null ? p.completedPuzzles.Count : 0;
+            string mazeDepthText = GetProfileMazeDepthText(p);
+            string totalPlayedText = GetProfileTotalPlayedText(p);
+
             foreach (var txt in statTexts)
             {
-                string lower = txt.text.Trim().ToLower();
+                string lower = (txt.text ?? string.Empty).Replace("\r", string.Empty).Trim().ToLowerInvariant();
 
-                // Update the "level" text (below "Maze Depth")
-                if (lower == "level" || lower.StartsWith("level"))
-                {
-                    txt.text = $"Level {p.unlockedLevels}";
-                }
-                // Update the puzzles count (below "Puzzle Solved")
-                else if (lower == "0" || (int.TryParse(lower, out _) && !lower.Contains(":")))
-                {
-                    int puzzleCount = p.completedPuzzles != null ? p.completedPuzzles.Count : 0;
-                    txt.text = puzzleCount.ToString();
-                }
+                if (lower.StartsWith("maze depth"))
+                    txt.text = $"Maze Depth\n\n    <b>{mazeDepthText}</b>";
+                else if (lower.StartsWith("puzzle solved"))
+                    txt.text = $"Puzzle Solved\n\n<align=\"center\"><b>{puzzleCount}</b></align>";
+                else if (lower.StartsWith("total played"))
+                    txt.text = $"Total Played\n\n    <b>{totalPlayedText}</b>";
+                else if (lower.StartsWith("fastest") || lower.StartsWith("best campaign"))
+                    txt.text = "Best Campaign";
             }
+
+            EnsureProfileBestRunsDropdown(boarder, p);
         }
 
         Debug.Log($"[UIManager] Populated AccountProfilePanel: name='{displayName}', email='{email}', gender='{p.gender}', age='{p.age}'");
+    }
+
+    private static string GetProfileMazeDepthText(AccountManager.PlayerData player)
+    {
+        if (player == null) return "--";
+        if (player.lastCompletedLevel <= 0) return "--";
+        if (player.lastCompletedLevel == 1) return "Tutorial";
+        return $"Level {player.lastCompletedLevel}";
+    }
+
+    private static string GetProfileTotalPlayedText(AccountManager.PlayerData player)
+    {
+        if (player == null || player.totalPlayedSeconds <= 0f) return "--:--";
+        return LevelTimer.FormatTime(player.totalPlayedSeconds);
+    }
+
+    private static string GetProfileCampaignTimeText(AccountManager.PlayerData player)
+    {
+        if (player == null) return "--:--";
+
+        var bestTimes = AccountManager.ParseBestTimes(player.bestLevelTimes);
+        float total = 0f;
+        int rankedCount = 0;
+
+        foreach (var kvp in bestTimes)
+        {
+            if (kvp.Key < 2 || kvp.Value <= 0f)
+                continue;
+
+            total += kvp.Value;
+            rankedCount++;
+        }
+
+        return rankedCount > 0 ? LevelTimer.FormatTime(total) : "--:--";
+    }
+
+    private void EnsureProfileBestRunsDropdown(Transform boarder, AccountManager.PlayerData player)
+    {
+        if (boarder == null) return;
+
+        if (profileBestRunsDropdown == null)
+        {
+            Transform existing = boarder.Find("BestRunsDropdown");
+            if (existing != null)
+                profileBestRunsDropdown = existing.GetComponent<TMP_Dropdown>();
+        }
+
+        if (profileBestRunsDropdown == null)
+            profileBestRunsDropdown = CreateProfileBestRunsDropdown(boarder);
+
+        if (profileBestRunsDropdown == null) return;
+
+        var bestTimes = player != null
+            ? AccountManager.ParseBestTimes(player.bestLevelTimes)
+            : new Dictionary<int, float>();
+
+        var options = new List<string>();
+        int firstCompletedIndex = -1;
+
+        for (int level = 2; level <= 15; level++)
+        {
+            bool hasTime = bestTimes.TryGetValue(level, out float seconds) && seconds > 0f;
+            string timeText = hasTime ? LevelTimer.FormatTime(seconds) : "--:--";
+            options.Add($"Level {level}   {timeText}");
+
+            if (hasTime && firstCompletedIndex < 0)
+                firstCompletedIndex = level - 2;
+        }
+
+        profileBestRunsDropdown.ClearOptions();
+        profileBestRunsDropdown.AddOptions(options);
+        profileBestRunsDropdown.value = firstCompletedIndex >= 0 ? firstCompletedIndex : 0;
+        profileBestRunsDropdown.RefreshShownValue();
+    }
+
+    private TMP_Dropdown CreateProfileBestRunsDropdown(Transform parent)
+    {
+        // Root container
+        GameObject container = new GameObject("BestRunsDropdown", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline));
+        container.transform.SetParent(parent, false);
+
+        RectTransform rt = container.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.58f, 0.24f);
+        rt.anchorMax = new Vector2(0.94f, 0.38f);
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+
+
+        Image bg = container.GetComponent<Image>();
+        bg.color = new Color(0.12f, 0.09f, 0.05f, 0.95f);
+        bg.raycastTarget = true;
+
+        Outline ol = container.GetComponent<Outline>();
+        ol.effectColor = new Color(0.72f, 0.58f, 0.30f, 1f);
+        ol.effectDistance = new Vector2(1f, -1f);
+
+        // Caption label
+        GameObject captionGO = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+        captionGO.transform.SetParent(container.transform, false);
+        RectTransform captionRT = captionGO.GetComponent<RectTransform>();
+        captionRT.anchorMin = Vector2.zero;
+        captionRT.anchorMax = Vector2.one;
+        captionRT.offsetMin = new Vector2(10f, 4f);
+        captionRT.offsetMax = new Vector2(-30f, -4f);
+
+        TextMeshProUGUI captionTMP = captionGO.GetComponent<TextMeshProUGUI>();
+        captionTMP.fontSize = 17f;
+        captionTMP.color = new Color(0.84f, 0.86f, 0.54f, 1f);
+        captionTMP.alignment = TextAlignmentOptions.Midline;
+        captionTMP.enableWordWrapping = false;
+
+        // Arrow icon
+        GameObject arrowGO = new GameObject("Arrow", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+        arrowGO.transform.SetParent(container.transform, false);
+        RectTransform arrowRT = arrowGO.GetComponent<RectTransform>();
+        arrowRT.anchorMin = new Vector2(1f, 0f);
+        arrowRT.anchorMax = new Vector2(1f, 1f);
+        arrowRT.offsetMin = new Vector2(-24f, 4f);
+        arrowRT.offsetMax = new Vector2(-6f, -4f);
+
+        TextMeshProUGUI arrowTMP = arrowGO.GetComponent<TextMeshProUGUI>();
+        arrowTMP.text = "▼";
+        arrowTMP.fontSize = 14f;
+        arrowTMP.color = new Color(0.72f, 0.58f, 0.30f, 1f);
+        arrowTMP.alignment = TextAlignmentOptions.Center;
+        arrowTMP.raycastTarget = false;
+
+        // Template root
+        GameObject templateGO = new GameObject("Template", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline), typeof(ScrollRect));
+        templateGO.transform.SetParent(container.transform, false);
+        templateGO.SetActive(false);
+
+        RectTransform templateRT = templateGO.GetComponent<RectTransform>();
+        templateRT.anchorMin = new Vector2(0f, 0f);
+        templateRT.anchorMax = new Vector2(1f, 0f);
+        templateRT.pivot = new Vector2(0.5f, 1f);
+        templateRT.anchoredPosition = new Vector2(0f, -4f);
+        templateRT.sizeDelta = new Vector2(0f, 250f);
+
+        Image templateBG = templateGO.GetComponent<Image>();
+        templateBG.color = new Color(0.14f, 0.11f, 0.06f, 0.98f);
+
+        Outline templateOL = templateGO.GetComponent<Outline>();
+        templateOL.effectColor = new Color(0.72f, 0.58f, 0.30f, 1f);
+        templateOL.effectDistance = new Vector2(1f, -1f);
+
+        ScrollRect scrollRect = templateGO.GetComponent<ScrollRect>();
+        scrollRect.horizontal = false;
+
+        // Viewport
+        GameObject viewportGO = new GameObject("Viewport", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Mask));
+        viewportGO.transform.SetParent(templateGO.transform, false);
+        RectTransform viewportRT = viewportGO.GetComponent<RectTransform>();
+        viewportRT.anchorMin = Vector2.zero;
+        viewportRT.anchorMax = Vector2.one;
+        viewportRT.offsetMin = Vector2.zero;
+        viewportRT.offsetMax = Vector2.zero;
+
+        Image viewportImg = viewportGO.GetComponent<Image>();
+        viewportImg.color = Color.white;
+        Mask viewportMask = viewportGO.GetComponent<Mask>();
+        viewportMask.showMaskGraphic = false;
+        scrollRect.viewport = viewportRT;
+
+        // Scroll content
+        GameObject contentGO = new GameObject("Content", typeof(RectTransform));
+        contentGO.transform.SetParent(viewportGO.transform, false);
+        RectTransform contentRT = contentGO.GetComponent<RectTransform>();
+        contentRT.anchorMin = new Vector2(0f, 1f);
+        contentRT.anchorMax = new Vector2(1f, 1f);
+        contentRT.pivot = new Vector2(0.5f, 1f);
+        contentRT.sizeDelta = new Vector2(0f, 30f);
+        scrollRect.content = contentRT;
+
+        // Item template
+        GameObject itemGO = new GameObject("Item", typeof(RectTransform), typeof(Toggle));
+        itemGO.transform.SetParent(contentGO.transform, false);
+        RectTransform itemRT = itemGO.GetComponent<RectTransform>();
+        itemRT.anchorMin = new Vector2(0f, 0.5f);
+        itemRT.anchorMax = new Vector2(1f, 0.5f);
+        itemRT.sizeDelta = new Vector2(0f, 30f);
+
+        // Item background
+        GameObject itemBGGO = new GameObject("Item Background", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        itemBGGO.transform.SetParent(itemGO.transform, false);
+        RectTransform itemBGRT = itemBGGO.GetComponent<RectTransform>();
+        itemBGRT.anchorMin = Vector2.zero;
+        itemBGRT.anchorMax = Vector2.one;
+        itemBGRT.offsetMin = Vector2.zero;
+        itemBGRT.offsetMax = Vector2.zero;
+        Image itemBG = itemBGGO.GetComponent<Image>();
+        itemBG.color = new Color(0.18f, 0.14f, 0.08f, 0.95f);
+
+        // Item selection highlight
+        GameObject itemCheckGO = new GameObject("Item Checkmark", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        itemCheckGO.transform.SetParent(itemBGGO.transform, false);
+        RectTransform itemCheckRT = itemCheckGO.GetComponent<RectTransform>();
+        itemCheckRT.anchorMin = Vector2.zero;
+        itemCheckRT.anchorMax = Vector2.one;
+        itemCheckRT.offsetMin = Vector2.zero;
+        itemCheckRT.offsetMax = Vector2.zero;
+        Image itemCheck = itemCheckGO.GetComponent<Image>();
+        itemCheck.color = new Color(0.72f, 0.58f, 0.30f, 0.35f);
+
+        Toggle itemToggle = itemGO.GetComponent<Toggle>();
+        itemToggle.targetGraphic = itemBG;
+        itemToggle.graphic = itemCheck;
+
+        // Item label
+        GameObject itemLabelGO = new GameObject("Item Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+        itemLabelGO.transform.SetParent(itemGO.transform, false);
+        RectTransform itemLabelRT = itemLabelGO.GetComponent<RectTransform>();
+        itemLabelRT.anchorMin = Vector2.zero;
+        itemLabelRT.anchorMax = Vector2.one;
+        itemLabelRT.offsetMin = new Vector2(10f, 2f);
+        itemLabelRT.offsetMax = new Vector2(-10f, -2f);
+
+        TextMeshProUGUI itemLabelTMP = itemLabelGO.GetComponent<TextMeshProUGUI>();
+        itemLabelTMP.fontSize = 15f;
+        itemLabelTMP.color = new Color(0.84f, 0.86f, 0.54f, 1f);
+        itemLabelTMP.alignment = TextAlignmentOptions.MidlineLeft;
+
+        TMP_Dropdown dropdown = container.AddComponent<TMP_Dropdown>();
+        dropdown.template = templateRT;
+        dropdown.captionText = captionTMP;
+        dropdown.itemText = itemLabelTMP;
+        dropdown.value = 0;
+        dropdown.RefreshShownValue();
+
+        ColorBlock cb = dropdown.colors;
+        cb.normalColor = new Color(0.12f, 0.09f, 0.05f, 1f);
+        cb.highlightedColor = new Color(0.20f, 0.16f, 0.10f, 1f);
+        cb.pressedColor = new Color(0.10f, 0.08f, 0.05f, 1f);
+        cb.selectedColor = new Color(0.12f, 0.09f, 0.05f, 1f);
+        dropdown.colors = cb;
+
+        return dropdown;
     }
 
     /// <summary>

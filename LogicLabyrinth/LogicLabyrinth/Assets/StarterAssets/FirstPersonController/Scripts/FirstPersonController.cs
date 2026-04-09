@@ -58,6 +58,8 @@ namespace StarterAssets
 		public bool DebugInvisibleWallHits = true;
 		[Tooltip("Disable anti-warp correction in Level6 to avoid false position rewinds that can feel like invisible walls.")]
 		public bool DisableAntiWarpInLevel6 = true;
+		[Tooltip("Disable anti-warp correction in Level5-8 where complex Chapter 2 geometry can trigger false snap-back while walking.")]
+		public bool DisableAntiWarpInLevel5To8 = true;
 
 		[Header("Stamina")]
 		[Tooltip("Maximum stamina")]
@@ -163,6 +165,13 @@ namespace StarterAssets
 		private const float MinAllowedY = -150.0f;
 		private const float Level6MinAllowedY = -1000.0f;
 		private const float MaxAllowedDropFromLevelStart = 25.0f;
+		private const float HardSingleFrameVerticalWarpLimit = 20.0f;
+		private const float HardSingleFrameTotalWarpLimit = 25.0f;
+
+		private bool IsLevel5To8Scene(string sceneName)
+		{
+			return sceneName == "Level5" || sceneName == "Level6" || sceneName == "Level7" || sceneName == "Level8";
+		}
 
 		private bool IsCurrentDeviceMouse
 		{
@@ -385,7 +394,12 @@ namespace StarterAssets
 		private void Move()
 		{
 			Vector3 preMovePosition = transform.position;
-			bool antiWarpEnabled = !(DisableAntiWarpInLevel6 && gameObject.scene.name == "Level6");
+			string sceneName = gameObject.scene.name;
+			bool isLevel5To8 = IsLevel5To8Scene(sceneName);
+			bool antiWarpDisabledForLevel =
+				(DisableAntiWarpInLevel6 && sceneName == "Level6") ||
+				(DisableAntiWarpInLevel5To8 && isLevel5To8);
+			bool antiWarpEnabled = !antiWarpDisabledForLevel;
 
 			if (antiWarpEnabled && _antiWarpCooldown > 0f)
 			{
@@ -472,6 +486,34 @@ namespace StarterAssets
 
 			Vector3 postMovePosition = transform.position;
 			Vector3 frameDelta = postMovePosition - preMovePosition;
+			bool hasSideContact = (moveFlags & CollisionFlags.Sides) != 0;
+
+			// Last-resort protection against one-frame physics spikes (e.g., sudden ejection by bad mesh contact).
+			// This runs even when anti-warp is disabled for Chapter 2 levels.
+			bool hardWarpSpike =
+				!_input.jump &&
+				!hasSideContact &&
+				(Mathf.Abs(frameDelta.y) > HardSingleFrameVerticalWarpLimit || frameDelta.magnitude > HardSingleFrameTotalWarpLimit);
+
+			if (hardWarpSpike)
+			{
+				Vector3 restorePos = preMovePosition;
+				if (_hasStableGroundedPosition && IsReasonableSafePosition(_lastStableGroundedPosition))
+					restorePos = _lastStableGroundedPosition;
+
+				bool wasEnabled = _controller.enabled;
+				if (wasEnabled) _controller.enabled = false;
+				transform.position = restorePos;
+				Physics.SyncTransforms();
+				if (wasEnabled) _controller.enabled = true;
+
+				_verticalVelocity = -2f;
+				_speed = 0f;
+				_antiWarpCooldown = 0.35f;
+
+				Debug.LogWarning($"[FirstPersonController] Hard warp guard blocked one-frame spike (delta=({frameDelta.x:F2},{frameDelta.y:F2},{frameDelta.z:F2}), mag={frameDelta.magnitude:F2}) in scene '{sceneName}'. Restored to ({restorePos.x:F2},{restorePos.y:F2},{restorePos.z:F2}).");
+				return;
+			}
 			
 			// ===== DEBUG: Detect invisible walls / slope blockers =====
 			float horizontalDesiredMag = new Vector2(desiredMovement.x, desiredMovement.z).magnitude;
@@ -512,8 +554,6 @@ namespace StarterAssets
 			
 			float verticalDelta = postMovePosition.y - preMovePosition.y;
 			float horizontalDelta = new Vector2(frameDelta.x, frameDelta.z).magnitude;
-
-			bool hasSideContact = (moveFlags & CollisionFlags.Sides) != 0;
 
 			bool suspiciousVerticalPop =
 				verticalDelta > MaxVerticalSnapPerFrame &&
@@ -721,6 +761,11 @@ namespace StarterAssets
 			{
 				_verticalVelocity += Gravity * Time.deltaTime;
 			}
+
+			if (!float.IsFinite(_verticalVelocity))
+				_verticalVelocity = -2f;
+
+			_verticalVelocity = Mathf.Clamp(_verticalVelocity, -120f, 35f);
 		}
 
 		private static float ClampAngle(float lfAngle, float lfMin, float lfMax)

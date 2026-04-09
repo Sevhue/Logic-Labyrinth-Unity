@@ -28,7 +28,7 @@ RectTransform:
   m_GameObject: {fileID: 205689856858185650}
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 1.2416682, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 2145966343295547654}
@@ -39,7 +39,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 188, y: -40}
+  m_AnchoredPosition: {x: 237.9, y: -40}
   m_SizeDelta: {x: 495.5617, y: 350.0881}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &109718565403459769
@@ -268,7 +268,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -0.00016308, y: -0.96783}
+  m_AnchoredPosition: {x: 9.4, y: -4.6}
   m_SizeDelta: {x: 250.17, y: 31.195}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &3402410130249550113
@@ -405,7 +405,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -1.6285, y: -0.96783}
+  m_AnchoredPosition: {x: 48.6, y: -3.5}
   m_SizeDelta: {x: 121.82, y: 31.195}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &6662777654418207273
@@ -502,7 +502,7 @@ MonoBehaviour:
   m_VertexBufferAutoSizeReduction: 0
   m_useMaxVisibleDescender: 1
   m_pageToDisplay: 1
-  m_margin: {x: 0, y: 1.2891235, z: 0, w: 0}
+  m_margin: {x: 0, y: 1.2891235, z: 71.58756, w: 0}
   m_isUsingLegacyAnimationComponent: 0
   m_isVolumetricText: 0
   m_hasFontAssetChanged: 0
@@ -966,7 +966,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 133.34512, y: 7.8509}
+  m_AnchoredPosition: {x: 121.1, y: 7.8509}
   m_SizeDelta: {x: 178.6901, y: 34.2982}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &3368898637503396827
@@ -997,9 +997,9 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Fastest  Time
+  m_text: 'Best Campaign
 
-    --.--'
+    --:--'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 6645c2303c995984f99d8e3c3216eaf5, type: 2}
   m_sharedMaterial: {fileID: -1957453987960451884, guid: 6645c2303c995984f99d8e3c3216eaf5, type: 2}
@@ -1065,7 +1065,7 @@ MonoBehaviour:
   m_VertexBufferAutoSizeReduction: 0
   m_useMaxVisibleDescender: 1
   m_pageToDisplay: 1
-  m_margin: {x: 0, y: 0, z: 0, w: 0}
+  m_margin: {x: 0, y: 0, z: -28.451591, w: 0}
   m_isUsingLegacyAnimationComponent: 0
   m_isVolumetricText: 0
   m_hasFontAssetChanged: 0
@@ -1784,7 +1784,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -0.00016308, y: -0.96783}
+  m_AnchoredPosition: {x: 8.7, y: -5.2}
   m_SizeDelta: {x: 250.17, y: 31.195}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &1972815136535529260
@@ -1921,7 +1921,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -1.6285, y: -0.96783}
+  m_AnchoredPosition: {x: 23.8, y: -5.3}
   m_SizeDelta: {x: 121.82, y: 31.195}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &5923805912867273761
@@ -2018,7 +2018,7 @@ MonoBehaviour:
   m_VertexBufferAutoSizeReduction: 0
   m_useMaxVisibleDescender: 1
   m_pageToDisplay: 1
-  m_margin: {x: 0, y: 1.2891235, z: 0, w: 0}
+  m_margin: {x: 0, y: 1.2891235, z: 42.884598, w: 0}
   m_isUsingLegacyAnimationComponent: 0
   m_isVolumetricText: 0
   m_hasFontAssetChanged: 0
@@ -2867,7 +2867,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 4.8496, y: -0.96784}
+  m_AnchoredPosition: {x: 5.5, y: -0.96784}
   m_SizeDelta: {x: 240.47, y: 31.195}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &7705579155632677631

@@ -35,9 +35,13 @@ public class LevelManager : MonoBehaviour
     [Tooltip("Attach PlayerMotionDebugLogger at runtime in level scenes.")]
     public bool enableMotionDebugLogger = true;
 
-    [Header("Level6 Hotfix")]
+    [Header("Invisible Blocker Hotfix")]
     [Tooltip("Disable likely invisible, non-trigger colliders in Level6 to remove unintended blocker volumes.")]
-    public bool disableLevel6InvisibleBlockers = false;
+    public bool disableLevel6InvisibleBlockers = true;
+    [Tooltip("Apply invisible-blocker cleanup in Chapter 2 levels (Level5-8).")]
+    public bool disableChapter2InvisibleBlockers = true;
+    [Tooltip("Apply invisible-blocker cleanup to all playable levels. Uses conservative name checks outside Level5-8.")]
+    public bool disableAllLevelInvisibleBlockers = true;
 
 
     public PuzzleVariant currentLevelPuzzle;
@@ -200,19 +204,24 @@ public class LevelManager : MonoBehaviour
         if (scene.name.StartsWith("Level") && enableMotionDebugLogger)
             StartCoroutine(AttachMotionDebugLoggerNextFrame());
 
-        if (scene.name == "Level6" && disableLevel6InvisibleBlockers)
-            StartCoroutine(DisableLikelyInvisibleBlockersInLevel6NextFrame());
+        bool shouldRunLevel6Fix = scene.name == "Level6" && disableLevel6InvisibleBlockers;
+        bool shouldRunChapter2Fix = disableChapter2InvisibleBlockers && IsLevel5To8Scene(scene.name);
+        bool shouldRunAllLevelFix = disableAllLevelInvisibleBlockers && IsAnyLevelScene(scene.name);
+        if (shouldRunLevel6Fix || shouldRunChapter2Fix || shouldRunAllLevelFix)
+            StartCoroutine(DisableLikelyInvisibleBlockersNextFrame());
 
     }
 
-    private System.Collections.IEnumerator DisableLikelyInvisibleBlockersInLevel6NextFrame()
+    private System.Collections.IEnumerator DisableLikelyInvisibleBlockersNextFrame()
     {
         // Wait one frame so scene bootstrap scripts can finish adding runtime objects.
         yield return null;
 
         Scene active = SceneManager.GetActiveScene();
-        if (active.name != "Level6")
+        if (!IsAnyLevelScene(active.name))
             yield break;
+
+        bool broadChapter2Mode = disableChapter2InvisibleBlockers && IsLevel5To8Scene(active.name);
 
         Collider[] allColliders = FindObjectsByType<Collider>(FindObjectsSortMode.None);
         if (allColliders == null || allColliders.Length == 0)
@@ -250,9 +259,10 @@ public class LevelManager : MonoBehaviour
                 lowerName.Contains("boundary") ||
                 lowerName.Contains("wall");
 
-            // Conservative rule: only disable explicitly suspicious collider names that
-            // are also not represented by visible geometry.
-            if (explicitlySuspicious && !HasAnyEnabledRendererNearby(col.transform))
+            // Chapter 2 uses broader cleanup for unnamed FBX blockers.
+            // Other levels use conservative name-based cleanup to reduce risk of disabling intentional gameplay colliders.
+            bool shouldDisable = broadChapter2Mode ? true : explicitlySuspicious;
+            if (shouldDisable)
             {
                 col.enabled = false;
                 disabledCount++;
@@ -265,9 +275,20 @@ public class LevelManager : MonoBehaviour
             }
         }
 
-        Debug.Log($"[LevelManager] Level6 invisible-blocker hotfix disabled {disabledCount} collider(s).");
+        string mode = broadChapter2Mode ? "broad" : "conservative";
+        Debug.Log($"[LevelManager] Invisible-blocker hotfix ({mode}) disabled {disabledCount} collider(s) in {active.name}.");
         for (int i = 0; i < disabledDetails.Count; i++)
             Debug.Log($"[LevelManager]   disabled[{i + 1}]: {disabledDetails[i]}");
+    }
+
+    private static bool IsAnyLevelScene(string sceneName)
+    {
+        return !string.IsNullOrEmpty(sceneName) && sceneName.StartsWith("Level");
+    }
+
+    private static bool IsLevel5To8Scene(string sceneName)
+    {
+        return sceneName == "Level5" || sceneName == "Level6" || sceneName == "Level7" || sceneName == "Level8";
     }
 
     private static bool HasAnyEnabledRendererNearby(Transform t)

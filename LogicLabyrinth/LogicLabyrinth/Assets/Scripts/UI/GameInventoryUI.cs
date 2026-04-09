@@ -256,63 +256,145 @@ public class GameInventoryUI : MonoBehaviour
 
     /// <summary>
     /// Rebuild all 8 slot items from current inventory state.
-    /// Order: AND gates, OR gates, NOT gates, Key (if held), then empty.
+    /// Keeps existing slot positions when possible, and only fills empty slots for new items.
     /// </summary>
     private void RebuildSlots(int andCount, int orCount, int notCount)
     {
-        // Clear
-        for (int i = 0; i < SLOT_COUNT; i++)
-            slotItems[i] = ItemType.None;
-
-        int slot = 0;
-
-        // Fill AND gates
-        for (int i = 0; i < andCount && slot < SLOT_COUNT; i++, slot++)
-            slotItems[slot] = ItemType.AND;
-
-        // Fill OR gates
-        for (int i = 0; i < orCount && slot < SLOT_COUNT; i++, slot++)
-            slotItems[slot] = ItemType.OR;
-
-        // Fill NOT gates
-        for (int i = 0; i < notCount && slot < SLOT_COUNT; i++, slot++)
-            slotItems[slot] = ItemType.NOT;
-
-        // Fill Key if player has one (either tutorial or success key)
+        // Build target counts from current inventory state.
         bool hasKey = TutorialDoor.PlayerHasKey || SuccessDoor.PlayerHasSuccessKey;
-        if (hasKey && slot < SLOT_COUNT)
-        {
-            slotItems[slot] = ItemType.Key;
-            slot++;
-        }
-
-        // Fill Candle if player has one
         bool hasCandle = (InventoryManager.Instance != null && InventoryManager.Instance.HasCandle);
-        if (hasCandle && slot < SLOT_COUNT)
+        bool hasAdrenaline = (AccountManager.Instance != null && AccountManager.Instance.GetAdrenalineCount() > 0);
+        int targetAnd = Mathf.Max(0, andCount);
+        int targetOr = Mathf.Max(0, orCount);
+        int targetNot = Mathf.Max(0, notCount);
+        int targetGateTotal = targetAnd + targetOr + targetNot;
+        int targetKey = hasKey ? 1 : 0;
+        int targetCandle = hasCandle ? 1 : 0;
+        int targetAdrenaline = hasAdrenaline ? 1 : 0;
+
+        int previousSelectedSlot = selectedSlot;
+        ItemType previousSelectedItem = (previousSelectedSlot >= 0 && previousSelectedSlot < SLOT_COUNT)
+            ? slotItems[previousSelectedSlot]
+            : ItemType.None;
+
+        ItemType[] oldSlots = new ItemType[SLOT_COUNT];
+        ItemType[] newSlots = new ItemType[SLOT_COUNT];
+        for (int i = 0; i < SLOT_COUNT; i++)
         {
-            slotItems[slot] = ItemType.Candle;
-            slot++;
+            oldSlots[i] = slotItems[i];
+            newSlots[i] = ItemType.None;
         }
 
-        // Fill Adrenaline if player has at least one from the store
-        bool hasAdrenaline = (AccountManager.Instance != null && AccountManager.Instance.GetAdrenalineCount() > 0);
-        if (hasAdrenaline && slot < SLOT_COUNT)
+        int oldGateTotal = 0;
+        for (int i = 0; i < SLOT_COUNT; i++)
+            if (IsGateItem(oldSlots[i])) oldGateTotal++;
+
+        // First pass: keep existing items in the same slot when still needed.
+        for (int i = 0; i < SLOT_COUNT; i++)
         {
-            slotItems[slot] = ItemType.Adrenaline;
-            slot++;
+            ItemType item = oldSlots[i];
+            bool kept = false;
+
+            switch (item)
+            {
+                case ItemType.AND:
+                    if (targetAnd > 0) { newSlots[i] = ItemType.AND; targetAnd--; kept = true; }
+                    break;
+                case ItemType.OR:
+                    if (targetOr > 0) { newSlots[i] = ItemType.OR; targetOr--; kept = true; }
+                    break;
+                case ItemType.NOT:
+                    if (targetNot > 0) { newSlots[i] = ItemType.NOT; targetNot--; kept = true; }
+                    break;
+                case ItemType.Key:
+                    if (targetKey > 0) { newSlots[i] = ItemType.Key; targetKey--; kept = true; }
+                    break;
+                case ItemType.Candle:
+                    if (targetCandle > 0) { newSlots[i] = ItemType.Candle; targetCandle--; kept = true; }
+                    break;
+                case ItemType.Adrenaline:
+                    if (targetAdrenaline > 0) { newSlots[i] = ItemType.Adrenaline; targetAdrenaline--; kept = true; }
+                    break;
+            }
+
+            if (!kept)
+                newSlots[i] = ItemType.None;
         }
-        else if (hasAdrenaline && slot >= SLOT_COUNT)
+
+        // Second pass: place newly gained items into remaining empty slots.
+        for (int i = 0; i < SLOT_COUNT; i++)
         {
+            if (newSlots[i] != ItemType.None) continue;
+
+            if (targetAnd > 0) { newSlots[i] = ItemType.AND; targetAnd--; continue; }
+            if (targetOr > 0) { newSlots[i] = ItemType.OR; targetOr--; continue; }
+            if (targetNot > 0) { newSlots[i] = ItemType.NOT; targetNot--; continue; }
+            if (targetKey > 0) { newSlots[i] = ItemType.Key; targetKey--; continue; }
+            if (targetCandle > 0) { newSlots[i] = ItemType.Candle; targetCandle--; continue; }
+            if (targetAdrenaline > 0) { newSlots[i] = ItemType.Adrenaline; targetAdrenaline--; continue; }
+        }
+
+        // If gates were dropped, compact remaining gates left into open slots.
+        // Non-gate items (key/candle/adrenaline) keep their current positions.
+        if (targetGateTotal < oldGateTotal)
+            CompactGatesLeft(newSlots);
+
+        // Copy back to live slots.
+        for (int i = 0; i < SLOT_COUNT; i++)
+            slotItems[i] = newSlots[i];
+
+        // Keep selection if it still points to a valid item; otherwise clear it.
+        if (previousSelectedSlot >= 0 && previousSelectedSlot < SLOT_COUNT && slotItems[previousSelectedSlot] == previousSelectedItem)
+        {
+            selectedSlot = previousSelectedSlot;
+        }
+        else
+        {
+            if (previousSelectedItem == ItemType.Candle)
+                CollectibleCandle.Unequip();
+            selectedSlot = -1;
+        }
+
+        if (hasAdrenaline && targetAdrenaline > 0)
             Debug.LogWarning("[Hotbar] Adrenaline available but hotbar is full, so ADR cannot be shown.");
-        }
 
         if (hasAdrenaline)
         {
             int adrCount = AccountManager.Instance != null ? AccountManager.Instance.GetAdrenalineCount() : 0;
-            Debug.Log($"[Hotbar] RebuildSlots -> adrenalineCount={adrCount}, hasAdrenaline={hasAdrenaline}, usedSlots={slot}/{SLOT_COUNT}");
+            int usedSlots = 0;
+            for (int i = 0; i < SLOT_COUNT; i++)
+                if (slotItems[i] != ItemType.None) usedSlots++;
+            Debug.Log($"[Hotbar] RebuildSlots -> adrenalineCount={adrCount}, hasAdrenaline={hasAdrenaline}, usedSlots={usedSlots}/{SLOT_COUNT}");
         }
 
         UpdateSlotVisuals();
+    }
+
+    private static bool IsGateItem(ItemType item)
+    {
+        return item == ItemType.AND || item == ItemType.OR || item == ItemType.NOT;
+    }
+
+    private void CompactGatesLeft(ItemType[] slots)
+    {
+        ItemType[] gates = new ItemType[SLOT_COUNT];
+        int gateCount = 0;
+
+        // Pull out all gates, keep their left-to-right order.
+        for (int i = 0; i < SLOT_COUNT; i++)
+        {
+            if (!IsGateItem(slots[i])) continue;
+            gates[gateCount++] = slots[i];
+            slots[i] = ItemType.None;
+        }
+
+        // Reinsert gates into earliest empty slots, skipping occupied non-gate slots.
+        int gateIndex = 0;
+        for (int i = 0; i < SLOT_COUNT && gateIndex < gateCount; i++)
+        {
+            if (slots[i] != ItemType.None) continue;
+            slots[i] = gates[gateIndex++];
+        }
     }
 
     private int FindLastSlotOf(ItemType type)
@@ -530,6 +612,7 @@ public class GameInventoryUI : MonoBehaviour
 
         Image frameBG = qSlotRoot.AddComponent<Image>();
         frameBG.color = new Color(barBGColor.r, barBGColor.g, barBGColor.b, 0.75f);
+        frameBG.raycastTarget = false;
 
         Outline frameOutline = qSlotRoot.AddComponent<Outline>();
         frameOutline.effectColor = new Color(0.40f, 0.32f, 0.16f, 0.6f);
@@ -545,6 +628,7 @@ public class GameInventoryUI : MonoBehaviour
         borderRT.sizeDelta = new Vector2(62f, 58f);
         qSlotBorderImage = borderGO.AddComponent<Image>();
         qSlotBorderImage.color = new Color(0.55f, 0.18f, 0.12f, 0.85f);
+        qSlotBorderImage.raycastTarget = false;
 
         // ── Inner background ──
         GameObject bgGO = CreateUIObject("BG", borderGO.transform);
@@ -555,6 +639,7 @@ public class GameInventoryUI : MonoBehaviour
         bgRT.offsetMax = new Vector2(-2f, -2f);
         Image bgImg = bgGO.AddComponent<Image>();
         bgImg.color = slotBGColor;
+        bgImg.raycastTarget = false;
 
         // ── "Q" key badge — centered, behind icon and label ──
         GameObject numGO = CreateUIObject("QKey", bgGO.transform);
@@ -610,26 +695,11 @@ public class GameInventoryUI : MonoBehaviour
     {
         if (qSlotIconImage == null || qSlotLabelTMP == null) return;
 
-        ItemType selectedItem = (selectedSlot >= 0 && selectedSlot < SLOT_COUNT) ? slotItems[selectedSlot] : ItemType.None;
-        bool isGate = selectedItem == ItemType.AND || selectedItem == ItemType.OR || selectedItem == ItemType.NOT;
-
-        if (!isGate)
-        {
-            qSlotIconImage.color = Color.clear;
-            qSlotLabelTMP.text = "";
-            if (qSlotBorderImage != null)
-                qSlotBorderImage.color = new Color(0.55f, 0.18f, 0.12f, 0.85f);
-        }
-        else
-        {
-            ItemType item = selectedItem;
-            Color itemColor = GetItemColor(item);
-            qSlotIconImage.color = new Color(itemColor.r, itemColor.g, itemColor.b, 0.25f);
-            qSlotLabelTMP.text = GetItemLabel(item);
-            qSlotLabelTMP.color = itemColor;
-            if (qSlotBorderImage != null)
-                qSlotBorderImage.color = new Color(0.72f, 0.20f, 0.15f, 0.95f);
-        }
+        // Q slot is only a static key hint for discard. It should not mirror selected gates.
+        qSlotIconImage.color = Color.clear;
+        qSlotLabelTMP.text = "";
+        if (qSlotBorderImage != null)
+            qSlotBorderImage.color = new Color(0.55f, 0.18f, 0.12f, 0.85f);
     }
 
     // ═══════════════════════════════════

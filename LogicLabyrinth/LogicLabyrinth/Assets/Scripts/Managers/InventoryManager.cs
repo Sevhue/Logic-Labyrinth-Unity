@@ -203,8 +203,21 @@ public class InventoryManager : MonoBehaviour
             GameInventoryUI.Instance.OnGateCollected(gateType);
         }
 
-        // Show first-time tutorial card (no-op on repeat collects of the same type)
-        GateTutorialCard.ShowCard(gateType);
+        string sceneName = SceneManager.GetActiveScene().name;
+        bool showGateCard = sceneName == "Level1" || sceneName == "Level2";
+
+        // Show first-time tutorial card only in Level1/Level2.
+        // In higher levels, unlock journal entry silently without opening the card.
+        if (showGateCard)
+        {
+            GateTutorialCard.ShowCard(gateType);
+        }
+        else
+        {
+            string key = gateType.ToUpper();
+            if (key == "AND" || key == "OR" || key == "NOT")
+                GateTutorialCard.SeenGateTypes.Add(key);
+        }
 
         // Make sure the J-key journal listener is alive
         GateJournal.EnsureInstance();

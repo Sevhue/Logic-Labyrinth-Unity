@@ -18975,6 +18975,11 @@ MonoBehaviour:
   andGateText: {fileID: 0}
   orGateText: {fileID: 0}
   notGateText: {fileID: 0}
+  enableDropGateHint: 1
+  dropGateHintThreshold: 3
+  dropGateHintInitialDelay: 1.5
+  enableTabCursorHint: 1
+  tabCursorHintInitialDelay: 1
 --- !u!4 &1024935314
 Transform:
   m_ObjectHideFlags: 0
@@ -40112,6 +40117,13 @@ MonoBehaviour:
   orCount: 3
   andCount: 2
   fillRestWithNOT: 1
+  spawnedGateScaleMultiplier: 1
+  useSpawnPointScale: 1
+  showSpawnPointMarkers: 1
+  spawnPointMarkerSize: 0.12
+  showRandomGateMeshPreview: 1
+  previewRandomSeed: 7
+  previewOnSelectedSpawnPoint: 1
 --- !u!4 &1701048499
 Transform:
   m_ObjectHideFlags: 0
@@ -54470,7 +54482,7 @@ Transform:
   m_GameObject: {fileID: 2361619640800466041}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 24.76, y: -0.89, z: 0.7}
+  m_LocalPosition: {x: 24.76, y: -1.248, z: 0.7}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -54560,11 +54572,25 @@ MonoBehaviour:
   GroundLayers:
     serializedVersion: 2
     m_Bits: 4294967295
+  SafeSkinWidth: 0.1
+  SafeStepOffset: 0.3
+  SafeSlopeLimit: 70
+  DebugInvisibleWallHits: 1
+  DisableAntiWarpInLevel6: 1
   MaxStamina: 100
   StaminaDrainRate: 25
   StaminaRegenRate: 15
   StaminaRegenDelay: 1
   MinStaminaToSprint: 10
+  MaxHealth: 100
+  DamageCooldownSeconds: 0.25
+  DamageFlashDuration: 0.2
+  DamageFlashMaxAlpha: 0.3
+  DamageShakeDuration: 0.2
+  DamageShakeIntensity: 0.09
+  DeathOverlayFadeDuration: 0.45
+  DeathHoldDuration: 0.95
+  DeathOverlayMaxAlpha: 0.72
   CinemachineCameraTarget: {fileID: 725064021795477722}
   TopClamp: 89
   BottomClamp: -89

@@ -541,14 +541,6 @@ public class SimpleGateCollector : MonoBehaviour
         // If the popup is already open, Q is the close key — let SwapGateUI handle it.
         if (SwapGateUI.IsOpen) return;
 
-        string selectedGateType = GetSelectedDroppableGateType();
-        if (!string.IsNullOrEmpty(selectedGateType) && InventoryManager.Instance.GetTotalGateCount() > 0)
-        {
-            Debug.Log($"[SimpleGateCollector] Direct-dropping selected gate: {selectedGateType}");
-            SwapGateUI.DiscardGateImmediately(selectedGateType, andGatePrefab, orGatePrefab, notGatePrefab, transform);
-            return;
-        }
-
         Debug.Log("[SimpleGateCollector] Opening discard UI.");
         SwapGateUI.ShowDiscard(andGatePrefab, orGatePrefab, notGatePrefab, transform);
     }
