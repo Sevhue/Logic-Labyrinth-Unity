@@ -1,6 +1,58 @@
 # Session Log
 
+## 2026-04-10
+
+### Fix: ESC/X no longer resets attempts; wrong-answer shake now visible while solving
+- Root cause (attempt reset): `InteractiveTable.WatchForPuzzleClose()` always destroyed `puzzleUIInstance`, so every reopen created a fresh controller with `3/3` attempts.
+- Fix: reuse `puzzleUIInstance` for manual close (ESC/X) and only destroy it on terminal states (`wasSolved` or `wasGameOver`).
+- Root cause (no shake on wrong submit): puzzle UI mode disabled `FirstPersonController`, so shake feedback couldn't render while puzzle stayed open.
+- Fix: in `SetUIMode(true)`, keep `FirstPersonController` enabled and still disable input/collector/brain.
+- Validation: `PuzzleTableController.cs` and `InteractiveTable.cs` compile with no errors.
+
+### Feature: wrong answer — shake every time, auto-return gates, candle cleared on death
+- **Shake on game over too**: `OnGameOver()` now also calls `fpc.TriggerCameraShake()` so ALL wrong answers shake, including the final one.
+- **Auto-return gates to palette on wrong**: Both wrong-answer code paths now call `ReturnAllSlotsToInventory()` before the flash — gates in the drop slots are returned to the puzzle palette automatically on each wrong submission.
+- **Candle clear on death**: In `FirstPersonController.DeathAndRespawnRoutine()`, `InventoryManager.Instance.SetHasCandle(false)` is called BEFORE the scene reload (belt-and-suspenders alongside `LevelManager.OnSceneLoaded` which also clears it). Only adrenaline persists across death since it's stored in Firebase PlayerData.
+- Validation: Both files compile with no errors.
+
+### Feature: big red "WRONG!" flash + camera shake on wrong puzzle answer
+- Request: show a big centred "WRONG!" text (like the attempts style) and a small camera shake when submitting a wrong answer.
+- Changes:
+  - `FirstPersonController.cs`: added `public void TriggerCameraShake(float duration, float intensity)` — triggers the existing shake system without damage flash.
+  - `PuzzleTableController.cs`: added `ShowWrongFlash()` — shows 80px bold red "WRONG!" with transparent background for 0.9s, then calls `fpc.TriggerCameraShake(0.3f, 0.15f)`.
+  - Both wrong-answer code paths (composition check and slot-by-slot check) now call `ShowWrongFlash()` when there are attempts remaining.
+- Validation: No compile errors.
+
+### Fix: death reloads the scene completely instead of respawning in-place
+- Request: On death, restart the game fresh (scene reload) instead of respawning at a spawn point.
+- Change in `FirstPersonController.cs`:
+  - Added `using UnityEngine.SceneManagement;`
+  - In `DeathAndRespawnRoutine()`: after Space prompt, replaced `RespawnAtSpawnPoint()` + fade-out with `SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex)`.
+  - Removed unreachable fade-out code.
+- Result: Dying (trap or puzzle) shows death overlay → player presses Space → scene reloads completely (fresh gates, fresh timer, fresh inventory).
+- Validation: No compile errors.
+
+### Fix: puzzle game-over death — gates drop normally, new question on next attempt
+- Clarification: Player DOES lose their gates on puzzle death (normal drop), but the puzzle shows a new question when they return.
+- Change: Removed `SuppressGateDrop = true` from `PuzzleTableController.DelayedGameOver()` — gates now drop as with trap deaths.
+- The `SuppressGateDrop` property on `FirstPersonController` remains (unused, harmless).
+- New-question logic (`exhaustedQuestionIndices` in `InteractiveTable.cs`) still handles showing a different question after game-over.
+- Validation: `PuzzleTableController.cs` compiles with no errors.
+
 ## 2026-04-09
+
+### Fix: at 0/3 attempts, trigger real player death flow after GAME OVER message
+- Request: When puzzle reaches `0/3`, character should actually die (not just close puzzle UI).
+- Minimal fix applied:
+  - [Assets/Scripts/Puzzle/PuzzleTableController.cs](Assets/Scripts/Puzzle/PuzzleTableController.cs)
+  - In `DelayedGameOver()`:
+    - keep existing 3-second GAME OVER display
+    - close puzzle UI as before
+    - then find `FirstPersonController` and apply lethal damage (`CurrentHealth`) to trigger normal death flow
+- Result:
+  - Puzzle `0/3` now causes real death sequence (death overlay + respawn flow).
+- Validation:
+  - `PuzzleTableController.cs` compile check reports no errors.
 
 ### Fix: prevent E-spam gate collection during death/game-over state
 - Request: While dead/game-over overlay is active, spamming `E` could collect dropped gates at the death position.

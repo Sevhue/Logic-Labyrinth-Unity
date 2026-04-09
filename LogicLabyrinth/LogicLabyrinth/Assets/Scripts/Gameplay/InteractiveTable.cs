@@ -240,8 +240,9 @@ public class InteractiveTable : MonoBehaviour
 
         EnsureEventSystem();
 
-        // Instantiate the puzzle UI
-        puzzleUIInstance = Instantiate(puzzleUIPrefab);
+        // Reuse existing puzzle UI instance after manual close (ESC/X) so attempts persist.
+        if (puzzleUIInstance == null)
+            puzzleUIInstance = Instantiate(puzzleUIPrefab);
         puzzleUIInstance.SetActive(true);
 
         EnsurePuzzleUIInfrastructure(puzzleUIInstance);
@@ -387,8 +388,8 @@ public class InteractiveTable : MonoBehaviour
         if (GameInventoryUI.Instance != null)
             GameInventoryUI.Instance.gameObject.SetActive(true);
 
-        // Clean up
-        if (puzzleUIInstance != null)
+        // Clean up only after terminal states; keep instance for manual close/reopen attempt continuity.
+        if (puzzleUIInstance != null && (wasSolved || wasGameOver))
         {
             Destroy(puzzleUIInstance);
             puzzleUIInstance = null;

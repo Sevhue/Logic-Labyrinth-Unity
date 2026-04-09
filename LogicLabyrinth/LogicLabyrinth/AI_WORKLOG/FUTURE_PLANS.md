@@ -1,5 +1,24 @@
 # Future Plans
 
+## Immediate validation (manual close should keep attempts)
+- Open puzzle and submit one wrong answer so attempts show `2/3`.
+- Press `Esc` (or click `X`) to close.
+- Reopen the same table immediately.
+- Confirm attempts still show `2/3` (not reset to `3/3`).
+- Fail until game over and confirm next fresh open starts at `3/3` as expected.
+
+## Immediate validation (wrong submit shake visibility)
+- Open puzzle and submit a wrong answer while attempts remain.
+- Confirm the camera shake is visible immediately (not only on close/game-over).
+- Submit another wrong answer and confirm shake repeats consistently.
+- On final wrong answer, confirm shake still triggers before game-over flow.
+
+## Immediate validation (puzzle 0/3 should kill player)
+- In puzzle table, fail submissions until attempts reach `0/3`.
+- Confirm `GAME OVER` feedback is shown first (about 3 seconds).
+- Confirm puzzle closes and then normal player death flow starts (`YOU DIED` + respawn prompt).
+- Confirm no gate pickup is possible during death overlay (dead-state interaction lock still active).
+
 ## Immediate validation (death-state interaction lock)
 - Die while carrying gates so they drop at death location.
 - During death/game-over overlay, spam `E` and confirm no gate is collected.

@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
@@ -104,6 +105,8 @@ namespace StarterAssets
 		public float CurrentHealth { get; private set; }
 		public float HealthPercent => MaxHealth > 0f ? CurrentHealth / MaxHealth : 0f;
 		public bool IsDead { get; private set; }
+		/// <summary>Set to true before calling ApplyDamage to skip the gate-drop on death (e.g. puzzle game-over).</summary>
+		public bool SuppressGateDrop { get; set; }
 		private float _nextDamageAllowedTime;
 		private CanvasGroup _damageFlashCanvasGroup;
 		private float _damageFlashTimer;
@@ -1025,7 +1028,9 @@ namespace StarterAssets
 				LevelTimer.Instance.PauseTimer();
 
 			Vector3 deathPosition = transform.position;
-			DropAllCollectedGatesAtDeathPosition(deathPosition);
+			if (!SuppressGateDrop)
+				DropAllCollectedGatesAtDeathPosition(deathPosition);
+			SuppressGateDrop = false;
 
 			EnsureDeathOverlay();
 
@@ -1067,27 +1072,10 @@ namespace StarterAssets
 			if (_respawnPromptTMP != null)
 				_respawnPromptTMP.color = new Color(0.75f, 0.75f, 0.75f, 0f);
 
-			RespawnAtSpawnPoint();
-
-			float fadeOutDuration = 0.35f;
-			t = 0f;
-			while (t < fadeOutDuration)
-			{
-				t += Time.deltaTime;
-				float a = 1f - Mathf.Clamp01(t / fadeOutDuration);
-				if (_deathOverlayCanvasGroup != null)
-					_deathOverlayCanvasGroup.alpha = maxDark * a;
-				if (_deathTextTMP != null)
-					_deathTextTMP.color = new Color(deathTextBase.r, deathTextBase.g, deathTextBase.b, a);
-				yield return null;
-			}
-
-			if (_deathOverlayCanvasGroup != null)
-				_deathOverlayCanvasGroup.alpha = 0f;
-			if (_deathTextTMP != null)
-				_deathTextTMP.color = new Color(deathTextBase.r, deathTextBase.g, deathTextBase.b, 0f);
-
-			_deathRoutineRunning = false;
+			// Reload the scene completely for a fresh start — clear transient items before reload
+			if (InventoryManager.Instance != null)
+				InventoryManager.Instance.SetHasCandle(false);
+			SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
 		}
 
 		private void RespawnAtSpawnPoint()
@@ -1266,6 +1254,20 @@ namespace StarterAssets
 			}
 
 			_damageShakeTimer = Mathf.Max(_damageShakeTimer, Mathf.Max(0.05f, DamageShakeDuration));
+		}
+
+		/// <summary>Trigger a camera shake without any damage/flash — used by puzzle wrong-answer feedback.</summary>
+		public void TriggerCameraShake(float duration = 0.25f, float intensity = 0.12f)
+		{
+			if (CinemachineCameraTarget != null && !_cameraTargetBaseCached)
+			{
+				_cameraTargetBaseLocalPos = CinemachineCameraTarget.transform.localPosition;
+				_cameraTargetBaseCached = true;
+			}
+			float safeDuration = Mathf.Max(0.05f, duration);
+			_damageShakeTimer = Mathf.Max(_damageShakeTimer, safeDuration);
+			// Temporarily override intensity to caller's value for this shake
+			DamageShakeIntensity = Mathf.Max(DamageShakeIntensity, intensity);
 		}
 
 		private void UpdateDamageFeedback()

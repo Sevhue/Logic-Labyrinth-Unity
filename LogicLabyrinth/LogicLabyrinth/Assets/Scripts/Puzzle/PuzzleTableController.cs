@@ -22,6 +22,7 @@ public class PuzzleTableController : MonoBehaviour
     /// <summary>True if the puzzle was solved in this session (read by InteractiveTable).</summary>
     public bool WasPuzzleSolved => puzzleSolved;
     public bool WasGameOver => isGameOver;
+    private bool preserveAttemptsOnReopen = false;
 
     [Header("Puzzle Answer Key")]
     [Tooltip("The correct gate for each box slot, in order (Box1, Box2, Box3, ...)")]
@@ -200,7 +201,9 @@ public class PuzzleTableController : MonoBehaviour
 
         puzzleSolved = false;
         isGameOver = false;
-        attemptsUsed = 0;
+        if (!preserveAttemptsOnReopen)
+            attemptsUsed = 0;
+        preserveAttemptsOnReopen = false;
         IsOpen = true;
 
         // Reset puzzleContent so FindPuzzleContent picks the correct Q panel
@@ -254,6 +257,9 @@ public class PuzzleTableController : MonoBehaviour
         {
             slot.ClearSlot();
         }
+
+        // Keep current attempt progress if player manually closes via ESC/X.
+        preserveAttemptsOnReopen = true;
 
         IsOpen = false;
 
@@ -949,15 +955,12 @@ public class PuzzleTableController : MonoBehaviour
                 if (attemptsUsed >= maxAttempts)
                 {
                     isGameOver = true;
-                    ShowFeedback("GAME OVER!\nNo attempts remaining.", new Color(1f, 0.2f, 0.2f), 0f);
                     OnGameOver();
                 }
                 else
                 {
-                    int remaining = maxAttempts - attemptsUsed;
-                    ShowFeedback(
-                        $"Wrong gate composition.\nNeed AND x{requiredAnd}, OR x{requiredOr}, NOT x{requiredNot}\n{remaining} attempt{(remaining == 1 ? "" : "s")} left.",
-                        new Color(1f, 0.4f, 0.3f), 3f);
+                    ReturnAllSlotsToInventory();
+                    ShowWrongFlash();
                 }
             }
             return;
@@ -1004,14 +1007,12 @@ public class PuzzleTableController : MonoBehaviour
             if (attemptsUsed >= maxAttempts)
             {
                 isGameOver = true;
-                ShowFeedback("GAME OVER!\nNo attempts remaining.", new Color(1f, 0.2f, 0.2f), 0f);
                 OnGameOver();
             }
             else
             {
-                int remaining = maxAttempts - attemptsUsed;
-                ShowFeedback($"Wrong! {correctCount}/{dropSlots.Count} correct.\n{remaining} attempt{(remaining == 1 ? "" : "s")} left.",
-                    new Color(1f, 0.4f, 0.3f), 3f);
+                ReturnAllSlotsToInventory();
+                ShowWrongFlash();
             }
         }
     }
@@ -1062,6 +1063,29 @@ public class PuzzleTableController : MonoBehaviour
     }
 
     // ===================== FEEDBACK =====================
+
+    private void ShowWrongFlash()
+    {
+        // Big bold "WRONG!" floating in the centre — no dark background, just text
+        if (feedbackPanel != null)
+        {
+            // Make the panel background invisible so only the text shows
+            Image bg = feedbackPanel.GetComponent<Image>();
+            if (bg != null) bg.color = new Color(0f, 0f, 0f, 0f);
+            Outline ol = feedbackPanel.GetComponent<Outline>();
+            if (ol != null) ol.enabled = false;
+        }
+
+        if (feedbackText != null)
+            feedbackText.fontSize = 80;
+
+        ShowFeedback("WRONG!", new Color(1f, 0.1f, 0.1f, 1f), 0.9f);
+
+        // Camera shake via FPC
+        FirstPersonController fpc = cachedFPC != null ? cachedFPC : FindFirstObjectByType<FirstPersonController>();
+        if (fpc != null)
+            fpc.TriggerCameraShake(0.3f, 0.15f);
+    }
 
     private void ShowFeedback(string message, Color color, float autoHideDelay)
     {
@@ -1147,9 +1171,19 @@ public class PuzzleTableController : MonoBehaviour
         gameObject.SetActive(false);
     }
 
+    private void ReturnAllSlotsToInventory()
+    {
+        foreach (var slot in dropSlots)
+            slot.ReturnGateToInventory();
+    }
+
     private void OnGameOver()
     {
         Debug.Log("[PuzzleTable] GAME OVER - No attempts remaining");
+
+        // Shake camera on final wrong answer
+        FirstPersonController fpcShake = cachedFPC != null ? cachedFPC : FindFirstObjectByType<FirstPersonController>();
+        if (fpcShake != null) fpcShake.TriggerCameraShake(0.3f, 0.15f);
 
         if (submitButton != null)
         {
@@ -1157,13 +1191,11 @@ public class PuzzleTableController : MonoBehaviour
             if (btn != null) btn.interactable = false;
         }
 
-        StartCoroutine(DelayedGameOver());
+        DelayedGameOver();
     }
 
-    private IEnumerator DelayedGameOver()
+    private void DelayedGameOver()
     {
-        yield return new WaitForSecondsRealtime(3f);
-
         // Return placed gates before closing so slots do not persist visually across openings.
         foreach (var slot in dropSlots)
             slot.ClearSlot();
@@ -1171,6 +1203,14 @@ public class PuzzleTableController : MonoBehaviour
         SetUIMode(false);
         IsOpen = false;
         gameObject.SetActive(false);
+
+        // Puzzle failure: trigger normal death flow (overlay + gate drop + respawn).
+        FirstPersonController fpc = FindFirstObjectByType<FirstPersonController>();
+        if (fpc != null && !fpc.IsDead)
+        {
+            float lethalDamage = Mathf.Max(1f, fpc.CurrentHealth);
+            fpc.ApplyDamage(lethalDamage);
+        }
     }
 
     // ===================== UI MODE (cursor + player controls) =====================
@@ -1222,7 +1262,7 @@ public class PuzzleTableController : MonoBehaviour
             // NOTE: Do NOT disable CharacterController — disabling it removes
             // collision/ground detection and causes the player to clip through
             // the floor and teleport when re-enabled.
-            if (cachedFPC != null) cachedFPC.enabled = false;
+            // Keep FirstPersonController enabled so camera-shake feedback can still play.
             if (cachedInputs != null) cachedInputs.enabled = false;
             // cachedCC stays ENABLED to keep player grounded
             if (cachedCollector != null) cachedCollector.enabled = false;
