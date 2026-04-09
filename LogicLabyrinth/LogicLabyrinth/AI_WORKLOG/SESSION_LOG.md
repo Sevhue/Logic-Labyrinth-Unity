@@ -1,5 +1,20 @@
 # Session Log
 
+## 2026-04-09
+
+### Minimal rollback-style fix for AND/OR gate pickup regression
+- User report: AND/OR gates stopped being collectible again after a recent collector behavior change.
+- Approach used (per request): smallest plausible code change first, no refactor.
+- Change:
+  - [Assets/Scripts/Gameplay/SimpleGateCollector.cs](Assets/Scripts/Gameplay/SimpleGateCollector.cs)
+  - Removed strict `IsDirectlyAimable(...)` requirement from gate candidate selection.
+  - Removed strict `IsDirectlyAimable(...)` early-return guard from `TryCollectGate()`.
+  - Kept existing mesh-distance safety check (`GetGateDistanceFromCamera(...) <= MaxGateCollectDistance`) intact.
+- Validation:
+  - `SimpleGateCollector.cs` compile check reports no errors.
+- Expected result:
+  - AND/OR gates can be collected again in partially occluded/embedded cases while still blocking far accidental pickup via mesh distance.
+
 ## 2026-02-27
 
 ### Gate collection reliability (Level2 report)

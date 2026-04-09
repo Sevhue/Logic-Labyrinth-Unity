@@ -18,10 +18,14 @@ public class Interactable : MonoBehaviour
         // so existing saves in Firebase still match.
         if (string.IsNullOrEmpty(gateID))
         {
-            gateID = $"{gateType}_{gameObject.name}_{transform.position.x}_{transform.position.y}_{transform.position.z}";
+            // Use consistent invariant-culture formatting for float precision
+            gateID = string.Format(CultureInfo.InvariantCulture,
+                "{0}_{1}_{2:F3}_{3:F3}_{4:F3}",
+                gateType, gameObject.name,
+                transform.position.x, transform.position.y, transform.position.z);
         }
 
-        Debug.Log($"[Gate] Start: gateID='{gateID}'");
+        Debug.Log($"[Gate] Start: gateID='{gateID}', gateType={gateType}, gameObject={gameObject.name}, enabled={gameObject.activeSelf}");
 
         // ── Immediate check (frame 0) — no delay ──
         if (IsAlreadyCollected())
@@ -37,24 +41,24 @@ public class Interactable : MonoBehaviour
 
     /// <summary>
     /// Returns true if this gate's ID is in the player's destroyedGates list.
-    /// Checks both the current gateID and an invariant-culture variant for robustness.
     /// </summary>
     private bool IsAlreadyCollected()
     {
-        if (AccountManager.Instance == null) return false;
+        if (AccountManager.Instance == null)
+        {
+            Debug.Log($"[Gate] AccountManager not found for gate {gateID}");
+            return false;
+        }
         var player = AccountManager.Instance.GetCurrentPlayer();
-        if (player == null || player.destroyedGates == null) return false;
+        if (player == null || player.destroyedGates == null)
+        {
+            Debug.Log($"[Gate] Player or destroyedGates list not found for gate {gateID}");
+            return false;
+        }
 
-        if (player.destroyedGates.Contains(gateID))
-            return true;
-
-        // Also try an invariant-culture formatted ID in case saved on a different locale
-        string invariantID = string.Format(CultureInfo.InvariantCulture,
-            "{0}_{1}_{2:F3}_{3:F3}_{4:F3}",
-            gateType, gameObject.name,
-            transform.position.x, transform.position.y, transform.position.z);
-
-        return player.destroyedGates.Contains(invariantID);
+        bool isCollected = player.destroyedGates.Contains(gateID);
+        Debug.Log($"[Gate] IsAlreadyCollected check for {gateID}: {isCollected} (total destroyed: {player.destroyedGates.Count})");
+        return isCollected;
     }
 
     private IEnumerator CheckIfDestroyedAfterDelay()
