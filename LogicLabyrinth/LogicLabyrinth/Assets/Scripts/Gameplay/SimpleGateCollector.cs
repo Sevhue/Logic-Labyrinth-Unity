@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using StarterAssets;
 
 public class SimpleGateCollector : MonoBehaviour
 {
@@ -29,9 +30,21 @@ public class SimpleGateCollector : MonoBehaviour
     private UIManager _mainUI;
     private float _uiCacheTimer;
     private float _debugTableTimer;
+    private FirstPersonController _playerController;
 
     void Update()
     {
+        if (_playerController == null)
+            _playerController = GetComponentInParent<FirstPersonController>();
+
+        // Block interactions while dead so dropped gates cannot be re-collected during death/game-over screen.
+        if (_playerController != null && _playerController.IsDead)
+        {
+            HidePrompt();
+            ClearTargets();
+            return;
+        }
+
         // Skip everything while SwapGateUI, PuzzleTableController, or Cutscene is active
         if (SwapGateUI.IsOpen || PuzzleTableController.IsOpen)
         {
@@ -502,7 +515,11 @@ public class SimpleGateCollector : MonoBehaviour
             currentCandle = null;
             currentDoor = bestDoor;
             currentSuccessDoor = null;
-            ShowPrompt("Press E to open");
+            // Only show E prompt for the Level 1 tutorial door (key-finding)
+            if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == "Level1")
+                ShowPrompt("Press E to open");
+            else
+                HidePrompt();
         }
         else if (bestSuccessDoor != null)
         {

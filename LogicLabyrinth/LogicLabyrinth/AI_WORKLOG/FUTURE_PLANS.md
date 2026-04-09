@@ -1,5 +1,54 @@
 # Future Plans
 
+## Immediate validation (death-state interaction lock)
+- Die while carrying gates so they drop at death location.
+- During death/game-over overlay, spam `E` and confirm no gate is collected.
+- Press Space to respawn and confirm `E` interactions work normally again.
+
+## Immediate validation (correct level-entry respawn anchor)
+- Enter Level 2 from normal gameplay flow and note the entry point.
+- Die once and confirm respawn returns to that same level-entry point.
+- Confirm respawn does not jump to gate markers (`SpawnPoint1..SpawnPoint10`).
+- If a dedicated player marker is present in a scene, verify respawn uses that marker.
+
+## Immediate validation (all-level spawn marker rule)
+- Repeat death/respawn test in Levels 1 through 8.
+- Verify no level uses generic gate `SpawnPoint*` markers for player rescue/respawn.
+- Verify fallback behavior remains stable in levels without explicit player markers (uses level-entry anchor).
+
+## Immediate validation (game over + question rotation + respawn)
+- In a multi-question level (e.g., Level2/Level4), fail puzzle submission 3 times.
+- Re-open table and verify it loads a different remaining question instead of repeating the failed one.
+- Verify dropped/placed gates are cleared after game over close (slots reset visually and functionally).
+- Die in-level and confirm respawn no longer uses gate marker names (`SpawnPoint1..N`).
+- Confirm respawn uses explicit player marker if present; otherwise uses level-start position.
+
+## Team consistency hardening (machine-local scale)
+- Keep ADR scale source-of-truth in code defaults + sane range guard (already applied).
+- If teammate sees bad ADR size, clear only local keys: `LL_ADR_HAND_SCALE_X`, `LL_ADR_HAND_SCALE_Y`, `LL_ADR_HAND_SCALE_Z`.
+- Optionally add a small in-game debug action to reset ADR pose prefs for QA builds.
+- Re-verify that no additional gameplay systems persist object scale via PlayerPrefs.
+
+## Immediate validation (ADR size consistency across machines)
+- On friend machine, pull latest and enter any gameplay level.
+- Select ADR slot and equip (without manually saving pose): bottle should appear at normal handheld size (not giant).
+- Press `P` once to save preferred ADR pose on that machine.
+- If ADR still appears huge on friend machine from old local prefs, clear ADR PlayerPrefs keys (`LL_ADR_HAND_SCALE_X/Y/Z`) or use fresh prefs, then retest.
+
+## Immediate validation (SpawnPoint-only merge for Level7/Level8)
+- Open Level 7 and Level 8 scenes and verify SpawnPoint gizmo positions match Evan's intended layout.
+- Confirm each SpawnPoint has the reduced scale copied from Evan branch (non-`1,1,1`).
+- Run gate spawn flow in both levels and verify spawned gates appear at valid, reachable locations.
+- Confirm no other scene systems regressed (torches/traps/puzzle table unchanged by this selective merge).
+- If any SpawnPoint is invalid, adjust only that SpawnPoint transform and keep the merge scope strictly transform-only.
+
+## Immediate validation (restart confirmation)
+- In any level, open Pause menu and click `Restart`.
+- Confirm dialog appears with themed title/message and buttons: `Yes, Restart` / `No`.
+- Click `No`: dialog closes and pause menu remains open.
+- Click `Yes, Restart`: level restarts and existing restart behavior (inventory/gate/session reset) still works.
+- Press `Esc` while restart confirmation is open: dialog should close and return to pause panel.
+
 ## Immediate retest (after 2026-04-09 minimal collector fix)
 - Retest gate pickup in the exact cabinet/partial-embed case for AND and OR gates.
 - Retest a normal open-area pickup case for AND, OR, and NOT to confirm no regressions.

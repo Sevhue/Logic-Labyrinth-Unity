@@ -38,6 +38,7 @@ public class AdrenalineConsumableController : MonoBehaviour
     private const string PrefCamRotX = "LL_ADR_CAM_ROT_X";
     private const string PrefCamRotY = "LL_ADR_CAM_ROT_Y";
     private const string PrefCamRotZ = "LL_ADR_CAM_ROT_Z";
+    private static readonly Vector3 DefaultHandScale = new Vector3(0.2f, 0.2f, 0.2f);
 
     private const string ObjMeshPath = "Assets/Store/Purchase/Adrenaline/source/model/base.obj";
     private static readonly string[] DiffuseTexPaths =
@@ -68,7 +69,7 @@ public class AdrenalineConsumableController : MonoBehaviour
     public string resourcesPrefabPath = "Adrenaline/AdrenalinePrefab";
     public Vector3 handLocalPosition = new Vector3(0f, 0.06f, 0.04f);
     public Vector3 handLocalEuler = new Vector3(-90f, 0f, 0f);
-    public Vector3 handLocalScale = Vector3.one;
+    public Vector3 handLocalScale = new Vector3(0.2f, 0.2f, 0.2f);
     public Vector3 cameraFallbackLocalPosition = new Vector3(0.22f, -0.30f, 0.45f);
     public Vector3 cameraFallbackLocalEuler = new Vector3(8f, -18f, 10f);
 
@@ -428,11 +429,25 @@ public class AdrenalineConsumableController : MonoBehaviour
         if (HasVector3(PrefHandScaleX, PrefHandScaleY, PrefHandScaleZ))
             handLocalScale = LoadVector3(PrefHandScaleX, PrefHandScaleY, PrefHandScaleZ);
 
+        // Guard against stale/invalid prefs that make ADR appear huge or microscopic on some machines.
+        if (!IsReasonableScale(handLocalScale))
+            handLocalScale = DefaultHandScale;
+
         if (HasVector3(PrefCamPosX, PrefCamPosY, PrefCamPosZ))
             cameraFallbackLocalPosition = LoadVector3(PrefCamPosX, PrefCamPosY, PrefCamPosZ);
 
         if (HasVector3(PrefCamRotX, PrefCamRotY, PrefCamRotZ))
             cameraFallbackLocalEuler = LoadVector3(PrefCamRotX, PrefCamRotY, PrefCamRotZ);
+    }
+
+    private static bool IsReasonableScale(Vector3 scale)
+    {
+        if (!float.IsFinite(scale.x) || !float.IsFinite(scale.y) || !float.IsFinite(scale.z))
+            return false;
+
+        // ADR handheld model should stay within a practical visual range.
+        return scale.x >= 0.03f && scale.y >= 0.03f && scale.z >= 0.03f
+            && scale.x <= 0.8f && scale.y <= 0.8f && scale.z <= 0.8f;
     }
 
     private static bool HasVector3(string x, string y, string z)

@@ -234,6 +234,12 @@ namespace StarterAssets
 			// to gate SpawnPoint markers (SpawnPoint2..10, etc.).
 			_levelStartPosition = transform.position;
 			_levelStartYaw = transform.eulerAngles.y;
+			// If a dedicated player spawn marker exists, use it as the authoritative respawn anchor.
+			if (TryGetSpawnPoint(out Vector3 markerPos, out float markerYaw))
+			{
+				_levelStartPosition = markerPos;
+				_levelStartYaw = markerYaw;
+			}
 			_hasLevelStartPose = true;
 		}
 
@@ -1089,6 +1095,7 @@ namespace StarterAssets
 			Vector3 spawnPos;
 			float spawnYaw;
 
+			// Prefer the level-entry spawn anchor first (what the player actually used when entering the level).
 			if (_hasLevelStartPose)
 			{
 				spawnPos = _levelStartPosition;
@@ -1151,25 +1158,8 @@ namespace StarterAssets
 				}
 			}
 
-			// Next, try the common SpawnPoint1 but reject gate spawner markers.
-			Transform[] allTransforms = FindObjectsByType<Transform>(FindObjectsSortMode.None);
-			Transform best = null;
-			for (int i = 0; i < allTransforms.Length; i++)
-			{
-				Transform t = allTransforms[i];
-				if (t == null) continue;
-				if (t.name != "SpawnPoint1" && t.name != "SpawnPoint") continue;
-				if (t.GetComponentInParent<SimpleGateSpawner>() != null) continue;
-				best = t;
-				break;
-			}
-
-			if (best == null)
-				return false;
-
-			spawnPos = best.position + Vector3.up * 0.2f;
-			spawnYaw = best.eulerAngles.y;
-			return true;
+			// Do NOT use generic SpawnPoint1/SpawnPoint names here; those are gate spawner markers.
+			return false;
 		}
 
 		private void DropAllCollectedGatesAtDeathPosition(Vector3 deathPos)

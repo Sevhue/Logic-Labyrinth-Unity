@@ -955,27 +955,28 @@ public class LevelManager : MonoBehaviour
         spawnPos = Vector3.zero;
         spawnYaw = 0f;
 
-        GameObject spawn = GameObject.Find("SpawnPoint1");
-        if (spawn == null) spawn = GameObject.Find("SpawnPoint");
-        if (spawn == null)
+        string[] preferredNames = new string[]
         {
-            Transform[] all = FindObjectsByType<Transform>(FindObjectsSortMode.None);
-            for (int i = 0; i < all.Length; i++)
-            {
-                Transform t = all[i];
-                if (t != null && t.name.StartsWith("SpawnPoint"))
-                {
-                    spawn = t.gameObject;
-                    break;
-                }
-            }
+            "PlayerSpawn",
+            "PlayerSpawnPoint",
+            "PlayerStart",
+            "StartPoint",
+            "RespawnPoint",
+            "Respawn"
+        };
+
+        for (int i = 0; i < preferredNames.Length; i++)
+        {
+            GameObject spawn = GameObject.Find(preferredNames[i]);
+            if (spawn == null) continue;
+
+            spawnPos = spawn.transform.position + Vector3.up * 0.2f;
+            spawnYaw = spawn.transform.eulerAngles.y;
+            return true;
         }
 
-        if (spawn == null) return false;
-
-        spawnPos = spawn.transform.position + Vector3.up * 0.2f;
-        spawnYaw = spawn.transform.eulerAngles.y;
-        return true;
+        // Do not fallback to generic SpawnPoint names here; those are gate spawner markers.
+        return false;
     }
 
     /// <summary>

@@ -160,6 +160,7 @@ public class PauseMenuController : MonoBehaviour
     private enum QuitOrigin { PauseMenu, AppClose }
     private QuitOrigin quitOrigin = QuitOrigin.PauseMenu;
     private bool allowQuit = false; // set true right before Application.Quit() so OnWantsToQuit lets it through
+    private GameObject restartConfirmInstance;
 
     private readonly Dictionary<string, string> storeItemDescriptions = new Dictionary<string, string>
     {
@@ -202,6 +203,12 @@ public class PauseMenuController : MonoBehaviour
             if (quitConfirmInstance != null)
             {
                 OnQuitConfirm_Cancel();
+                return;
+            }
+
+            if (restartConfirmInstance != null)
+            {
+                OnRestartConfirm_No();
                 return;
             }
 
@@ -1901,6 +1908,7 @@ public class PauseMenuController : MonoBehaviour
 
         // Destroy all overlays
         HideQuitConfirmation();
+        HideRestartConfirmation();
         HidePauseUI();
 
         // Also close Options if open
@@ -1921,6 +1929,11 @@ public class PauseMenuController : MonoBehaviour
     // ============================
 
     public void RestartLevel()
+    {
+        ShowRestartConfirmation();
+    }
+
+    private void RestartLevelConfirmed()
     {
         Debug.Log("[PauseMenu] Restarting level...");
 
@@ -1963,6 +1976,122 @@ public class PauseMenuController : MonoBehaviour
         {
             SceneManager.LoadScene(SceneManager.GetActiveScene().name);
         }
+    }
+
+    private void ShowRestartConfirmation()
+    {
+        if (restartConfirmInstance != null) return;
+
+        if (pauseInstance != null)
+            pauseInstance.SetActive(false);
+
+        restartConfirmInstance = new GameObject("RestartConfirmDialog");
+
+        Canvas canvas = restartConfirmInstance.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 205;
+
+        var scaler = restartConfirmInstance.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+
+        restartConfirmInstance.AddComponent<GraphicRaycaster>();
+
+        GameObject dimGO = CreateDialogUIObject("Dim", restartConfirmInstance.transform);
+        RectTransform dimRT = dimGO.GetComponent<RectTransform>();
+        dimRT.anchorMin = Vector2.zero;
+        dimRT.anchorMax = Vector2.one;
+        dimRT.offsetMin = Vector2.zero;
+        dimRT.offsetMax = Vector2.zero;
+        Image dimImg = dimGO.AddComponent<Image>();
+        dimImg.color = new Color(0f, 0f, 0f, 0.6f);
+        dimImg.raycastTarget = true;
+
+        GameObject panelGO = CreateDialogUIObject("Panel", restartConfirmInstance.transform);
+        RectTransform panelRT = panelGO.GetComponent<RectTransform>();
+        panelRT.anchorMin = new Vector2(0.30f, 0.32f);
+        panelRT.anchorMax = new Vector2(0.70f, 0.68f);
+        panelRT.offsetMin = Vector2.zero;
+        panelRT.offsetMax = Vector2.zero;
+
+        Image panelBG = panelGO.AddComponent<Image>();
+        panelBG.color = new Color(0.08f, 0.06f, 0.03f, 0.96f);
+
+        Outline panelOutline = panelGO.AddComponent<Outline>();
+        panelOutline.effectColor = new Color(0.75f, 0.58f, 0.22f, 0.9f);
+        panelOutline.effectDistance = new Vector2(3f, 3f);
+
+        TMP_FontAsset font = Resources.Load<TMP_FontAsset>("Fonts & Materials/Cinzel-VariableFont_wght SDF");
+        if (font == null) font = Resources.Load<TMP_FontAsset>("Cinzel-VariableFont_wght SDF");
+        if (font == null) font = TMP_Settings.defaultFontAsset;
+
+        GameObject titleGO = CreateDialogUIObject("Title", panelGO.transform);
+        RectTransform titleRT = titleGO.GetComponent<RectTransform>();
+        titleRT.anchorMin = new Vector2(0.05f, 0.70f);
+        titleRT.anchorMax = new Vector2(0.95f, 0.93f);
+        titleRT.offsetMin = Vector2.zero;
+        titleRT.offsetMax = Vector2.zero;
+        titleGO.AddComponent<CanvasRenderer>();
+
+        TextMeshProUGUI titleTMP = titleGO.AddComponent<TextMeshProUGUI>();
+        titleTMP.text = "RESTART LEVEL";
+        titleTMP.fontSize = 32;
+        titleTMP.fontStyle = FontStyles.Bold;
+        titleTMP.alignment = TextAlignmentOptions.Center;
+        titleTMP.color = new Color(0.95f, 0.82f, 0.35f, 1f);
+        if (font != null) titleTMP.font = font;
+
+        GameObject msgGO = CreateDialogUIObject("Message", panelGO.transform);
+        RectTransform msgRT = msgGO.GetComponent<RectTransform>();
+        msgRT.anchorMin = new Vector2(0.08f, 0.44f);
+        msgRT.anchorMax = new Vector2(0.92f, 0.70f);
+        msgRT.offsetMin = Vector2.zero;
+        msgRT.offsetMax = Vector2.zero;
+        msgGO.AddComponent<CanvasRenderer>();
+
+        TextMeshProUGUI msgTMP = msgGO.AddComponent<TextMeshProUGUI>();
+        msgTMP.text = "Are you sure you want to restart this level?\nUnsaved progress in this run will be lost.";
+        msgTMP.fontSize = 21;
+        msgTMP.alignment = TextAlignmentOptions.Center;
+        msgTMP.color = new Color(0.88f, 0.82f, 0.65f, 1f);
+        msgTMP.enableWordWrapping = true;
+        if (font != null) msgTMP.font = font;
+
+        float btnY0 = 0.10f, btnY1 = 0.34f;
+
+        CreateDialogButton(panelGO.transform, "Yes, Restart", font,
+            new Vector2(0.08f, btnY0), new Vector2(0.46f, btnY1),
+            new Color(0.65f, 0.22f, 0.18f, 1f),
+            () => OnRestartConfirm_Yes());
+
+        CreateDialogButton(panelGO.transform, "No", font,
+            new Vector2(0.54f, btnY0), new Vector2(0.92f, btnY1),
+            new Color(0.35f, 0.30f, 0.18f, 1f),
+            () => OnRestartConfirm_No());
+
+        Debug.Log("[PauseMenu] Restart confirmation dialog shown.");
+    }
+
+    private void HideRestartConfirmation()
+    {
+        if (restartConfirmInstance != null)
+        {
+            Destroy(restartConfirmInstance);
+            restartConfirmInstance = null;
+        }
+    }
+
+    private void OnRestartConfirm_Yes()
+    {
+        HideRestartConfirmation();
+        RestartLevelConfirmed();
+    }
+
+    private void OnRestartConfirm_No()
+    {
+        HideRestartConfirmation();
+        if (pauseInstance != null)
+            pauseInstance.SetActive(true);
     }
 
     // ============================

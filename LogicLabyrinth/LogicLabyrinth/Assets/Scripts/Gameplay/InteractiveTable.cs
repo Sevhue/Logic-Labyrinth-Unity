@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine.UI;
 
 /// <summary>
@@ -61,6 +62,7 @@ public class InteractiveTable : MonoBehaviour
     private bool puzzleAlreadySolved = false;
     private bool hasLockedQuestionSelection = false;
     private int lockedQuestionIndex = -1;
+    private readonly HashSet<int> exhaustedQuestionIndices = new HashSet<int>();
 
     // Runtime answer keys loaded from AnswerKeyConfig
     private GateType[][] runtimeAnswerKeys;
@@ -202,7 +204,21 @@ public class InteractiveTable : MonoBehaviour
         }
         else
         {
-            questionIndex = Random.Range(0, runtimeAnswerKeys.Length);
+            List<int> candidates = new List<int>();
+            for (int i = 0; i < runtimeAnswerKeys.Length; i++)
+            {
+                if (!exhaustedQuestionIndices.Contains(i))
+                    candidates.Add(i);
+            }
+
+            if (candidates.Count == 0)
+            {
+                exhaustedQuestionIndices.Clear();
+                for (int i = 0; i < runtimeAnswerKeys.Length; i++)
+                    candidates.Add(i);
+            }
+
+            questionIndex = candidates[Random.Range(0, candidates.Count)];
             lockedQuestionIndex = questionIndex;
             hasLockedQuestionSelection = true;
         }
@@ -337,6 +353,17 @@ public class InteractiveTable : MonoBehaviour
         isPuzzleOpen = false;
 
         bool wasSolved = (controller != null && controller.WasPuzzleSolved);
+        bool wasGameOver = (controller != null && controller.WasGameOver);
+
+        if (!wasSolved && wasGameOver)
+        {
+            if (lockedQuestionIndex >= 0)
+                exhaustedQuestionIndices.Add(lockedQuestionIndex);
+
+            // After game over, unlock selection so next open uses a remaining question.
+            hasLockedQuestionSelection = false;
+            lockedQuestionIndex = -1;
+        }
 
         if (wasSolved)
         {

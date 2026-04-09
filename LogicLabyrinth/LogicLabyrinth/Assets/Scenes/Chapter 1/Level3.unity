@@ -8811,28 +8811,6 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: 2348616061427368171, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
---- !u!64 &691231739
-MeshCollider:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1986205484}
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_IsTrigger: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 5
-  m_Convex: 0
-  m_CookingOptions: 30
-  m_Mesh: {fileID: -4216444321136458003, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
 --- !u!1001 &698351483
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -27413,7 +27391,7 @@ PrefabInstance:
       objectReference: {fileID: 2100000, guid: c0df91a37fabb7548be678ae26e60c30, type: 2}
     - target: {fileID: -228883591574276035, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -20.929
+      value: -21.034
       objectReference: {fileID: 0}
     - target: {fileID: -196380795226301459, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
@@ -29449,6 +29427,7 @@ PrefabInstance:
     - {fileID: 6056152054511010697, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
     - {fileID: 540778077476052087, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
     - {fileID: -4137565494362160331, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
+    - {fileID: 6312544953983036060, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
     m_AddedGameObjects:
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: 14
@@ -29481,52 +29460,52 @@ PrefabInstance:
       insertIndex: 120
       addedObject: {fileID: 978590299}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 139
+      insertIndex: 138
       addedObject: {fileID: 1010014043}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 140
+      insertIndex: 139
       addedObject: {fileID: 1740461111}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 141
+      insertIndex: 140
       addedObject: {fileID: 1967097123}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 142
+      insertIndex: 141
       addedObject: {fileID: 1459229566}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 143
+      insertIndex: 142
       addedObject: {fileID: 2009436674}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 242
+      insertIndex: 241
       addedObject: {fileID: 1877979133}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 243
+      insertIndex: 242
       addedObject: {fileID: 246790763}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 244
+      insertIndex: 243
       addedObject: {fileID: 341223686}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 246
+      insertIndex: 245
       addedObject: {fileID: 740725379}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 247
+      insertIndex: 246
       addedObject: {fileID: 1669355376}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 248
+      insertIndex: 247
       addedObject: {fileID: 1996329118}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 249
+      insertIndex: 248
       addedObject: {fileID: 1648053862}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 289
+      insertIndex: 288
       addedObject: {fileID: 2074261560}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 291
+      insertIndex: 290
       addedObject: {fileID: 1570364271}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 304
+      insertIndex: 303
       addedObject: {fileID: 1862326494}
     - targetCorrespondingSourceObject: {fileID: -8679921383154817045, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: 306
+      insertIndex: 305
       addedObject: {fileID: 1101688468}
     m_AddedComponents:
     - targetCorrespondingSourceObject: {fileID: -6600374686172715016, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
@@ -29880,12 +29859,6 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: -6944363349700419941, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1305114670}
-    - targetCorrespondingSourceObject: {fileID: 6312544953983036060, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 691231739}
-    - targetCorrespondingSourceObject: {fileID: 6312544953983036060, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 1986205485}
     - targetCorrespondingSourceObject: {fileID: -6721003476841389914, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: -1
       addedObject: {fileID: 2036022700}
@@ -31471,31 +31444,6 @@ GameObject:
   m_CorrespondingSourceObject: {fileID: -6721003476841389914, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
   m_PrefabInstance: {fileID: 1986205083}
   m_PrefabAsset: {fileID: 0}
---- !u!1 &1986205484 stripped
-GameObject:
-  m_CorrespondingSourceObject: {fileID: 6312544953983036060, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-  m_PrefabInstance: {fileID: 1986205083}
-  m_PrefabAsset: {fileID: 0}
---- !u!114 &1986205485
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1986205484}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e2090b7fd7a8c744284fe2989bbec976, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SuccessDoor
-  lightColor: {r: 0.3, g: 1, b: 0.5, a: 1}
-  pulseSpeed: 2
-  baseLightIntensity: 2
-  baseLightRange: 3
-  minSecondsAfterOpenBeforeTransition: 0.15
-  recentPlayerTouchGraceSeconds: 0.75
-  doorwayTriggerCount: 3
-  doorwayTriggerHorizontalSpread: 0.7
 --- !u!1 &1986205486 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: -6944363349700419941, guid: 095162485976f5649bf83c18fdfa9478, type: 3}

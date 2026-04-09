@@ -21,6 +21,7 @@ public class PuzzleTableController : MonoBehaviour
 
     /// <summary>True if the puzzle was solved in this session (read by InteractiveTable).</summary>
     public bool WasPuzzleSolved => puzzleSolved;
+    public bool WasGameOver => isGameOver;
 
     [Header("Puzzle Answer Key")]
     [Tooltip("The correct gate for each box slot, in order (Box1, Box2, Box3, ...)")]
@@ -1162,6 +1163,10 @@ public class PuzzleTableController : MonoBehaviour
     private IEnumerator DelayedGameOver()
     {
         yield return new WaitForSecondsRealtime(3f);
+
+        // Return placed gates before closing so slots do not persist visually across openings.
+        foreach (var slot in dropSlots)
+            slot.ClearSlot();
 
         SetUIMode(false);
         IsOpen = false;

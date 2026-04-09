@@ -2,6 +2,133 @@
 
 ## 2026-04-09
 
+### Fix: prevent E-spam gate collection during death/game-over state
+- Request: While dead/game-over overlay is active, spamming `E` could collect dropped gates at the death position.
+- Minimal fix applied:
+  - [Assets/Scripts/Gameplay/SimpleGateCollector.cs](Assets/Scripts/Gameplay/SimpleGateCollector.cs)
+  - Added a dead-state guard at the top of `Update()`:
+    - caches `FirstPersonController`
+    - if `IsDead`, immediately hides prompts, clears targets, and exits update loop
+- Result:
+  - Interaction is blocked while dead, so dropped gates cannot be re-collected until respawn.
+- Validation:
+  - `SimpleGateCollector.cs` compile check reports no errors.
+
+### Respawn anchor priority tweak (use true level-entry spawn first)
+- Request: Use the correct marker/entry spawn for levels like Level 2; avoid gate spawn markers.
+- Minimal adjustment:
+  - [Assets/StarterAssets/FirstPersonController/Scripts/FirstPersonController.cs](Assets/StarterAssets/FirstPersonController/Scripts/FirstPersonController.cs)
+  - Respawn now prioritizes the cached level-entry spawn anchor (`_levelStartPosition/_levelStartYaw`) first.
+  - At startup, if a dedicated player marker exists (`PlayerSpawn`, `PlayerSpawnPoint`, `PlayerStart`, `StartPoint`, `RespawnPoint`, `Respawn`), that marker is used to set the level-start anchor.
+  - Generic `SpawnPoint1/SpawnPoint` fallback remains disabled (those are gate spawn markers).
+- Validation:
+  - `FirstPersonController.cs` compile check reports no errors.
+
+### Global consistency: remove gate SpawnPoint fallback from LevelManager safety rescue
+- Request: Ensure the same respawn-marker rule applies on all levels.
+- Minimal adjustment:
+  - [Assets/Scripts/Managers/LevelManager.cs](Assets/Scripts/Managers/LevelManager.cs)
+  - Updated `TryGetSpawnFallback(...)` to use explicit player markers only:
+    - `PlayerSpawn`, `PlayerSpawnPoint`, `PlayerStart`, `StartPoint`, `RespawnPoint`, `Respawn`
+  - Removed generic `SpawnPoint*` fallback usage (gate spawner markers).
+- Validation:
+  - `LevelManager.cs` compile check reports no errors.
+
+### Fix: game over should move to remaining question, clear placed gates, and avoid gate SpawnPoint respawn
+- Request:
+  - After 3 failed attempts, next open should move to remaining questions (not same one again).
+  - Gates should disappear/reset on game over.
+  - Death respawn must not use gate spawn markers (`SpawnPoint1..N`).
+- Smallest fixes applied:
+  - [Assets/Scripts/Gameplay/InteractiveTable.cs](Assets/Scripts/Gameplay/InteractiveTable.cs)
+    - Added exhausted-question tracking for multi-question tables.
+    - After puzzle closes with game over, current locked question is marked exhausted.
+    - Next open picks from remaining (non-exhausted) questions.
+    - When exhausted list is empty, it resets and can cycle again.
+  - [Assets/Scripts/Puzzle/PuzzleTableController.cs](Assets/Scripts/Puzzle/PuzzleTableController.cs)
+    - Exposed `WasGameOver` so `InteractiveTable` can react to game-over close.
+    - On delayed game over close, now clears all drop slots first so placed gates are removed/returned.
+  - [Assets/StarterAssets/FirstPersonController/Scripts/FirstPersonController.cs](Assets/StarterAssets/FirstPersonController/Scripts/FirstPersonController.cs)
+    - Respawn now first tries explicit player markers only (`PlayerSpawn`, `PlayerSpawnPoint`, `PlayerStart`, `StartPoint`, `RespawnPoint`, `Respawn`).
+    - Removed fallback that used generic `SpawnPoint1`/`SpawnPoint` names (reserved for gate spawner markers).
+    - If no explicit marker exists, falls back to cached level start pose.
+- Validation:
+  - `InteractiveTable.cs` compile check reports no errors.
+  - `PuzzleTableController.cs` compile check reports no errors.
+  - `FirstPersonController.cs` compile check reports no errors.
+
+### Audit: all teammate-variant saved scale sources
+- Request: Check everything that might cause different saved scale across teammates/machines.
+- Findings:
+  - [Assets/Scripts/Gameplay/AdrenalineConsumableController.cs](Assets/Scripts/Gameplay/AdrenalineConsumableController.cs)
+    - Uses local `PlayerPrefs` keys `LL_ADR_HAND_SCALE_X/Y/Z` (machine-local).
+    - This is the confirmed source of teammate-to-teammate ADR scale differences.
+  - [Assets/Scripts/Gameplay/SimpleGateSpawner.cs](Assets/Scripts/Gameplay/SimpleGateSpawner.cs)
+    - Applies `SpawnPoint` transform scale (`useSpawnPointScale`) to spawned gates.
+    - This is scene-data driven (git/shared), not local saved prefs.
+  - [Assets/Scripts/Managers/AccountManager.cs](Assets/Scripts/Managers/AccountManager.cs)
+    - `PlayerData` does not store any scale fields for ADR/equipped view model.
+    - Cloud/account progress is not the cause of ADR scale mismatch.
+  - [Assets/Scripts/Managers/QualitySettingsManager.cs](Assets/Scripts/Managers/QualitySettingsManager.cs)
+    - Uses PlayerPrefs for quality preset only; no object-scale persistence.
+- Conclusion:
+  - The only teammate-local saved-scale path in gameplay code is ADR pose scale via PlayerPrefs.
+
+### ADR consumable appears huge on some machines (cross-machine PlayerPrefs/default-scale mismatch)
+- Request: Adrenaline bottle looks normal on one machine but huge on another after pulling latest git.
+- Smallest fix applied:
+  - [Assets/Scripts/Gameplay/AdrenalineConsumableController.cs](Assets/Scripts/Gameplay/AdrenalineConsumableController.cs)
+  - Changed default ADR hand scale from `Vector3.one` to `new Vector3(0.2f, 0.2f, 0.2f)`.
+  - Added a sanity check after loading PlayerPrefs scale values:
+    - invalid/non-finite or out-of-range scales are reset to default ADR hand scale.
+- Why this works:
+  - ADR pose/scale is stored per-machine via PlayerPrefs (`LL_ADR_*` keys), so stale/local values can differ across teammates.
+  - New guard prevents oversized ADR model even if old prefs are bad.
+- Validation:
+  - `AdrenalineConsumableController.cs` compile check reports no errors.
+
+### Selective merge: only SpawnPoint move/resize from `evan_spawnpoints_lvl7,8`
+- Request: Merge only SpawnPoint movement and resizing for Level 7 and Level 8 from Evan's branch, with no other scene content merged.
+- Approach: Surgical transform-only merge by copying `m_LocalPosition` and `m_LocalScale` for `SpawnPoint1..SpawnPoint10` from `origin/evan_spawnpoints_lvl7,8` into current `main` scene files.
+- Change:
+  - [Assets/Scenes/Chapter 2/Level7.unity](Assets/Scenes/Chapter%202/Level7.unity)
+  - [Assets/Scenes/Chapter 2/Level8.unity](Assets/Scenes/Chapter%202/Level8.unity)
+  - Updated only SpawnPoint transform lines:
+    - `m_LocalPosition`
+    - `m_LocalScale`
+- Validation:
+  - Diff review confirms only LocalPosition/LocalScale lines were changed in the two target scene files.
+  - Change count: 20 line edits in Level7 + 20 line edits in Level8 (10 spawnpoints x 2 properties each).
+
+### Suppress E prompt on non-Success doors (except Level 1 tutorial)
+- Request: Doors should only show "Press E to open" if they are a SuccessDoor. Exception: Level 1 tutorial door (TutorialDoor, key-finding) should still show it.
+- Approach: Simplest fix — single conditional in `bestDoor` branch of `HandleInteraction()`.
+- Change:
+  - [Assets/Scripts/Gameplay/SimpleGateCollector.cs](Assets/Scripts/Gameplay/SimpleGateCollector.cs)
+  - In the `bestDoor != null` prompt block, replaced unconditional `ShowPrompt("Press E to open")` with a scene-name check:
+    - If active scene is `"Level1"` → `ShowPrompt("Press E to open")` (tutorial door, key-required)
+    - Otherwise → `HidePrompt()` (door stays interactive/tracked, but no E hint shown)
+  - `bestSuccessDoor` branch unchanged — Success_Door always shows the E prompt.
+- Validation:
+  - `SimpleGateCollector.cs` compile check reports no errors.
+
+### Restart button confirmation (Yes/No) with pause/settings theme
+- Request: Restart should ask for confirmation with Yes/No and look professional in the same visual theme as pause/settings.
+- Approach used: smallest change first, reusing existing in-script dialog style helpers (no prefab redesign).
+- Change:
+  - [Assets/Scripts/UI/PauseMenuController.cs](Assets/Scripts/UI/PauseMenuController.cs)
+  - `Restart` button now opens a dedicated confirmation dialog instead of immediately reloading.
+  - Added medieval-themed restart dialog with:
+    - title: `RESTART LEVEL`
+    - message warning about losing unsaved run progress
+    - buttons: `Yes, Restart` and `No`
+  - `Yes, Restart` executes existing restart logic.
+  - `No` closes dialog and returns to pause panel.
+  - ESC now cancels this restart dialog consistently.
+  - Resume now also clears restart confirmation dialog if present.
+- Validation:
+  - `PauseMenuController.cs` compile check reports no errors.
+
 ### Minimal rollback-style fix for AND/OR gate pickup regression
 - User report: AND/OR gates stopped being collectible again after a recent collector behavior change.
 - Approach used (per request): smallest plausible code change first, no refactor.
