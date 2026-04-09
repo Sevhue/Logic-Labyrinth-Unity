@@ -178,6 +178,44 @@ public class SimpleGateSpawner : MonoBehaviour
         Vector3 pointScale = useSpawnPointScale ? AbsVec(point.localScale) : Vector3.one;
         Vector3 finalScale = pointScale * spawnedGateScaleMultiplier;
         spawned.transform.localScale = Vector3.Scale(spawned.transform.localScale, finalScale);
+
+        // Runtime safety: ensure spawned gates are visible and never behave as invisible walls.
+        EnsureSpawnedGateVisualAndPickupState(spawned);
+    }
+
+    void EnsureSpawnedGateVisualAndPickupState(GameObject gate)
+    {
+        if (gate == null) return;
+
+        bool hasRenderer = false;
+        Renderer[] renderers = gate.GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer r = renderers[i];
+            if (r == null) continue;
+            hasRenderer = true;
+            r.enabled = true;
+
+            // Keep runtime pickup meshes on a normal renderable layer.
+            r.gameObject.layer = 0;
+        }
+
+        Collider[] colliders = gate.GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            Collider c = colliders[i];
+            if (c == null) continue;
+
+            if (!hasRenderer)
+            {
+                c.enabled = false;
+                continue;
+            }
+
+            // Gates are pickup targets, not physical blockers.
+            c.isTrigger = true;
+            c.enabled = true;
+        }
     }
 
     /// <summary>

@@ -18714,13 +18714,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1430559241}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -32.484, y: -5, z: -4.931}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalRotation: {x: -0, y: -0.49807012, z: -0, w: 0.8671368}
+  m_LocalPosition: {x: -32.393, y: -5.101, z: -3.495}
+  m_LocalScale: {x: 0.1119423, y: 0.13949844, z: 0.18803881}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: -59.745, z: 0}
 --- !u!64 &1436887990
 MeshCollider:
   m_ObjectHideFlags: 0
@@ -20123,6 +20123,7 @@ MonoBehaviour:
   SafeSlopeLimit: 70
   DebugInvisibleWallHits: 1
   DisableAntiWarpInLevel6: 1
+  DisableAntiWarpInLevel5To8: 1
   MaxStamina: 100
   StaminaDrainRate: 25
   StaminaRegenRate: 15
@@ -22650,8 +22651,8 @@ Transform:
   m_GameObject: {fileID: 1733513261}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -43.437, y: -5.062, z: 13.01}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalPosition: {x: -43.561, y: -5.177, z: 13.05}
+  m_LocalScale: {x: 0.1119423, y: 0.1625193, z: 0.3481942}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}

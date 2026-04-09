@@ -3,6 +3,8 @@ using UnityEngine.InputSystem;
 
 public class SimpleGateCollector : MonoBehaviour
 {
+    private const float MaxGateCollectDistance = 2.5f;
+
     [Header("Interaction")]
     public Camera playerCamera;
     public float interactDistance = 6f;
@@ -242,12 +244,37 @@ public class SimpleGateCollector : MonoBehaviour
 
         Ray centerRay = playerCamera.ScreenPointToRay(new Vector3(Screen.width / 2, Screen.height / 2, 0));
         RaycastHit hit;
-        if (!Physics.Raycast(centerRay, out hit, interactDistance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+        if (!Physics.Raycast(centerRay, out hit, interactDistance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Collide))
             return false;
 
         return hit.collider.transform == target ||
                hit.collider.transform.IsChildOf(target) ||
                target.IsChildOf(hit.collider.transform);
+    }
+
+    private static float GetGateDistanceFromCamera(Vector3 origin, Interactable gate)
+    {
+        if (gate == null)
+            return float.MaxValue;
+
+        Renderer[] renderers = gate.GetComponentsInChildren<Renderer>(true);
+        float minDist = float.MaxValue;
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer r = renderers[i];
+            if (r == null || !r.enabled) continue;
+
+            Vector3 closest = r.bounds.ClosestPoint(origin);
+            float dist = Vector3.Distance(origin, closest);
+            if (dist < minDist)
+                minDist = dist;
+        }
+
+        if (minDist < float.MaxValue)
+            return minDist;
+
+        return Vector3.Distance(origin, gate.transform.position);
     }
 
     void HandleInteraction()
@@ -282,6 +309,8 @@ public class SimpleGateCollector : MonoBehaviour
 
             if (interactable != null)
             {
+                float gateObjectDistance = GetGateDistanceFromCamera(ray.origin, interactable);
+
                 if (hitDist == 0f)
                 {
                     // Overlap: use dot product and actual distance
@@ -289,14 +318,16 @@ public class SimpleGateCollector : MonoBehaviour
                     float dot = Vector3.Dot(ray.direction, toGate);
                     float dist = Vector3.Distance(ray.origin, interactable.transform.position);
                     if (dot > 0.75f && dist < 2f && dist < bestDistance
-                        && HasLineOfSight(ray.origin, interactable.transform))
+                        && IsDirectlyAimable(interactable.transform)
+                        && gateObjectDistance <= MaxGateCollectDistance)
                     {
                         bestDistance = dist;
                         bestInteractable = interactable;
                     }
                 }
                 else if (hitDist < bestDistance
-                         && HasLineOfSight(ray.origin, interactable.transform))
+                         && IsDirectlyAimable(interactable.transform)
+                         && gateObjectDistance <= MaxGateCollectDistance)
                 {
                     bestDistance = hitDist;
                     bestInteractable = interactable;
@@ -512,7 +543,13 @@ public class SimpleGateCollector : MonoBehaviour
     {
         if (currentInteractable == null) return;
         if (playerCamera == null) return;
-        if (!HasLineOfSight(playerCamera.transform.position, currentInteractable.transform))
+        if (!IsDirectlyAimable(currentInteractable.transform))
+        {
+            currentInteractable = null;
+            HidePrompt();
+            return;
+        }
+        if (GetGateDistanceFromCamera(playerCamera.transform.position, currentInteractable) > MaxGateCollectDistance)
         {
             currentInteractable = null;
             HidePrompt();
