@@ -1,5 +1,20 @@
 # Future Plans
 
+## Immediate validation (after selective Level1-6 merge from `origin/67`)
+- Open `Level1` to `Level6` in Unity one-by-one and verify scene loads without missing references.
+- In each level, verify gate spawns are reachable and not clipped.
+- Verify candle objects/collect flow still behave as intended in levels where candle diffs existed.
+- Confirm puzzle tables still open and render correctly in levels with puzzle interactions.
+- Run quick smoke test for death/resume flow in each merged level.
+- If all good, create commit with only the six staged scene files.
+
+## Branch audit follow-up (`origin/67`)
+- If needed, compare `origin/67` vs `origin/main` scene-by-scene before merging anything.
+- Safe candidate to cherry-pick selectively: SpawnPoint transform changes in `Level7.unity` and `Level8.unity` only, if those are desired.
+- Review candle scene edits separately in `Level1`, `Level2`, `Level3`, `Level5`, `Level6` before merging; those are not isolated SpawnPoint-only changes.
+- Review `Level1` wall-related diff manually in Unity Editor before merging; deeper CLI check shows wall prefab instance reparent/serialization churn (same local values appearing as remove/add), not an obvious intentional wall reposition patch.
+- Keep UI asset changes (`Level4.prefab`, `UITable.prefab`, `Main.unity`) out of any SpawnPoint-only merge unless explicitly wanted.
+
 ## Immediate validation (manual close should keep attempts)
 - Open puzzle and submit one wrong answer so attempts show `2/3`.
 - Press `Esc` (or click `X`) to close.

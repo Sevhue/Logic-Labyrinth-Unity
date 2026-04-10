@@ -2,6 +2,34 @@
 
 ## 2026-04-10
 
+### Merge action: pulled Level1-6 scene changes from `origin/67` into `main` (selective)
+- Request: merge only levels `1,2,3,4,5,6` changes to main.
+- Action taken (selective file merge): checked out these scene files from `origin/67` on top of current `main`:
+  - `Assets/Scenes/Chapter 1/Level1.unity`
+  - `Assets/Scenes/Chapter 1/Level2.unity`
+  - `Assets/Scenes/Chapter 1/Level3.unity`
+  - `Assets/Scenes/Chapter 1/Level4.unity`
+  - `Assets/Scenes/Chapter 2/Level5.unity`
+  - `Assets/Scenes/Chapter 2/Level6.unity`
+- Scope note: did **not** pull Level7/Level8 or UI assets (`Level4.prefab`, `UITable.prefab`, `Main.unity`) in this action.
+- Git state: the six level scene files are now staged and ready to commit.
+
+### Audit: `origin/67` Unity scene changes vs `origin/main`
+- Checked remote branch diff directly with `git diff origin/main origin/67`.
+- Confirmed: `origin/67` changes **SpawnPoint transforms** in `Level7.unity` and `Level8.unity`.
+- The changed objects are SpawnPoint markers (e.g. `SpawnPoint1`, `SpawnPoint2`, `SpawnPoint4`, `SpawnPoint5`, `SpawnPoint7`, `SpawnPoint8`, `SpawnPoint10`, and matching remaining SpawnPoint set).
+- In both `Level7` and `Level8`, branch `origin/67` uses older/default-looking SpawnPoint transforms such as scale `{x:1,y:1,z:1}` instead of the reduced scale currently on `origin/main`, and positions are also different.
+- Confirmed: candle-related scene changes also exist on `origin/67` in `Level1.unity`, `Level2.unity`, `Level3.unity`, `Level5.unity`, and `Level6.unity`.
+- The candle diffs include `CollectibleCandle` objects / `Candlelight` objects being added or renamed in scene YAML.
+- Wall-related signal was much weaker: a quick diff search only surfaced `Wall_Chiseled` references in `Level1`, not the same clear transform-only pattern seen with SpawnPoints.
+- Also found non-scene UI changes on the branch: `Level4.prefab`, `UITable.prefab`, and `Main.unity`.
+
+### Deep follow-up: wall-related diff in `Level1` (`origin/main` vs `origin/67`)
+- Inspected `Wall_Chiseled (8)` and `Wall_Chiseled (53)` hunks with full context.
+- These wall entries appear as prefab-instance remove/add/reparent churn (not clean standalone wall transform edits).
+- For those named wall entries, local transform values are repeated on both sides of the diff while parent references change heavily (e.g., many `m_TransformParent` switches from one container fileID to another).
+- Conclusion: from CLI diff evidence, this looks like scene serialization/reparent noise around wall prefab instances, **not a clear intentional wall movement pass** comparable to the SpawnPoint edits.
+
 ### Fix: ESC/X no longer resets attempts; wrong-answer shake now visible while solving
 - Root cause (attempt reset): `InteractiveTable.WatchForPuzzleClose()` always destroyed `puzzleUIInstance`, so every reopen created a fresh controller with `3/3` attempts.
 - Fix: reuse `puzzleUIInstance` for manual close (ESC/X) and only destroy it on terminal states (`wasSolved` or `wasGameOver`).
