@@ -100,6 +100,18 @@ public class InventoryManager : MonoBehaviour
         if (LevelManager.Instance != null)
             level = LevelManager.Instance.GetCurrentLevel();
 
+        if (level <= 1)
+        {
+            string sceneName = SceneManager.GetActiveScene().name;
+            if (!string.IsNullOrEmpty(sceneName) &&
+                sceneName.StartsWith("Level") &&
+                int.TryParse(sceneName.Substring(5), out int parsedLevel) &&
+                parsedLevel > 1)
+            {
+                level = parsedLevel;
+            }
+        }
+
         GateType[][] answerSets = AnswerKeyConfig.GetAnswerKeys(level);
         if (answerSets != null)
         {

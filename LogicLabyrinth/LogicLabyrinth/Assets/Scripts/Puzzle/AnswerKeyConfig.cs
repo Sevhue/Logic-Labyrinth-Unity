@@ -84,6 +84,21 @@ public static class AnswerKeyConfig
                     new GateType[] { GateType.NOT, GateType.NOT, GateType.NOT, GateType.AND, GateType.AND, GateType.OR }
                 };
 
+            case 5:
+                return new GateType[][]
+                {
+                    // Q1: OR OR OR AND AND
+                    new GateType[] { GateType.OR, GateType.OR, GateType.OR, GateType.AND, GateType.AND },
+                    // Q2: AND AND AND OR OR
+                    new GateType[] { GateType.AND, GateType.AND, GateType.AND, GateType.OR, GateType.OR },
+                    // Q3: NOT OR OR OR AND AND
+                    new GateType[] { GateType.NOT, GateType.OR, GateType.OR, GateType.OR, GateType.AND, GateType.AND },
+                    // Q4: NOT AND AND AND OR OR
+                    new GateType[] { GateType.NOT, GateType.AND, GateType.AND, GateType.AND, GateType.OR, GateType.OR },
+                    // Q5: NOT OR OR OR AND AND
+                    new GateType[] { GateType.NOT, GateType.OR, GateType.OR, GateType.OR, GateType.AND, GateType.AND }
+                };
+
             case 6:
                 return new GateType[][]
                 {
@@ -94,7 +109,8 @@ public static class AnswerKeyConfig
                     // Q3: (A̅ + B)(B + C̅)(A + C) -> 2 NOT, 3 OR, 2 AND
                     new GateType[] { GateType.NOT, GateType.NOT, GateType.OR, GateType.OR, GateType.OR, GateType.AND, GateType.AND },
                     // Q4: (A̅·B) + (B·C̅) + (A·C) -> 2 NOT, 3 AND, 2 OR
-                    new GateType[] { GateType.NOT, GateType.NOT, GateType.AND, GateType.AND, GateType.AND, GateType.OR, GateType.OR },
+                    // Q4: 2 NOT, 3 OR, 2 AND
+                    new GateType[] { GateType.NOT, GateType.NOT, GateType.OR, GateType.OR, GateType.OR, GateType.AND, GateType.AND },
                     // Q5: (A̅ + C̅)(B + C)(A + B) -> 2 NOT, 3 OR, 2 AND
                     new GateType[] { GateType.NOT, GateType.NOT, GateType.OR, GateType.OR, GateType.OR, GateType.AND, GateType.AND }
                 };

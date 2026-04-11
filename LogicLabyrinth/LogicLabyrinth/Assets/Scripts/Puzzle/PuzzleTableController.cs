@@ -132,7 +132,7 @@ public class PuzzleTableController : MonoBehaviour
 
     private bool IsFreeFormCanvasMode()
     {
-        return currentLevelNumber >= 6;
+        return currentLevelNumber >= 7;
     }
 
     private void ResolveCurrentLevelNumber()
@@ -803,87 +803,36 @@ public class PuzzleTableController : MonoBehaviour
 
         feedbackPanel.SetActive(false);
 
-        // ═══════════════════════════════
-        // QUESTION NUMBER (top-left, only for multi-question levels)
-        // ═══════════════════════════════
-        if (totalQuestions > 1)
-        {
-            if (questionNumberText == null)
-            {
-                GameObject qNumGO = new GameObject("QuestionNumberText");
-                qNumGO.transform.SetParent(transform, false);
-                RectTransform qNumRect = qNumGO.AddComponent<RectTransform>();
-                qNumRect.anchorMin = new Vector2(0.01f, 0.91f);
-                qNumRect.anchorMax = new Vector2(0.25f, 0.98f);
-                qNumRect.offsetMin = Vector2.zero;
-                qNumRect.offsetMax = Vector2.zero;
-                questionNumberText = qNumGO.AddComponent<TextMeshProUGUI>();
-                questionNumberText.fontSize = 16;
-                questionNumberText.fontStyle = FontStyles.Bold;
-                questionNumberText.alignment = TextAlignmentOptions.Center;
-                questionNumberText.color = new Color(0.84f, 0.75f, 0.5f, 1f); // Gold
-            }
-            questionNumberText.text = $"Question {currentQuestion}/{totalQuestions}";
-            questionNumberText.gameObject.SetActive(true);
-        }
+            if (questionNumberText != null)
+                questionNumberText.gameObject.SetActive(false);
 
         BuildQuestionInfoUI();
     }
 
     private void BuildQuestionInfoUI()
     {
-        if (expressionText == null)
-        {
-            GameObject exprGO = new GameObject("ExpressionText");
-            exprGO.transform.SetParent(transform, false);
-            RectTransform exprRect = exprGO.AddComponent<RectTransform>();
-            exprRect.anchorMin = new Vector2(0.02f, 0.82f);
-            exprRect.anchorMax = new Vector2(0.70f, 0.90f);
-            exprRect.offsetMin = Vector2.zero;
-            exprRect.offsetMax = Vector2.zero;
+            if (questionNumberText != null)
+                questionNumberText.gameObject.SetActive(false);
 
-            expressionText = exprGO.AddComponent<TextMeshProUGUI>();
-            expressionText.fontSize = 20;
-            expressionText.fontStyle = FontStyles.Bold;
-            expressionText.alignment = TextAlignmentOptions.Left;
-            expressionText.color = new Color(0.12f, 0.12f, 0.12f, 1f);
-        }
+            if (expressionText != null)
+                expressionText.gameObject.SetActive(false);
 
-        if (requirementText == null)
-        {
-            GameObject reqGO = new GameObject("GateRequirementText");
-            reqGO.transform.SetParent(transform, false);
-            RectTransform reqRect = reqGO.AddComponent<RectTransform>();
-            reqRect.anchorMin = new Vector2(0.02f, 0.76f);
-            reqRect.anchorMax = new Vector2(0.70f, 0.82f);
-            reqRect.offsetMin = Vector2.zero;
-            reqRect.offsetMax = Vector2.zero;
+            if (requirementText != null)
+                requirementText.gameObject.SetActive(false);
 
-            requirementText = reqGO.AddComponent<TextMeshProUGUI>();
-            requirementText.fontSize = 15;
-            requirementText.alignment = TextAlignmentOptions.Left;
-            requirementText.color = new Color(0.22f, 0.22f, 0.22f, 1f);
-        }
+            TextMeshProUGUI[] allTexts = GetComponentsInChildren<TextMeshProUGUI>(true);
+            foreach (var text in allTexts)
+            {
+                if (text == null) continue;
 
-        if (!string.IsNullOrEmpty(selectedQuestionExpression))
-        {
-            expressionText.text = $"F = {selectedQuestionExpression}";
-            expressionText.gameObject.SetActive(true);
-        }
-        else
-        {
-            expressionText.gameObject.SetActive(false);
-        }
-
-        if (requiredAnd > 0 || requiredOr > 0 || requiredNot > 0)
-        {
-            requirementText.text = $"Required: AND x{requiredAnd}, OR x{requiredOr}, NOT x{requiredNot}";
-            requirementText.gameObject.SetActive(true);
-        }
-        else
-        {
-            requirementText.gameObject.SetActive(false);
-        }
+                string objectName = text.gameObject.name;
+                if (objectName == "QuestionNumberText" ||
+                    objectName == "ExpressionText" ||
+                    objectName == "GateRequirementText")
+                {
+                    text.gameObject.SetActive(false);
+                }
+            }
     }
 
     // ===================== SUBMIT / CHECK =====================

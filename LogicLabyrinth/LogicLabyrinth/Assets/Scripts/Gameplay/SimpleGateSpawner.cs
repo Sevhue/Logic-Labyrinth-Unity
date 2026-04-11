@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using System.Collections.Generic;
 #if UNITY_EDITOR
 using UnityEditor;
@@ -175,7 +176,10 @@ public class SimpleGateSpawner : MonoBehaviour
     {
         if (gatePrefab == null || point == null) return;
         GameObject spawned = Instantiate(gatePrefab, point.position, point.rotation);
-        Vector3 pointScale = useSpawnPointScale ? AbsVec(point.localScale) : Vector3.one;
+
+        // Level6 restore/load should keep normal gate prefab size regardless of SpawnPoint scale.
+        bool forceOriginalGateSize = SceneManager.GetActiveScene().name == "Level6";
+        Vector3 pointScale = (useSpawnPointScale && !forceOriginalGateSize) ? AbsVec(point.localScale) : Vector3.one;
         Vector3 finalScale = pointScale * spawnedGateScaleMultiplier;
         spawned.transform.localScale = Vector3.Scale(spawned.transform.localScale, finalScale);
 

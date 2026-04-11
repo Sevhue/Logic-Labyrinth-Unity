@@ -1,5 +1,78 @@
 # Future Plans
 
+## Immediate validation (Level6 Table + 7-slot inventory checks)
+- Validate new Level7 truth-table input flow:
+  - open Level7 and press E on TruthDoor,
+  - verify board renders correctly (no overlap/invisible state),
+  - verify left input panel appears with `?`, `1`, `0`,
+  - verify right tutorial panel appears and does not overlap the board,
+  - click a green `?` in the table and confirm left display selects it,
+  - confirm selected cell blinks while active,
+  - click `1` and verify selected `?` changes to `1`,
+  - click `0` immediately after and verify same selected cell changes back to `0`,
+  - click another green `?`, click `0`, verify it changes to `0`,
+  - verify SUBMIT/X/Attempts still work as before.
+- Validate table input lock on all levels:
+  - open any puzzle table,
+  - confirm `WASD`, jump, sprint, and mouse-look do nothing while the table UI is open,
+  - confirm mouse cursor still works for dragging and dropping gates,
+  - close the puzzle and confirm normal movement/look return immediately.
+- Validate top-left labels are removed from the puzzle UI completely:
+  - open the puzzle board and confirm `Question X/Y`, `F = ...`, and `Required: ...` no longer appear,
+  - confirm submit, attempts, close button, and drag/drop still work,
+  - if any of the three labels still appear, inspect the instantiated puzzle root for differently named TMP objects and hide them with the same force-hide pass.
+- Validate Level6 opens intended prefab board:
+  - press `E` on Table in Level6,
+  - confirm displayed board matches `Assets/Prefabs/Table/Table/Level 6/Level6.prefab` visual layout,
+  - confirm `Question X/5` panels show expected boxes (not blank background only).
+- Validate drag/drop flow on Level6 board:
+  - drag gates into Box1..Box7,
+  - submit wrong and correct attempts,
+  - verify attempts and slot reset behavior still works.
+- Validate Level6 Table-only interaction fix:
+  - in Level6, aim at object named `Table` and confirm `Press E to open Puzzle Table` appears,
+  - confirm puzzle opens from `Table`,
+  - confirm non-`Table` objects no longer open the puzzle,
+  - check log: `[LevelManager] Level6 table-fix: enabled InteractiveTable on 'Table', disabled X non-Table InteractiveTable component(s).`
+- Validate Level6 gate size after checkpoint/load:
+  - restore/checkpoint in Level6,
+  - confirm spawned gates appear at original prefab size (not SpawnPoint-scaled),
+  - confirm this applies both on fresh load and restored layout load.
+- Validate new Level6 anchor snap fallback:
+  - enter Level6 and confirm player is snapped into playable area if initial spawn is off,
+  - check for log: `[LevelManager] Level6 spawn-stabilizer: snapped player to SpawnPoint2 ...`.
+- If still black/outside after this patch, capture 5-10 console lines beginning with `[LevelManager]` during Level6 load for next minimal targeted change.
+- Validate Level6 entry after simplest override: Continue Game into Level6 should use scene spawn every time (no saved-position restore for Level6).
+- In Console, confirm log appears once on load:
+  `[LevelManager] OnSceneLoaded: Skipping saved-position restore for Level6; using scene spawn.`
+- Confirm black/outside camera symptom no longer appears on first load and after one death/reload cycle.
+- Validate Level6 entry from Continue Game with stale cloud save data: if saved position is invalid, player should stay at scene spawn (no outside camera load).
+- Validate Level6 entry from valid mid-level save still restores correctly (guard should not block normal saves).
+- Aim at the Table in Level6 and confirm `Press E to open Puzzle Table` prompt appears.
+- Open puzzle and verify Q1-Q5 mappings match: Q1/Q3/Q4/Q5 = NOT NOT OR OR OR AND AND, Q2 = NOT NOT AND AND AND OR OR.
+- Verify 7-slot questions allow collecting all 7 gates without inventory-cap blocks.
+- If 7-cap still not showing, check if LevelManager reports correct level 6 before first gate collect.
+- Check Levels 1-4 (reported 5-cap on 6-box questions): with the scene-name fallback fix from previous session, retest Level2/Level4 6-box scenarios.
+- Future: check Levels 7-8 once user provides their box mappings.
+
+## Immediate validation (Level5 Table + 6-slot inventory checks)
+- In Level5, aim at the single `Table` object and confirm prompt shows `Press E to open Puzzle Table`.
+- Press `E` and confirm puzzle UI opens with drag/drop behavior matching Levels 1-4.
+- Run through Level5 Q1-Q5 and verify answer keys match latest mapping update.
+- Validate 6-slot questions can be completed without inventory-cap blocks (no forced 5-slot cap).
+- Recheck Levels 2 and 4 reports: when a 6-box question appears, confirm inventory capacity rises to 6 and collection is allowed.
+- If any level still shows 5-cap on a 6-box question, log active scene name and current capacity in runtime for smallest targeted follow-up.
+
+## Immediate workflow (Level5/Level6 box mapping input)
+- User will provide per-question gate mapping in order (`Box1`, `Box2`, `Box3`, ...).
+- Apply mappings exactly as provided (no reinterpretation) for the target question (`Q1`, `Q2`, ...).
+- Use smallest possible edits in existing puzzle/table data only; avoid structural scene/UI refactors.
+- After each mapping update:
+  - run compile/error check on changed scripts/files,
+  - verify mapping references exist,
+  - report back exactly what was changed.
+- If a provided mapping cannot be applied directly (missing slot/question), stop and ask for the smallest clarifying detail.
+
 ## Immediate validation (after selective Level1-6 merge from `origin/67`)
 - Open `Level1` to `Level6` in Unity one-by-one and verify scene loads without missing references.
 - In each level, verify gate spawns are reachable and not clipped.

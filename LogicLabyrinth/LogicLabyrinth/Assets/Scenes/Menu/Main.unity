@@ -8411,10 +8411,6 @@ MonoBehaviour:
   voidYThreshold: -60
   emergencyMaxAbsCoordinate: 100000
   safetyCheckInterval: 0.25
-  enableOutOfBoundsRescue: 0
-  disableOutOfBoundsRescueInLevel6: 1
-  enableMotionDebugLogger: 1
-  disableLevel6InvisibleBlockers: 0
   currentLevelPuzzle:
     variantId: 
     logicExpression: 
@@ -9806,7 +9802,6 @@ GameObject:
   - component: {fileID: 381614097}
   - component: {fileID: 381614099}
   - component: {fileID: 381614098}
-  - component: {fileID: 381614100}
   m_Layer: 0
   m_Name: Player
   m_TagString: Player
@@ -9878,14 +9873,6 @@ CharacterController:
   m_SkinWidth: 0.08
   m_MinMoveDistance: 0.001
   m_Center: {x: 0, y: 0, z: 0}
---- !u!81 &381614100
-AudioListener:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 381614096}
-  m_Enabled: 0
 --- !u!1 &393103001
 GameObject:
   m_ObjectHideFlags: 0
@@ -44776,8 +44763,6 @@ MonoBehaviour:
   musicSource: {fileID: 0}
   sfxSource: {fileID: 0}
   backgroundMusic: {fileID: 0}
-  lobbyMusic: {fileID: 8300000, guid: b7b150e29dfe49e4898ac9a228ab787c, type: 3}
-  inGameMusic: {fileID: 8300000, guid: 3a01b07af953c0f4ead388df64af7448, type: 3}
   gatePickupSound: {fileID: 0}
   puzzleCompleteSound: {fileID: 0}
   portalSound: {fileID: 0}

@@ -24,6 +24,7 @@ public class SimpleGateCollector : MonoBehaviour
     private TutorialDoor currentDoor;
     private SuccessDoor currentSuccessDoor;
     private CollectibleCandle currentCandle;
+    private TruthTableDisplay currentTruthDisplay;
 
     // Cache UI references
     private LevelUIManager _levelUI;
@@ -45,8 +46,8 @@ public class SimpleGateCollector : MonoBehaviour
             return;
         }
 
-        // Skip everything while SwapGateUI, PuzzleTableController, or Cutscene is active
-        if (SwapGateUI.IsOpen || PuzzleTableController.IsOpen)
+        // Skip everything while SwapGateUI, PuzzleTableController, TruthTableDisplay, or Cutscene is active
+        if (SwapGateUI.IsOpen || PuzzleTableController.IsOpen || TruthTableDisplay.IsOpen)
         {
             HidePrompt();
             ClearTargets();
@@ -112,6 +113,11 @@ public class SimpleGateCollector : MonoBehaviour
             {
                 Debug.Log("[SGC] Interacting with success door.");
                 currentSuccessDoor.TryInteract();
+            }
+            else if (currentTruthDisplay != null)
+            {
+                Debug.Log("[SGC] Opening truth table display.");
+                currentTruthDisplay.OpenDisplay();
             }
             else
             {
@@ -217,6 +223,7 @@ public class SimpleGateCollector : MonoBehaviour
         currentDoor = null;
         currentSuccessDoor = null;
         currentCandle = null;
+        currentTruthDisplay = null;
     }
 
     /// <summary>
@@ -309,6 +316,8 @@ public class SimpleGateCollector : MonoBehaviour
         float bestCandleDistance = float.MaxValue;
         float bestDoorDistance = float.MaxValue;
         float bestSuccessDoorDistance = float.MaxValue;
+        TruthTableDisplay bestTruthDisplay = null;
+        float bestTruthDisplayDistance = float.MaxValue;
 
         RaycastHit[] sphereHits = Physics.SphereCastAll(ray, sphereCastRadius, interactDistance);
         for (int i = 0; i < sphereHits.Length; i++)
@@ -424,6 +433,20 @@ public class SimpleGateCollector : MonoBehaviour
                     bestSuccessDoor = successDoorComp;
                 }
             }
+
+            // ── Check TruthTableDisplay ──
+            TruthTableDisplay truthDisplayComp = sphereHits[i].collider.GetComponent<TruthTableDisplay>();
+            if (truthDisplayComp == null) truthDisplayComp = sphereHits[i].collider.GetComponentInParent<TruthTableDisplay>();
+
+            if (truthDisplayComp != null)
+            {
+                float dist = hitDist == 0f ? Vector3.Distance(ray.origin, truthDisplayComp.transform.position) : hitDist;
+                if (dist < bestTruthDisplayDistance)
+                {
+                    bestTruthDisplayDistance = dist;
+                    bestTruthDisplay = truthDisplayComp;
+                }
+            }
         }
 
         // Fallback: if ray/sphere cast failed to identify a table component,
@@ -529,7 +552,19 @@ public class SimpleGateCollector : MonoBehaviour
             currentCandle = null;
             currentDoor = null;
             currentSuccessDoor = bestSuccessDoor;
+            currentTruthDisplay = null;
             ShowPrompt("Press E to open");
+        }
+        else if (bestTruthDisplay != null)
+        {
+            currentInteractable = null;
+            currentTable = null;
+            currentKey = null;
+            currentCandle = null;
+            currentDoor = null;
+            currentSuccessDoor = null;
+            currentTruthDisplay = bestTruthDisplay;
+            ShowPrompt("Press E to view Truth Table");
         }
         else
         {

@@ -175,8 +175,38 @@ public class LevelManager : MonoBehaviour
                     Vector3 target = new Vector3(pData.savedPosX, pData.savedPosY, pData.savedPosZ);
                     if (target != Vector3.zero || pData.savedRotY != 0f)
                     {
-                        Debug.Log($"[LevelManager] OnSceneLoaded: INSTANT teleport to ({target.x:F2},{target.y:F2},{target.z:F2})");
-                        TeleportPlayer(target, pData.savedRotY);
+                        // Simplest Level6 stability guard: always use scene-authored spawn there.
+                        if (scene.name == "Level6")
+                        {
+                            Debug.Log("[LevelManager] OnSceneLoaded: Skipping saved-position restore for Level6; using scene spawn.");
+                        }
+                        else
+                        {
+                        bool finiteTarget =
+                            float.IsFinite(target.x) &&
+                            float.IsFinite(target.y) &&
+                            float.IsFinite(target.z);
+
+                        // Guard against stale/bad cloud saves placing the player far outside the level.
+                        bool shouldUseSavedTarget = finiteTarget;
+                        GameObject scenePlayer = FindActiveScenePlayerWithCharacterController(scene);
+                        if (shouldUseSavedTarget && scenePlayer != null)
+                        {
+                            float distanceFromSceneSpawn = Vector3.Distance(scenePlayer.transform.position, target);
+                            if (distanceFromSceneSpawn > 250f || target.y < -200f || target.y > 500f)
+                                shouldUseSavedTarget = false;
+                        }
+
+                        if (shouldUseSavedTarget)
+                        {
+                            Debug.Log($"[LevelManager] OnSceneLoaded: INSTANT teleport to ({target.x:F2},{target.y:F2},{target.z:F2})");
+                            TeleportPlayer(target, pData.savedRotY);
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"[LevelManager] OnSceneLoaded: Ignoring invalid saved position ({target.x:F2},{target.y:F2},{target.z:F2}); keeping scene spawn position.");
+                        }
+                        }
                     }
                 }
 
@@ -210,6 +240,98 @@ public class LevelManager : MonoBehaviour
         if (shouldRunLevel6Fix || shouldRunChapter2Fix || shouldRunAllLevelFix)
             StartCoroutine(DisableLikelyInvisibleBlockersNextFrame());
 
+        if (scene.name == "Level6")
+        {
+            StartCoroutine(SnapLevel6PlayerToKnownAnchorNextFrame());
+            StartCoroutine(EnsureOnlyNamedTableIsInteractiveInLevel6());
+        }
+
+    }
+
+    private System.Collections.IEnumerator EnsureOnlyNamedTableIsInteractiveInLevel6()
+    {
+        // Wait one frame so scene objects/components are fully initialized.
+        yield return null;
+
+        Scene active = SceneManager.GetActiveScene();
+        if (active.name != "Level6")
+            yield break;
+
+        GameObject targetTable = GameObject.Find("Table");
+        if (targetTable == null)
+        {
+            Debug.LogWarning("[LevelManager] Level6 table-fix: object named 'Table' not found.");
+            yield break;
+        }
+
+        InteractiveTable[] allTables = FindObjectsByType<InteractiveTable>(FindObjectsSortMode.None);
+        GameObject puzzlePrefabTemplate = null;
+
+        for (int i = 0; i < allTables.Length; i++)
+        {
+            if (allTables[i] != null && allTables[i].puzzleUIPrefab != null)
+            {
+                puzzlePrefabTemplate = allTables[i].puzzleUIPrefab;
+                break;
+            }
+        }
+
+        int disabledCount = 0;
+        for (int i = 0; i < allTables.Length; i++)
+        {
+            InteractiveTable t = allTables[i];
+            if (t == null)
+                continue;
+
+            if (t.gameObject != targetTable && t.enabled)
+            {
+                t.enabled = false;
+                disabledCount++;
+            }
+        }
+
+        InteractiveTable targetInteractive = targetTable.GetComponent<InteractiveTable>();
+        if (targetInteractive == null)
+            targetInteractive = targetTable.AddComponent<InteractiveTable>();
+
+        if (targetInteractive.puzzleUIPrefab == null && puzzlePrefabTemplate != null)
+            targetInteractive.puzzleUIPrefab = puzzlePrefabTemplate;
+
+        targetInteractive.enabled = true;
+
+        Debug.Log($"[LevelManager] Level6 table-fix: enabled InteractiveTable on 'Table', disabled {disabledCount} non-Table InteractiveTable component(s).");
+    }
+
+    private System.Collections.IEnumerator SnapLevel6PlayerToKnownAnchorNextFrame()
+    {
+        // Let all scene objects initialize first.
+        yield return null;
+
+        Scene active = SceneManager.GetActiveScene();
+        if (active.name != "Level6")
+            yield break;
+
+        GameObject playerGO = FindActiveScenePlayerWithCharacterController(active);
+        if (playerGO == null)
+            yield break;
+
+        GameObject anchor = GameObject.Find("SpawnPoint2");
+        if (anchor == null)
+        {
+            Debug.LogWarning("[LevelManager] Level6 spawn-stabilizer: SpawnPoint2 not found; keeping current spawn.");
+            yield break;
+        }
+
+        Vector3 target = anchor.transform.position;
+        float distance = Vector3.Distance(playerGO.transform.position, target);
+        bool looksOff = distance > 8f || playerGO.transform.position.y < -5f || playerGO.transform.position.y > 50f;
+
+        if (!looksOff)
+            yield break;
+
+        float yaw = playerGO.transform.eulerAngles.y;
+        if (TeleportPlayer(target, yaw))
+            Debug.Log($"[LevelManager] Level6 spawn-stabilizer: snapped player to SpawnPoint2 at ({target.x:F2},{target.y:F2},{target.z:F2}).");
     }
 
     private System.Collections.IEnumerator DisableLikelyInvisibleBlockersNextFrame()

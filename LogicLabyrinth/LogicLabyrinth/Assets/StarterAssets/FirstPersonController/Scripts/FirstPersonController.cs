@@ -275,6 +275,24 @@ namespace StarterAssets
 				return;
 			}
 
+			if (PuzzleTableController.IsOpen || TruthTableDisplay.IsOpen)
+			{
+				_tabCursorVisible = false;
+				SetGameplayCursorVisible(true);
+
+				if (_input != null)
+				{
+					_input.cursorInputForLook = false;
+					_input.cursorLocked = false;
+					_input.MoveInput(Vector2.zero);
+					_input.LookInput(Vector2.zero);
+					_input.JumpInput(false);
+					_input.SprintInput(false);
+				}
+
+				return;
+			}
+
 #if ENABLE_INPUT_SYSTEM
 			// TAB toggles gameplay cursor visibility/lock so players can quickly use the mouse.
 			if (Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame)
@@ -331,6 +349,7 @@ namespace StarterAssets
 		{
 			// Don't rotate camera while paused
 			if (PauseMenuController.IsPaused) return;
+			if (PuzzleTableController.IsOpen || TruthTableDisplay.IsOpen) return;
 			if (_tabCursorVisible) return;
 
 			// Full cutscene block — no camera rotation
