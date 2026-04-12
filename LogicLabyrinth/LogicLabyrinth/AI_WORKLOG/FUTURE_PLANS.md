@@ -1,5 +1,32 @@
 # Future Plans
 
+## Immediate validation (Options volume adjuster visibility)
+- Open gameplay, press `ESC`, then open `Settings`.
+- Confirm two slider adjusters (`Music`, `SFX`) are visible directly under `VOLUME`.
+- Drag `Music` slider to `0` and back up; confirm music mutes/unmutes live.
+- Drag `SFX` slider to `0` and back up; confirm click/footstep SFX level follows slider.
+- Close and reopen Settings 3-5 times; confirm sliders consistently render and remain interactive.
+
+## Immediate validation (slider handle + crackle fix)
+- Confirm the `|` slider handle appears visibly smaller than before.
+- Drag SFX slider down/up quickly and confirm no crackly/harsh retrigger noise appears.
+- Drag Music slider down/up and confirm smooth level change without repeated restart artifacts.
+
+## Immediate validation (lower slider position + saved volume across levels)
+- Open `ESC -> Settings` and confirm both `Music` and `SFX` sliders are slightly lower than before.
+- Set `Music` and `SFX` to custom values (example: 0.35 and 0.62), close settings, reopen, and confirm values remain.
+- Stop play mode, start again, open settings, and confirm values are still the same.
+- Change level/scene, open settings again, and confirm saved values and slider positions are still consistent.
+
+## Immediate validation (custom Box art visibility in puzzle runtime)
+- Open Level5 table puzzle and confirm Box images keep custom brown art instead of gray `?` placeholders.
+- Verify this also works in other level puzzle prefabs that use custom Box sprites.
+- Confirm drag/drop still works and placed gate labels still appear when slot is filled.
+
+## Immediate validation (no gray while drag-hover)
+- Drag a gate over each empty custom box and confirm box art stays brown/gold (no gray tint while pointer is over slot).
+- Move pointer out and back in several times to confirm color remains stable.
+
 ## Immediate validation (Level6 Table + 7-slot inventory checks)
 - Validate Level7 answer-key submit flow:
   - open Level7, answer selected Q with an incorrect value and press SUBMIT,

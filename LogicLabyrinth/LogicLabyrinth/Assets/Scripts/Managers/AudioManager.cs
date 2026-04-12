@@ -1,9 +1,14 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 public class AudioManager : MonoBehaviour
 {
     public static AudioManager Instance;
+    private const string MusicVolumePrefKey = "LL_MusicVolume";
+    private const string SfxVolumePrefKey = "LL_SFXVolume";
 
     [Header("Audio Sources")]
     public AudioSource musicSource;
@@ -35,7 +40,11 @@ public class AudioManager : MonoBehaviour
         {
             Instance = this;
             DontDestroyOnLoad(gameObject);
+            EnsureEditorDirectPlayClipFallbacks();
             EnsureAudioSources();
+            LoadSavedVolumes();
+            EnsureAudibleDefaultVolumes();
+            EnsureAudioListenerExists();
         }
         else
         {
@@ -60,6 +69,7 @@ public class AudioManager : MonoBehaviour
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
+        EnsureAudioListenerExists();
         UpdateMusicForScene(scene);
     }
 
@@ -113,6 +123,106 @@ public class AudioManager : MonoBehaviour
         sfxSource.loop = false;
         sfxSource.spatialBlend = 0f;
     }
+
+    private void EnsureAudioListenerExists()
+    {
+        AudioListener[] listeners = FindObjectsByType<AudioListener>(FindObjectsSortMode.None);
+        if (listeners != null && listeners.Length > 0)
+            return;
+
+        Camera targetCamera = Camera.main;
+        if (targetCamera == null)
+        {
+            Camera[] cameras = FindObjectsByType<Camera>(FindObjectsSortMode.None);
+            if (cameras != null && cameras.Length > 0)
+                targetCamera = cameras[0];
+        }
+
+        if (targetCamera != null)
+        {
+            AudioListener listener = targetCamera.GetComponent<AudioListener>();
+            if (listener == null)
+                listener = targetCamera.gameObject.AddComponent<AudioListener>();
+
+            listener.enabled = true;
+            Debug.Log($"[AudioManager] Added fallback AudioListener to camera '{targetCamera.name}'.");
+        }
+    }
+
+    private void EnsureAudibleDefaultVolumes()
+    {
+        if (musicSource != null && musicSource.volume <= 0.001f && !PlayerPrefs.HasKey(MusicVolumePrefKey))
+            musicSource.volume = 1f;
+
+        if (sfxSource != null && sfxSource.volume <= 0.001f && !PlayerPrefs.HasKey(SfxVolumePrefKey))
+            sfxSource.volume = 1f;
+    }
+
+    private void LoadSavedVolumes()
+    {
+        if (musicSource != null && PlayerPrefs.HasKey(MusicVolumePrefKey))
+            musicSource.volume = Mathf.Clamp01(PlayerPrefs.GetFloat(MusicVolumePrefKey, 1f));
+
+        if (sfxSource != null && PlayerPrefs.HasKey(SfxVolumePrefKey))
+            sfxSource.volume = Mathf.Clamp01(PlayerPrefs.GetFloat(SfxVolumePrefKey, 1f));
+    }
+
+    private void EnsureEditorDirectPlayClipFallbacks()
+    {
+#if UNITY_EDITOR
+        // When pressing Play directly in a level scene, Main scene references may not exist.
+        // Auto-find clips by name in the editor so audio remains testable from any scene.
+        if (lobbyMusic == null)
+            lobbyMusic = FindAudioClipByName("Lobby");
+        if (inGameMusic == null)
+            inGameMusic = FindAudioClipByName("InGame");
+
+        if (walkSound == null)
+            walkSound = FindAudioClipByName("Walk");
+        if (runSound == null)
+            runSound = FindAudioClipByName("Running");
+        if (jumpSound == null)
+            jumpSound = FindAudioClipByName("Jumping");
+        if (clickSound == null)
+            clickSound = FindAudioClipByName("Click");
+
+        if (unlockDoorSound == null)
+            unlockDoorSound = FindAudioClipByName("UnlockDoor");
+        if (correctAnswerSound == null)
+            correctAnswerSound = FindAudioClipByName("CorrectAnswer");
+        if (gatePickupSound == null)
+            gatePickupSound = FindAudioClipByName("grab") ?? FindAudioClipByName("Grab");
+        if (damageSound == null)
+            damageSound = FindAudioClipByName("Damage");
+        if (drinkSound == null)
+            drinkSound = FindAudioClipByName("Drink");
+#endif
+    }
+
+#if UNITY_EDITOR
+    private static AudioClip FindAudioClipByName(string clipBaseName)
+    {
+        if (string.IsNullOrEmpty(clipBaseName))
+            return null;
+
+        string[] guids = AssetDatabase.FindAssets($"{clipBaseName} t:AudioClip", new[] { "Assets" });
+        if (guids == null || guids.Length == 0)
+            return null;
+
+        for (int i = 0; i < guids.Length; i++)
+        {
+            string path = AssetDatabase.GUIDToAssetPath(guids[i]);
+            if (string.IsNullOrEmpty(path))
+                continue;
+
+            AudioClip clip = AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+            if (clip != null)
+                return clip;
+        }
+
+        return null;
+    }
+#endif
 
     public void PlayBackgroundMusic()
     {
@@ -186,7 +296,10 @@ public class AudioManager : MonoBehaviour
     {
         if (musicSource != null)
         {
-            musicSource.volume = volume;
+            float clampedVolume = Mathf.Clamp01(volume);
+            musicSource.volume = clampedVolume;
+            PlayerPrefs.SetFloat(MusicVolumePrefKey, clampedVolume);
+            PlayerPrefs.Save();
         }
     }
 
@@ -194,7 +307,10 @@ public class AudioManager : MonoBehaviour
     {
         if (sfxSource != null)
         {
-            sfxSource.volume = volume;
+            float clampedVolume = Mathf.Clamp01(volume);
+            sfxSource.volume = clampedVolume;
+            PlayerPrefs.SetFloat(SfxVolumePrefKey, clampedVolume);
+            PlayerPrefs.Save();
         }
     }
 

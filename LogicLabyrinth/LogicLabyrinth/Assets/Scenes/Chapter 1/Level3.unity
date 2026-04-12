@@ -23657,7 +23657,6 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1750708433}
-  - component: {fileID: 1750708434}
   m_Layer: 0
   m_Name: FirstPersonPlayer
   m_TagString: Player
@@ -23683,14 +23682,6 @@ Transform:
   - {fileID: 1552128073}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!81 &1750708434
-AudioListener:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1750708432}
-  m_Enabled: 1
 --- !u!64 &1752648305
 MeshCollider:
   m_ObjectHideFlags: 0

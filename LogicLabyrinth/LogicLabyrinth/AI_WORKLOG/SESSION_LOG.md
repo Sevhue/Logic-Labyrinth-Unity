@@ -69,8 +69,259 @@
 ### Future Plan (quick verify)
 - Open pause -> settings in play mode and confirm Music/SFX label alignment still looks correct.
 
+### Hotfix: MissingReferenceException when opening pause settings
+- User error:
+  - `MissingReferenceException` in `PauseMenuController.WireVolumeSliders()` when pressing `ESC -> Settings`.
+- Root cause:
+  - Volume-slider cleanup used `foreach (Transform child in volumeContainer)` and destroyed runtime slider objects during iteration.
+  - In this runtime UI flow, destroyed transform references can invalidate the Transform enumerator.
+- Minimal fix in `Assets/Scripts/UI/PauseMenuController.cs`:
+  - Replaced `foreach` cleanup with a reverse indexed loop (`for (i = childCount - 1; i >= 0; i--)`).
+  - Added null guard before cleanup (`if (volumeContainer == null) return;`).
+- Result:
+  - `PauseMenuController.cs` compile check passes with no errors.
+
+### Future Plan (quick verify)
+- Enter level, press `ESC`, open `Settings` repeatedly, and confirm no MissingReferenceException appears.
+
+### Hotfix: Volume controls not visible in Settings panel
+- User report: Settings shows the `VOLUME` title but no visible controls underneath.
+- Root cause: runtime `VolumeContainer` could be parented to the wrong transform/layer and rendered behind the panel content.
+- Minimal fix in `Assets/Scripts/UI/PauseMenuController.cs`:
+  - Resolve panel root via `DeepFind("Panel")`.
+  - Parent `VolumeContainer` to the panel root.
+  - Force `VolumeContainer` to front (`SetAsLastSibling()`).
+  - Anchor/pivot/position it near the top of the panel (`anchoredPosition = (0, -95)`).
+  - Apply same parent/layer/position correction even when reusing an existing `VolumeContainer`.
+- Result: compile check on `PauseMenuController.cs` passes with no errors.
+
+### Future Plan (quick verify)
+- Open `ESC -> Settings` and confirm Music/SFX controls are now visible directly under `VOLUME`.
+
+### Hotfix: Audio missing after direct-play (music + SFX silent)
+- User report: could hear sounds earlier, but now both music and SFX became silent.
+- Root cause (likely path): when pressing Play directly from a gameplay scene, `Main` scene may not be loaded, so configured AudioManager references are missing in that play session.
+- Minimal fixes applied:
+  1. `Assets/Scripts/Managers/GameplayRuntimeBootstrap.cs`
+     - Added `EnsureSingleton<AudioManager>("AudioManager")` so gameplay direct-play always has an AudioManager instance.
+  2. `Assets/Scripts/Managers/AudioManager.cs`
+     - Added editor-only fallback clip auto-assignment (`AssetDatabase.FindAssets`) for known clip names:
+       - Lobby, InGame, Walk, Running, Jumping, Click, UnlockDoor, CorrectAnswer, Damage, Drink
+     - Added audible default volume guard so zero-volume sources are reset to `1f`.
+- Compile status: no errors in both modified files.
+
+### Future Plan (quick verify)
+- Press Play directly in a Level/Chapter scene and confirm music starts.
+- Press W/Shift/Space/click to confirm walk/run/jump/click SFX.
+- Open pause settings and ensure Music/SFX sliders still affect output.
+
+### Hotfix: Audio silent even when starting from Main scene
+- User requested log check; inspected `Editor.log`.
+- Verified root cause from logs:
+  - Repeated warning: `There are no audio listeners in the scene. Please ensure there is always one audio listener in the scene`.
+- Minimal fix in `Assets/Scripts/Managers/AudioManager.cs`:
+  - Added `EnsureAudioListenerExists()`.
+  - Called in `Awake()` and `OnSceneLoaded()`.
+  - Behavior: if zero listeners exist, attach/enable one on `Camera.main` (fallback: first available camera).
+- Compile status: no errors in `AudioManager.cs`.
+
+### Future Plan (quick verify)
+- Play from Main, then enter a gameplay scene and confirm:
+  - No `There are no audio listeners` warnings.
+  - Music is audible.
+  - SFX (walk/run/jump/click/unlock/damage/drink) are audible.
+
+### Feature: Integrate renamed audio folders (PlayerSFX + GameplaySFX)
+- User update: audio assets were reorganized into `Assets/Audio/PlayerSFX` and `Assets/Audio/GameplaySFX`, with additional gameplay clip `grab.MP3`.
+- Confirmed current files:
+  - PlayerSFX: `Walk`, `Running`, `Jumping`, `Click`
+  - GameplaySFX: `CorrectAnswer`, `UnlockDoor`, `Damage`, `Drink`, `grab`
+- Minimal integration fixes:
+  1. `Assets/Scripts/Gameplay/SimpleGateCollector.cs`
+     - Added `AudioManager.Instance.PlayGatePickupSound()` after successful gate `Interact()` in `TryCollectGate()`.
+     - This wires `grab` (assigned as Gate Pickup Sound) to actual gate pickup gameplay.
+  2. `Assets/Scripts/Managers/AudioManager.cs`
+     - Added editor fallback lookup for gate pickup clip name: `grab` / `Grab` when `gatePickupSound` is null.
+- Compile status: no errors in modified files.
+
+### Future Plan (quick verify)
+- Collect a gate in-level and confirm `grab` SFX plays.
+- Verify existing hooks still play:
+  - Walk/Run/Jump/Click from PlayerSFX.
+  - CorrectAnswer/UnlockDoor/Damage/Drink from GameplaySFX.
+
+### Feature: Custom themed Volume toggle UI in Options
+- User request: replace volume controls with own themed sound toggles while keeping same medieval Options theme.
+- Minimal UI-only change (same panel, no prefab restructure):
+  - Updated `Assets/Scripts/UI/PauseMenuController.cs` in `WireVolumeSliders()`.
+  - Replaced runtime slider controls with two themed toggle rows under `VOLUME`:
+    - `MUSIC` with ON/OFF button
+    - `SFX` with ON/OFF button
+  - Visual style matches current theme (gold labels + green ON / red OFF states).
+- Behavior:
+  - Music toggle sets `AudioManager.SetMusicVolume(1/0)` and restarts background music when toggled ON.
+  - SFX toggle sets `AudioManager.SetSFXVolume(1/0)` and plays click preview when toggled ON.
+- Compile status: no errors in `PauseMenuController.cs`.
+
+### Future Plan (quick verify)
+- Open `ESC -> Settings`:
+  - Confirm toggle rows appear under `VOLUME`.
+  - Toggle Music OFF then ON and verify background music stops/returns.
+  - Toggle SFX OFF then ON and verify click/footstep/other SFX stop/return.
+
+### Hotfix: Options volume controls not visible + request for adjuster (not toggle)
+- User clarified: Options is prefab-based and volume controls still not visible; requested slider/adjuster instead of ON/OFF toggle.
+- Minimal fix in `Assets/Scripts/UI/PauseMenuController.cs`:
+  - Replaced toggle implementation with runtime slider adjusters again.
+  - Made slider placement prefab-safe by anchoring into existing `Panel` using normalized anchors:
+    - `VolumeControlsRoot` anchored to panel region under `VOLUME`.
+    - Music row and SFX row each with label + visible track/fill/handle.
+  - Kept medieval theme colors for labels and slider visuals.
+- Behavior:
+  - Music slider updates `AudioManager.SetMusicVolume(value)` and resumes background music when value > 0.
+  - SFX slider updates `AudioManager.SetSFXVolume(value)` and plays click preview when value > 0.
+- Compile status: no errors in `PauseMenuController.cs`.
+
+### Future Plan (quick verify)
+- Open `ESC -> Settings` and confirm two slider adjusters are visible under `VOLUME`.
+- Drag Music slider to 0 and back up; confirm music mutes/unmutes smoothly.
+- Drag SFX slider to 0 and back up; confirm click/footsteps/etc. respond to slider value.
+
+### Hotfix: Cannot open Settings (MissingReferenceException in WireVolumeSliders)
+- User error on open:
+  - `MissingReferenceException` at `Transform.SetAsLastSibling()` in `PauseMenuController.WireVolumeSliders()`.
+- Root cause:
+  - Runtime volume root transform could be stale/destroyed during overlay lifecycle; reordering sibling on that reference crashed settings open.
+- Minimal fix in `Assets/Scripts/UI/PauseMenuController.cs`:
+  - Added guard: `if (panelRoot == null) return;`
+  - Added guard: `if (volumeRoot == null || volumeRoot.parent == null) return;`
+  - Removed fragile `volumeRoot.SetAsLastSibling()` call from this path.
+- Result:
+  - Compile check passes with no errors.
+
+### Future Plan (quick verify)
+- Press `ESC -> Settings` repeatedly to confirm no MissingReferenceException.
+- Confirm sliders still render and remain interactive.
+
+### Hotfix: MissingReference moved to `volumeRoot.childCount`
+- User still hit crash:
+  - `MissingReferenceException` at `PauseMenuController.WireVolumeSliders()` on `Transform.childCount`.
+- Root cause:
+  - Reusing/iterating a previously destroyed `VolumeControlsRoot` reference was still possible in runtime overlay lifecycle.
+- Minimal fix in `Assets/Scripts/UI/PauseMenuController.cs`:
+  - Stop iterating `volumeRoot.childCount` entirely.
+  - If old `VolumeControlsRoot` exists, destroy it.
+  - Always create a fresh `VolumeControlsRoot` each time Settings opens.
+- Result:
+  - Compile check passes with no errors.
+
+### Future Plan (quick verify)
+- Open/close `ESC -> Settings` multiple times in one play session; confirm no MissingReferenceException.
+- Confirm volume sliders are visible and draggable after repeated openings.
+
+### Hotfix: Adrenaline post-drink MissingReferenceException
+- User report: after drink animation finishes, console throws MissingReference in `AdrenalineConsumableController` coroutine.
+- Root cause:
+  - Drink coroutine kept writing to a model transform after the model was destroyed by lifecycle/state changes.
+- Minimal fix in `Assets/Scripts/Gameplay/AdrenalineConsumableController.cs`:
+  - Added `drinkRoutine` handle.
+  - Stop/clear routine on `OnDisable()` and before starting a new drink.
+  - Added null guards inside both animation loops before accessing `model.localPosition/localRotation`.
+  - `RemoveEquippedModel()` now stops drink routine and clears drink state before destroying model.
+- Result:
+  - Compile check passes with no errors.
+
+### Future Plan (quick verify)
+- Select ADR, press `F`, let full drink animation finish, then move/switch slots.
+- Confirm no MissingReference exceptions appear.
+- Confirm boost still applies/fades and ADR model cleanup still works.
+
 ### Future Plan (audio verify pass)
 - In Level gameplay, hold W and confirm repeating walk SFX.
+
+### Hotfix: Options volume adjuster still invisible (runtime RectTransform creation)
+- User report: volume adjuster still not visible in Options prefab panel.
+- Root cause:
+  - Runtime volume UI objects were created as plain `GameObject` + `AddComponent<RectTransform>()`.
+  - In Unity UI runtime creation, this pattern is fragile and can fail to build a valid RectTransform hierarchy, resulting in no visible slider controls.
+- Minimal fix in `Assets/Scripts/UI/PauseMenuController.cs`:
+  - Create all runtime volume UI nodes with `RectTransform` at construction time.
+  - Updated nodes: `VolumeControlsRoot`, row containers, label, slider, background, fill area/fill, handle area/handle.
+  - Kept existing visual style and behavior (Music/SFX slider values and callbacks unchanged).
+- Compile status:
+  - `PauseMenuController.cs` has no errors.
+
+### Future Plan (quick verify)
+- Open `ESC -> Settings -> Options` and confirm `Music` and `SFX` slider adjusters are visible under `VOLUME`.
+- Drag both sliders and confirm audio reacts immediately.
+- Reopen Settings multiple times and confirm sliders still appear every time.
+
+### Hotfix: Slider handle size + crackly volume drag audio
+- User request: make the draggable `|` (slider handle) a bit smaller and fix ear-hurting crackly sound while lowering/raising SFX.
+- Minimal fix in `Assets/Scripts/UI/PauseMenuController.cs`:
+  - Reduced slider handle size from `14x26` to `10x20` for both Music and SFX rows.
+  - Removed realtime preview retriggers during slider drag:
+    - removed `PlayClickSound()` call on every SFX slider value change.
+    - removed `PlayBackgroundMusic()` retrigger on every Music slider value change.
+- Why this fixes crackle:
+  - Rapid retrigger playback while dragging can produce stacked transient artifacts/crackle.
+  - Slider now only adjusts source volume continuously without repeated one-shot replays.
+- Compile status:
+  - `PauseMenuController.cs` has no errors.
+
+### Hotfix: Move sliders lower + persist volume across play sessions and levels
+- User request:
+  - move Music/SFX sliders a little lower,
+  - keep volume values after stopping/starting play,
+  - ensure the same values appear on settings across levels.
+- Minimal fixes:
+  1. `Assets/Scripts/UI/PauseMenuController.cs`
+     - Lowered volume control block anchors:
+       - `anchorMin.y`: `0.58` -> `0.54`
+       - `anchorMax.y`: `0.78` -> `0.74`
+  2. `Assets/Scripts/Managers/AudioManager.cs`
+     - Added PlayerPrefs persistence keys:
+       - `LL_MusicVolume`
+       - `LL_SFXVolume`
+     - Added `LoadSavedVolumes()` in `Awake()` after source setup.
+     - Updated `SetMusicVolume()` and `SetSFXVolume()` to clamp, save, and `PlayerPrefs.Save()`.
+     - Updated audible-default guard so saved mute (`0`) is respected:
+       - default-to-1 only when no saved key exists.
+- Result:
+  - Music/SFX sliders render a little lower in the panel.
+  - Volume values persist between play sessions.
+  - Saved values are used consistently when settings opens in different levels.
+- Compile status:
+  - `PauseMenuController.cs` and `AudioManager.cs` have no errors.
+
+### Hotfix: Custom Box art replaced by '?' at runtime in puzzle board
+- User report: prefab looks correct in editor, but in game boxes show gray placeholders with `?`.
+- Root cause:
+  - `GateDropSlot.UpdateVisual()` always overwrote slot image color and empty label with `?`, even when Box already had custom sprite art.
+- Minimal fix in `Assets/Scripts/Puzzle/GateDropSlot.cs`:
+  - Detect custom slot art once during init: `hasCustomSlotArt = slotImage.sprite != null`.
+  - If custom art exists:
+    - keep image color `Color.white` (no gray tint override),
+    - hide empty `?` label text.
+  - If no custom art exists:
+    - keep existing fallback behavior (`emptyColor` and `?`).
+- Result:
+  - Custom Box images from prefab now remain visible in runtime.
+  - Placeholder `?` appears only for slots without custom art.
+- Compile status:
+  - `GateDropSlot.cs` has no errors.
+
+### Hotfix: Box turns gray while dragging/hovering gate over empty slot
+- User report: while dragging a gate over box slot, custom box art becomes gray; when mouse exits, it returns to normal.
+- Root cause:
+  - `GateDropSlot.OnPointerEnter()` still applied `hoverColor` for empty slots, even when slot had custom sprite art.
+- Minimal fix in `Assets/Scripts/Puzzle/GateDropSlot.cs`:
+  - In `OnPointerEnter()`, if `hasCustomSlotArt` then force `slotImage.color = Color.white`.
+  - Keep existing hover tint only for non-custom/fallback slots.
+- Result:
+  - Custom box art no longer turns gray during drag-over/hover.
+- Compile status:
+  - `GateDropSlot.cs` has no errors.
 - Hold Shift+W and confirm run SFX cadence.
 - Press Space and confirm jump SFX.
 - Click mouse and confirm click SFX.

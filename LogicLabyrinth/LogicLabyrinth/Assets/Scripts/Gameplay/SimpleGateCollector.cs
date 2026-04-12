@@ -612,6 +612,8 @@ public class SimpleGateCollector : MonoBehaviour
             FirstPersonArmAnimator.Instance.PlayCollectAnimation();
 
         currentInteractable.Interact();
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayGatePickupSound();
         currentInteractable = null;
     }
 

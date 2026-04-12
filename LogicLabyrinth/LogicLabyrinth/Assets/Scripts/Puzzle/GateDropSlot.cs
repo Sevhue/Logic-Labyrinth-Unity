@@ -26,6 +26,7 @@ public class GateDropSlot : MonoBehaviour, IDropHandler, IPointerClickHandler, I
     private TextMeshProUGUI slotLabel;
     private Outline slotOutline;
     private PuzzleTableController controller;
+    private bool hasCustomSlotArt;
 
     public bool IsEmpty => placedGate == null;
     public GateType? PlacedGate => placedGate;
@@ -38,6 +39,7 @@ public class GateDropSlot : MonoBehaviour, IDropHandler, IPointerClickHandler, I
 
         slotImage = GetComponent<Image>();
         slotOutline = GetComponent<Outline>();
+        hasCustomSlotArt = slotImage != null && slotImage.sprite != null;
 
         // Create or find the label text inside the box
         slotLabel = GetComponentInChildren<TextMeshProUGUI>();
@@ -97,7 +99,10 @@ public class GateDropSlot : MonoBehaviour, IDropHandler, IPointerClickHandler, I
     {
         if (IsEmpty && slotImage != null)
         {
-            slotImage.color = hoverColor;
+            if (hasCustomSlotArt)
+                slotImage.color = Color.white;
+            else
+                slotImage.color = hoverColor;
         }
     }
 
@@ -148,14 +153,17 @@ public class GateDropSlot : MonoBehaviour, IDropHandler, IPointerClickHandler, I
     {
         if (slotImage != null)
         {
-            slotImage.color = IsEmpty ? emptyColor : filledColor;
+            if (hasCustomSlotArt)
+                slotImage.color = Color.white;
+            else
+                slotImage.color = IsEmpty ? emptyColor : filledColor;
         }
 
         if (slotLabel != null)
         {
             if (IsEmpty)
             {
-                slotLabel.text = "?";
+                slotLabel.text = hasCustomSlotArt ? "" : "?";
                 slotLabel.color = new Color(1f, 1f, 1f, 0.4f);
             }
             else

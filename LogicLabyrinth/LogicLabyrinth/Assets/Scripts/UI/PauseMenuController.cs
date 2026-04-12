@@ -2396,7 +2396,7 @@ public class PauseMenuController : MonoBehaviour
         // Wire BackButton
         WireSettingsBackButton();
 
-        // Wire Volume sliders (Music, SFX)
+        // Wire Volume toggles (Music, SFX)
         WireVolumeSliders();
 
         // Wire Quality buttons (Low, Medium, High, Ultra)
@@ -2410,161 +2410,142 @@ public class PauseMenuController : MonoBehaviour
     private TextMeshProUGUI qualityTooltipText;
 
     /// <summary>
-    /// Creates and wires Music and SFX volume sliders in the Settings panel.
+    /// Creates and wires themed Music/SFX volume sliders in the existing Options prefab panel.
     /// </summary>
     private void WireVolumeSliders()
     {
         if (settingsInstance == null) return;
 
-        // Find or create volume container
-        Transform volumeContainer = DeepFind(settingsInstance.transform, "VolumeContainer");
-        if (volumeContainer == null)
-        {
-            // Create a container for volume controls under the VOLUME label
-            volumeContainer = new GameObject("VolumeContainer").transform;
-            volumeContainer.SetParent(settingsInstance.transform.Find("Panel") ?? settingsInstance.transform, false);
-            volumeContainer.SetAsFirstSibling(); // Keep it near the top, before GRAPHICS section
-            
-            RectTransform rt = volumeContainer.gameObject.AddComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0.5f, 0.5f);
-            rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.offsetMin = Vector2.zero;
-            rt.offsetMax = Vector2.zero;
-            rt.sizeDelta = new Vector2(300, 80);
-        }
+        Transform panelRoot = DeepFind(settingsInstance.transform, "Panel") ?? settingsInstance.transform;
+        if (panelRoot == null) return;
+        Transform existingVolumeRoot = DeepFind(panelRoot, "VolumeControlsRoot");
+        if (existingVolumeRoot != null)
+            Destroy(existingVolumeRoot.gameObject);
 
-        // Clear any existing volume sliders
-        foreach (Transform child in volumeContainer)
-        {
-            if (child.name.Contains("VolumeSlider"))
-                Destroy(child.gameObject);
-        }
+        GameObject volumeRootGO = new GameObject("VolumeControlsRoot", typeof(RectTransform));
+        Transform volumeRoot = volumeRootGO.transform;
+        volumeRoot.SetParent(panelRoot, false);
+        if (volumeRoot.parent == null) return;
 
-        // ==================== Music Volume Slider ====================
-        GameObject musicSliderGO = new GameObject("MusicVolumeSlider");
-        musicSliderGO.transform.SetParent(volumeContainer, false);
-        RectTransform musicSliderRT = musicSliderGO.AddComponent<RectTransform>();
-        musicSliderRT.anchoredPosition = new Vector2(0, 20);
-        musicSliderRT.sizeDelta = new Vector2(250, 30);
+        RectTransform rootRT = volumeRootGO.GetComponent<RectTransform>();
+        rootRT.anchorMin = new Vector2(0.13f, 0.54f);
+        rootRT.anchorMax = new Vector2(0.87f, 0.74f);
+        rootRT.offsetMin = Vector2.zero;
+        rootRT.offsetMax = Vector2.zero;
 
-        // Label
-        GameObject musicLabelGO = new GameObject("Label");
-        musicLabelGO.transform.SetParent(musicSliderGO.transform, false);
-        RectTransform musicLabelRT = musicLabelGO.AddComponent<RectTransform>();
-        musicLabelRT.anchorMin = Vector2.zero;
-        musicLabelRT.anchorMax = new Vector2(0.3f, 1f);
-        musicLabelRT.offsetMin = Vector2.zero;
-        musicLabelRT.offsetMax = Vector2.zero;
-        
-        TextMeshProUGUI musicLabel = musicLabelGO.AddComponent<TextMeshProUGUI>();
-        musicLabel.text = "Music";
-        musicLabel.fontSize = 12;
-        musicLabel.color = new Color(0.85f, 0.75f, 0.45f, 1f);
-        musicLabel.alignment = TextAlignmentOptions.Left;
+        CreateVolumeRow(volumeRoot, "Music", new Vector2(0f, 0.52f), new Vector2(1f, 1f),
+            AudioManager.Instance != null ? AudioManager.Instance.GetMusicVolume() : 1f,
+            value =>
+            {
+                if (AudioManager.Instance != null)
+                {
+                    AudioManager.Instance.SetMusicVolume(value);
+                }
+            });
 
-        // Slider
-        GameObject musicSliderBackgroundGO = new GameObject("Background");
-        musicSliderBackgroundGO.transform.SetParent(musicSliderGO.transform, false);
-        RectTransform musicSliderBgRT = musicSliderBackgroundGO.AddComponent<RectTransform>();
-        musicSliderBgRT.anchorMin = new Vector2(0.35f, 0f);
-        musicSliderBgRT.anchorMax = new Vector2(1f, 1f);
-        musicSliderBgRT.offsetMin = Vector2.zero;
-        musicSliderBgRT.offsetMax = Vector2.zero;
-        
-        Image musicSliderBg = musicSliderBackgroundGO.AddComponent<Image>();
-        musicSliderBg.color = new Color(0.2f, 0.2f, 0.2f, 0.8f);
-        
-        Slider musicSlider = musicSliderGO.AddComponent<Slider>();
-        musicSlider.minValue = 0f;
-        musicSlider.maxValue = 1f;
-        musicSlider.value = AudioManager.Instance != null ? AudioManager.Instance.GetMusicVolume() : 0.5f;
-        
-        // Fill rect for slider
-        GameObject musicFillGO = new GameObject("Fill");
-        musicFillGO.transform.SetParent(musicSliderBackgroundGO.transform, false);
-        RectTransform musicFillRT = musicFillGO.AddComponent<RectTransform>();
-        musicFillRT.anchorMin = Vector2.zero;
-        musicFillRT.anchorMax = Vector2.zero;
-        musicFillRT.offsetMin = Vector2.zero;
-        musicFillRT.offsetMax = Vector2.zero;
-        musicFillRT.sizeDelta = new Vector2(0, 0);
-        
-        Image musicFill = musicFillGO.AddComponent<Image>();
-        musicFill.color = new Color(1f, 0.84f, 0f, 0.8f);
-        
-        musicSlider.targetGraphic = musicSliderBg;
-        musicSlider.fillRect = musicFillRT;
-        
-        musicSlider.onValueChanged.AddListener(value =>
-        {
-            if (AudioManager.Instance != null)
-                AudioManager.Instance.SetMusicVolume(value);
-            Debug.Log($"[PauseMenu] Music Volume set to {value:F2}");
-        });
-
-        // ==================== SFX Volume Slider ====================
-        GameObject sfxSliderGO = new GameObject("SFXVolumeSlider");
-        sfxSliderGO.transform.SetParent(volumeContainer, false);
-        RectTransform sfxSliderRT = sfxSliderGO.AddComponent<RectTransform>();
-        sfxSliderRT.anchoredPosition = new Vector2(0, -20);
-        sfxSliderRT.sizeDelta = new Vector2(250, 30);
-
-        // Label
-        GameObject sfxLabelGO = new GameObject("Label");
-        sfxLabelGO.transform.SetParent(sfxSliderGO.transform, false);
-        RectTransform sfxLabelRT = sfxLabelGO.AddComponent<RectTransform>();
-        sfxLabelRT.anchorMin = Vector2.zero;
-        sfxLabelRT.anchorMax = new Vector2(0.3f, 1f);
-        sfxLabelRT.offsetMin = Vector2.zero;
-        sfxLabelRT.offsetMax = Vector2.zero;
-        
-        TextMeshProUGUI sfxLabel = sfxLabelGO.AddComponent<TextMeshProUGUI>();
-        sfxLabel.text = "SFX";
-        sfxLabel.fontSize = 12;
-        sfxLabel.color = new Color(0.85f, 0.75f, 0.45f, 1f);
-        sfxLabel.alignment = TextAlignmentOptions.Left;
-
-        // Slider
-        GameObject sfxSliderBackgroundGO = new GameObject("Background");
-        sfxSliderBackgroundGO.transform.SetParent(sfxSliderGO.transform, false);
-        RectTransform sfxSliderBgRT = sfxSliderBackgroundGO.AddComponent<RectTransform>();
-        sfxSliderBgRT.anchorMin = new Vector2(0.35f, 0f);
-        sfxSliderBgRT.anchorMax = new Vector2(1f, 1f);
-        sfxSliderBgRT.offsetMin = Vector2.zero;
-        sfxSliderBgRT.offsetMax = Vector2.zero;
-        
-        Image sfxSliderBg = sfxSliderBackgroundGO.AddComponent<Image>();
-        sfxSliderBg.color = new Color(0.2f, 0.2f, 0.2f, 0.8f);
-        
-        Slider sfxSlider = sfxSliderGO.AddComponent<Slider>();
-        sfxSlider.minValue = 0f;
-        sfxSlider.maxValue = 1f;
-        sfxSlider.value = AudioManager.Instance != null ? AudioManager.Instance.GetSFXVolume() : 0.5f;
-        
-        // Fill rect for slider
-        GameObject sfxFillGO = new GameObject("Fill");
-        sfxFillGO.transform.SetParent(sfxSliderBackgroundGO.transform, false);
-        RectTransform sfxFillRT = sfxFillGO.AddComponent<RectTransform>();
-        sfxFillRT.anchorMin = Vector2.zero;
-        sfxFillRT.anchorMax = Vector2.zero;
-        sfxFillRT.offsetMin = Vector2.zero;
-        sfxFillRT.offsetMax = Vector2.zero;
-        sfxFillRT.sizeDelta = new Vector2(0, 0);
-        
-        Image sfxFill = sfxFillGO.AddComponent<Image>();
-        sfxFill.color = new Color(1f, 0.84f, 0f, 0.8f);
-        
-        sfxSlider.targetGraphic = sfxSliderBg;
-        sfxSlider.fillRect = sfxFillRT;
-        
-        sfxSlider.onValueChanged.AddListener(value =>
-        {
-            if (AudioManager.Instance != null)
-                AudioManager.Instance.SetSFXVolume(value);
-            Debug.Log($"[PauseMenu] SFX Volume set to {value:F2}");
-        });
+        CreateVolumeRow(volumeRoot, "SFX", new Vector2(0f, 0f), new Vector2(1f, 0.46f),
+            AudioManager.Instance != null ? AudioManager.Instance.GetSFXVolume() : 1f,
+            value =>
+            {
+                if (AudioManager.Instance != null)
+                {
+                    AudioManager.Instance.SetSFXVolume(value);
+                }
+            });
 
         Debug.Log("[PauseMenu] Volume sliders wired successfully.");
+    }
+
+    private void CreateVolumeRow(Transform parent, string label, Vector2 anchorMin, Vector2 anchorMax, float initialValue, UnityEngine.Events.UnityAction<float> onChanged)
+    {
+        GameObject row = new GameObject($"{label}VolumeRow", typeof(RectTransform));
+        row.transform.SetParent(parent, false);
+
+        RectTransform rowRT = row.GetComponent<RectTransform>();
+        rowRT.anchorMin = anchorMin;
+        rowRT.anchorMax = anchorMax;
+        rowRT.offsetMin = Vector2.zero;
+        rowRT.offsetMax = Vector2.zero;
+
+        GameObject labelGO = new GameObject("Label", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+        labelGO.transform.SetParent(row.transform, false);
+        RectTransform labelRT = labelGO.GetComponent<RectTransform>();
+        labelRT.anchorMin = new Vector2(0f, 0f);
+        labelRT.anchorMax = new Vector2(0.30f, 1f);
+        labelRT.offsetMin = Vector2.zero;
+        labelRT.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI tmp = labelGO.GetComponent<TextMeshProUGUI>();
+        tmp.text = label.ToUpperInvariant();
+        tmp.fontSize = 18f;
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.color = new Color(0.90f, 0.82f, 0.56f, 1f);
+        tmp.alignment = TextAlignmentOptions.Left;
+
+        GameObject sliderGO = new GameObject("Slider", typeof(RectTransform), typeof(Slider));
+        sliderGO.transform.SetParent(row.transform, false);
+        RectTransform sliderRT = sliderGO.GetComponent<RectTransform>();
+        sliderRT.anchorMin = new Vector2(0.34f, 0.2f);
+        sliderRT.anchorMax = new Vector2(1f, 0.8f);
+        sliderRT.offsetMin = Vector2.zero;
+        sliderRT.offsetMax = Vector2.zero;
+
+        Slider slider = sliderGO.GetComponent<Slider>();
+        slider.minValue = 0f;
+        slider.maxValue = 1f;
+        slider.value = Mathf.Clamp01(initialValue);
+
+        GameObject bgGO = new GameObject("Background", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        bgGO.transform.SetParent(sliderGO.transform, false);
+        RectTransform bgRT = bgGO.GetComponent<RectTransform>();
+        bgRT.anchorMin = Vector2.zero;
+        bgRT.anchorMax = Vector2.one;
+        bgRT.offsetMin = Vector2.zero;
+        bgRT.offsetMax = Vector2.zero;
+        Image bg = bgGO.GetComponent<Image>();
+        bg.color = new Color(0.16f, 0.12f, 0.07f, 0.95f);
+
+        GameObject fillAreaGO = new GameObject("Fill Area", typeof(RectTransform));
+        fillAreaGO.transform.SetParent(sliderGO.transform, false);
+        RectTransform fillAreaRT = fillAreaGO.GetComponent<RectTransform>();
+        fillAreaRT.anchorMin = new Vector2(0f, 0f);
+        fillAreaRT.anchorMax = new Vector2(1f, 1f);
+        fillAreaRT.offsetMin = new Vector2(8f, 6f);
+        fillAreaRT.offsetMax = new Vector2(-16f, -6f);
+
+        GameObject fillGO = new GameObject("Fill", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        fillGO.transform.SetParent(fillAreaGO.transform, false);
+        RectTransform fillRT = fillGO.GetComponent<RectTransform>();
+        fillRT.anchorMin = new Vector2(0f, 0f);
+        fillRT.anchorMax = new Vector2(1f, 1f);
+        fillRT.offsetMin = Vector2.zero;
+        fillRT.offsetMax = Vector2.zero;
+        Image fill = fillGO.GetComponent<Image>();
+        fill.color = new Color(0.76f, 0.60f, 0.20f, 0.95f);
+
+        GameObject handleAreaGO = new GameObject("Handle Slide Area", typeof(RectTransform));
+        handleAreaGO.transform.SetParent(sliderGO.transform, false);
+        RectTransform handleAreaRT = handleAreaGO.GetComponent<RectTransform>();
+        handleAreaRT.anchorMin = new Vector2(0f, 0f);
+        handleAreaRT.anchorMax = new Vector2(1f, 1f);
+        handleAreaRT.offsetMin = new Vector2(8f, 0f);
+        handleAreaRT.offsetMax = new Vector2(-8f, 0f);
+
+        GameObject handleGO = new GameObject("Handle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        handleGO.transform.SetParent(handleAreaGO.transform, false);
+        RectTransform handleRT = handleGO.GetComponent<RectTransform>();
+        handleRT.sizeDelta = new Vector2(10f, 20f);
+        Image handle = handleGO.GetComponent<Image>();
+        handle.color = new Color(0.95f, 0.85f, 0.55f, 1f);
+
+        slider.targetGraphic = handle;
+        slider.fillRect = fillRT;
+        slider.handleRect = handleRT;
+        slider.direction = Slider.Direction.LeftToRight;
+        slider.wholeNumbers = false;
+
+        slider.onValueChanged.RemoveAllListeners();
+        slider.onValueChanged.AddListener(onChanged);
     }
 
     /// <summary>

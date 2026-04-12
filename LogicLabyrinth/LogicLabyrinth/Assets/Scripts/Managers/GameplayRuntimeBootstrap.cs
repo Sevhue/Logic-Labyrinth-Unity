@@ -11,6 +11,7 @@ public static class GameplayRuntimeBootstrap
     {
         EnsureSingleton<LevelManager>("LevelManager");
         EnsureSingleton<PauseMenuController>("PauseMenuController");
+        EnsureSingleton<AudioManager>("AudioManager");
     }
 
     private static void EnsureSingleton<T>(string name) where T : MonoBehaviour

@@ -91,6 +91,7 @@ public class AdrenalineConsumableController : MonoBehaviour
     private GameObject equippedModel;
     private bool isDrinkingAnimation;
     private bool attachedToCamera;
+    private Coroutine drinkRoutine;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Bootstrap()
@@ -141,6 +142,12 @@ public class AdrenalineConsumableController : MonoBehaviour
 
     private void OnDisable()
     {
+        if (drinkRoutine != null)
+        {
+            StopCoroutine(drinkRoutine);
+            drinkRoutine = null;
+        }
+
         if (autoSavePoseOnDisable)
             SavePoseToPrefs(false);
 
@@ -179,7 +186,12 @@ public class AdrenalineConsumableController : MonoBehaviour
         if (GameInventoryUI.Instance != null)
             GameInventoryUI.Instance.RefreshFromInventory();
 
-        StartCoroutine(PlayDrinkViewModel());
+        if (drinkRoutine != null)
+        {
+            StopCoroutine(drinkRoutine);
+            drinkRoutine = null;
+        }
+        drinkRoutine = StartCoroutine(PlayDrinkViewModel());
 
         int remaining = AccountManager.Instance.GetAdrenalineCount();
         ShowCenterHint($"Adrenaline active ({remaining} left)");
@@ -237,7 +249,11 @@ public class AdrenalineConsumableController : MonoBehaviour
     private IEnumerator PlayDrinkViewModel()
     {
         Camera cam = GetActiveCamera();
-        if (cam == null) yield break;
+        if (cam == null)
+        {
+            drinkRoutine = null;
+            yield break;
+        }
 
         isDrinkingAnimation = true;
         EnsureEquippedModel();
@@ -245,6 +261,7 @@ public class AdrenalineConsumableController : MonoBehaviour
         if (equippedModel == null)
         {
             isDrinkingAnimation = false;
+            drinkRoutine = null;
             yield break;
         }
 
@@ -272,6 +289,13 @@ public class AdrenalineConsumableController : MonoBehaviour
         float t = 0f;
         while (t < inDuration)
         {
+            if (model == null)
+            {
+                isDrinkingAnimation = false;
+                drinkRoutine = null;
+                yield break;
+            }
+
             t += Time.deltaTime;
             float p = Mathf.Clamp01(t / inDuration);
             model.localPosition = Vector3.Lerp(startPos, sipPos, p);
@@ -284,6 +308,13 @@ public class AdrenalineConsumableController : MonoBehaviour
         t = 0f;
         while (t < outDuration)
         {
+            if (model == null)
+            {
+                isDrinkingAnimation = false;
+                drinkRoutine = null;
+                yield break;
+            }
+
             t += Time.deltaTime;
             float p = Mathf.Clamp01(t / outDuration);
             model.localPosition = Vector3.Lerp(sipPos, startPos, p);
@@ -298,6 +329,8 @@ public class AdrenalineConsumableController : MonoBehaviour
 
         if (AccountManager.Instance == null || AccountManager.Instance.GetAdrenalineCount() <= 0 || !IsAdrenalineSelected())
             RemoveEquippedModel();
+
+        drinkRoutine = null;
     }
 
     private bool IsAdrenalineSelected()
@@ -376,6 +409,14 @@ public class AdrenalineConsumableController : MonoBehaviour
 
     private void RemoveEquippedModel()
     {
+        if (drinkRoutine != null)
+        {
+            StopCoroutine(drinkRoutine);
+            drinkRoutine = null;
+        }
+
+        isDrinkingAnimation = false;
+
         if (equippedModel != null)
         {
             Destroy(equippedModel);
