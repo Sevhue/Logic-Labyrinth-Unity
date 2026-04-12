@@ -499,6 +499,7 @@ public class UIManager : MonoBehaviour
             if (container == null) return;
 
             bool hasValue = !string.IsNullOrWhiteSpace(value);
+            bool isEmailField = containerName.Equals("Email", System.StringComparison.OrdinalIgnoreCase);
             Transform phT = container.Find("Placeholder");
             Transform inputT = container.Find("Input");
 
@@ -514,6 +515,11 @@ public class UIManager : MonoBehaviour
                     {
                         inputTMP.text = value;
                         inputTMP.enabled = true;
+                        if (isEmailField)
+                        {
+                            inputTMP.enableWordWrapping = false;
+                            inputTMP.overflowMode = TextOverflowModes.Ellipsis;
+                        }
                     }
                 }
             }
@@ -527,7 +533,15 @@ public class UIManager : MonoBehaviour
             // Some prefab variants nest TMP_InputField deeper than the container.
             TMP_InputField[] inputFields = container.GetComponentsInChildren<TMP_InputField>(true);
             foreach (var field in inputFields)
+            {
                 field.text = hasValue ? value : "";
+                if (isEmailField && field.textComponent != null)
+                {
+                    field.lineType = TMP_InputField.LineType.SingleLine;
+                    field.textComponent.enableWordWrapping = false;
+                    field.textComponent.overflowMode = TextOverflowModes.Ellipsis;
+                }
+            }
         }
 
         // Gather values
@@ -586,6 +600,11 @@ public class UIManager : MonoBehaviour
                     // Keep only the label here so the dropdown is the single source of displayed time.
                     txt.text = "Best Campaign";
                     bestCampaignRect = txt.rectTransform;
+                }
+                else if (lower.Contains("security question") || lower.Contains("security answer"))
+                {
+                    // Hide stale prefab labels that should not appear in the stats board.
+                    txt.gameObject.SetActive(false);
                 }
             }
 

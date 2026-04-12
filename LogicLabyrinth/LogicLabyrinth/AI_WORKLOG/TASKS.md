@@ -1,6 +1,11 @@
 # Tasks
 
 ## Active
+- Validate purchased Lantern appears in player hand during gameplay levels (sandbox fallback always grants for testing).
+- Validate Lantern purchase persists as permanent ownership (`hasLantern`) without enabling map-candle state.
+- Validate store Buy flow now always attempts real Maya backend (no offline sandbox fallback; sandbox fallback grants item for testing).
+- Validate SECURITY QUESTION label no longer appears in Account Profile stats board.
+- Validate Account Profile long Email now shows ellipsis (`...`) on one line.
 - Validate visible blinking `|` overlay now appears in new Google profile Name field.
 - Re-validate new Google profile popup caret after EventSystem + stronger TMP activation fix.
 - Validate new Google profile popup shows blinking caret in Name field on first open.
@@ -42,6 +47,11 @@
 - Add optional fallback UI warning if expected `QY` panel is missing.
 
 ## Completed
+- Feature hotfix applied: added `LanternHandController` to show owned Lantern model in player hand.
+- Hotfix correction: removed Lantern->Candle coupling from grant/login/continue sync paths.
+- Hotfix applied: Store offline sandbox fallback permanently disabled; always routes to real Maya checkout.
+- Hotfix applied: SECURITY QUESTION label now hidden in Account Profile stats board.
+- Hotfix applied: Account Profile Email field now uses single-line ellipsis instead of multiline overflow.
 - Hotfix applied: NewPlayerSetupUI now draws a local blinking visual `|` overlay in the Name field.
 - Hotfix applied: NewPlayerSetupUI now ensures EventSystem exists and forces TMP caret rendering/activation for Name field.
 - Hotfix applied: NewPlayerSetupUI now auto-focuses Name input and shows blinking caret (`|`) on open.

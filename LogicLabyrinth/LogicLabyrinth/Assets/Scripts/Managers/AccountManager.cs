@@ -1890,8 +1890,6 @@ public class AccountManager : MonoBehaviour
                 break;
             case "lantern":
                 currentPlayer.hasLantern = true;
-                if (InventoryManager.Instance != null)
-                    InventoryManager.Instance.SetHasCandle(true);
                 break;
             case "adrenaline":
                 currentPlayer.adrenalineCount += Mathf.Max(1, quantity);

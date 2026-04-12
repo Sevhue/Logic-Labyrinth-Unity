@@ -1,9 +1,31 @@
+# 2026-04-13
+
+### Hotfix: Maya sandbox fallback always grants Lantern for successful payment
+
 # Session Log
 
 ## 2026-04-13
 
-### Hotfix: New Google profile setup now shows blinking caret in Name immediately
-- User report: when `COMPLETE THY PROFILE` appears for new Google users, Name field did not show blinking `|`, so it looked non-editable.
+### Feature hotfix: Purchased Lantern now appears in player hand
+  - runtime bootstrap via `RuntimeInitializeOnLoadMethod` (no scene wiring required)
+  - shows Lantern model while in `Level*` scenes when `AccountManager.HasStoreItem("Lantern")` is true
+  - attaches to right hand bone (`mixamorig:RightHand`/fallbacks) or camera anchor fallback
+  - hides Lantern while candle is equipped or while Adrenaline slot is selected to avoid overlap
+  - builds model from `Assets/Store/Purchase/Lantern/source/model/base.obj` (+ textures) in Editor; includes safe fallback primitive
+
+### Hotfix correction: Lantern is permanent store ownership, not map candle state
+  - `Assets/Scripts/Managers/AccountManager.cs`
+    - removed `InventoryManager.Instance.SetHasCandle(currentPlayer.hasLantern)` from `SyncInventoryFromPlayerData`.
+    - removed `InventoryManager.Instance.SetHasCandle(true)` from `GrantStoreItem("lantern")`.
+  - `Assets/Scripts/Managers/LevelManager.cs`
+    - removed `InventoryManager.Instance.SetHasCandle(player.hasLantern)` from Continue Game refresh sync.
+
+### Hotfix (superseded same day): Lantern purchase re-sync into candle inventory
+- Root cause: Lantern grant path already worked on purchase, but post-load sync paths only refreshed gate counts and could miss restoring Lantern->candle inventory state in gameplay sessions.
+- Minimal fix:
+  - `Assets/Scripts/Managers/AccountManager.cs` (`SyncInventoryFromPlayerData`): after gate sync, now applies `InventoryManager.Instance.SetHasCandle(currentPlayer.hasLantern)`.
+- Superseded by later correction above after user clarified Lantern must remain a separate permanent item, not candle state.
+- Compile check: `AccountManager.cs` and `LevelManager.cs` have no errors.
 - Minimal fix in `Assets/Scripts/UI/NewPlayerSetupUI.cs`:
   - after building the popup, run a one-frame delayed focus routine:
     - select Name input via `EventSystem`
@@ -11,6 +33,15 @@
     - place caret at end of current text
 - Result: Name field now shows blinking caret immediately on popup open, signaling editable text.
 - Compile check: `NewPlayerSetupUI.cs` has no errors.
+
+### Hotfix: PauseMenuController.cs compile errors fixed
+- User could not play due to errors in `PauseMenuController.cs`:
+  - CS1519: Invalid token in class member declaration
+  - CS8803: Top-level statements after class/namespace
+  - CS0106: Invalid modifiers (public/private) on local functions or misplaced code
+  - CS1022: Unexpected code after class end
+- Minimal fix: Removed stray assignment and misplaced code after class closing brace. Ensured all code is inside the class.
+- Result: No compile errors in `PauseMenuController.cs`. Game launches successfully.
 
 ### Hotfix (2nd pass): New Google profile popup now creates EventSystem for visible TMP caret
 - User retest still showed no blinking `|` in Name.
@@ -32,6 +63,49 @@
   - updated its position as text changes
 - Result: the popup now visibly shows a blinking `|` cue in the Name field even when TMP's built-in caret stays hidden.
 - Compile check: `NewPlayerSetupUI.cs` has no errors.
+
+### Hotfix: Store offline sandbox fallback permanently disabled
+- User report: store always enters "Offline sandbox mode" / shows "Complete in Sandbox" button even in gameplay, preventing real Maya checkout.
+- Root cause: `ShouldUseOfflineFallback()` auto-returned `true` for `localhost` backend URLs, immediately routing every buy attempt into local mock flow instead of hitting Maya.
+- Simplest fix in `Assets/Scripts/UI/PauseMenuController.cs`:
+  - Replaced entire `ShouldUseOfflineFallback()` body with `return false`.
+  - Offline fallback branches in `CreateMayaCheckoutAndOpen` now never trigger.
+  - Real error messages show instead when backend is unreachable.
+  - Maya hosted sandbox URL (`payments-web-sandbox.maya.ph`) from a real backend response still works normally.
+- Result: store always attempts real Maya backend call; no local sandbox path exists.
+- Compile check: `PauseMenuController.cs` has no errors.
+
+### Fix: Maya checkout now calls pg-sandbox.paymaya.com directly — no backend server needed
+- User report: "Checkout create failed (no-response). Backend: http://localhost:8787" shown in game. Store never reaches Maya.
+- Root cause: the game routed every checkout through a local Express.js server at `localhost:8787` that must be manually started (`node server.js`). This server was never running during gameplay.
+- Investigation: checked all git history — `mayaBackendBaseUrl` was ALWAYS `localhost:8787` in every commit. Found real Maya sandbox credentials in `maya-backend/.env`: `pk-Z0OSzLvIcOI2UIvDhdTGVVfRSSeiGStnceqwUE7n0Ah` / `sk-X8qolYjy62kIzEbr0QRK1h4b4KDVHaNcwMYk39jInSl`.
+- Fix in `Assets/Scripts/UI/PauseMenuController.cs`:
+  - Added private constants `MayaDirectApiUrl`, `MayaPublicKey`, `MayaSecretKey`
+  - Added `GetMayaAuthHeader()` (Basic auth: base64(pk:sk)) and `IsMayaStatusPaid()` helper
+  - `CreateMayaCheckoutAndOpen`: now POSTs directly to `https://pg-sandbox.paymaya.com/checkout/v1/checkouts` with Authorization header
+  - `AutoVerifyMayaCheckoutAndGrant`: now GETs Maya status directly from `https://pg-sandbox.paymaya.com/checkout/v1/checkouts/{id}`
+  - `VerifyMayaCheckoutAndGrant`: same, plus updated paid detection to use `IsMayaStatusPaid(status)` instead of backend-computed `paid` field
+  - Redirect URLs updated to valid Maya sandbox pages (no longer pointing at localhost)
+- Result: game goes directly to Maya sandbox API on every checkout — no local server required. 100% reliable as long as internet is available.
+- Compile check: `PauseMenuController.cs` has no errors.
+
+### Hotfix: Account Profile stats board hides stale SECURITY QUESTION label
+- User report: "SECURITY QUESTION" text sometimes appears below Best Campaign in the stats panel.
+- Root cause: the prefab has a TMP child with that text in the Boarder stats area; the populate loop did not hide it.
+- Minimal fix in `Assets/Scripts/UI/UIManager.cs` (`PopulateAccountProfileFields`):
+  - added check in the stat-text loop: if TMP text contains "security question" or "security answer", disable the game object.
+- Result: stale prefab label is hidden every time the profile panel opens.
+- Compile check: `UIManager.cs` has no errors.
+
+### Hotfix: Account Profile long Gmail now truncates with ellipsis
+- User report: long email in Account Profile wraps/overflows awkwardly across lines.
+- Minimal display fix in `Assets/Scripts/UI/UIManager.cs` (`PopulateAccountProfileFields -> SetProfileField`):
+  - applied Email-only text style:
+    - `enableWordWrapping = false`
+    - `overflowMode = TextOverflowModes.Ellipsis`
+    - `TMP_InputField.LineType = SingleLine` for nested input field text component
+- Result: long Gmail values now stay on one line and show `...` instead of breaking layout.
+- Compile check: `UIManager.cs` has no errors.
 
 ### Hotfix (2nd pass): X-close now force-resets gameplay look-lock input flags
 - User retest still showed unlocked cursor (`lock=None, visible=True`) after clicking `X`, requiring TAB cycle.

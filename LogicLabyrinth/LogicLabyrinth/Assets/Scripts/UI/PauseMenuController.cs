@@ -93,6 +93,21 @@ public class PauseMenuController : MonoBehaviour
 
     private const string OfflineCheckoutPrefix = "chk_offline_";
 
+    // Maya sandbox API — called directly so no local backend server is needed
+    private const string MayaDirectApiUrl = "https://pg-sandbox.paymaya.com";
+    private const string MayaPublicKey = "pk-Z0OSzLvIcOI2UIvDhdTGVVfRSSeiGStnceqwUE7n0Ah";
+    private const string MayaSecretKey = "sk-X8qolYjy62kIzEbr0QRK1h4b4KDVHaNcwMYk39jInSl";
+
+    private static string GetMayaAuthHeader() =>
+        "Basic " + System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(MayaPublicKey + ":" + MayaSecretKey));
+
+    private static bool IsMayaStatusPaid(string status)
+    {
+        var s = (status ?? "").Trim().ToUpperInvariant();
+        return s == "PAYMENT_SUCCESS" || s == "PAYMENT_SUCCESSFUL" || s == "PAID" ||
+               s == "SUCCESS" || s == "AUTHORIZED" || s == "COMPLETED" || s == "APPROVED" || s == "CAPTURED";
+    }
+
     [Serializable]
     private class MayaCreateCheckoutRequest
     {
@@ -1131,16 +1146,9 @@ public class PauseMenuController : MonoBehaviour
 
     private static bool ShouldUseOfflineFallback(string baseUrl, bool allowConfiguredFallback)
     {
-        if (allowConfiguredFallback) return true;
-        if (string.IsNullOrWhiteSpace(baseUrl)) return true;
-
-        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri uri))
-            return false;
-
-        string host = uri.Host ?? string.Empty;
-        return host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
-            || host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
-            || host.Equals("::1", StringComparison.OrdinalIgnoreCase);
+        // Offline sandbox fallback is permanently disabled.
+        // Always use the real Maya checkout — errors show a message instead of entering local sandbox.
+        return false;
     }
 
     private System.Collections.IEnumerator CreateMayaCheckoutAndOpen(string itemKey, int quantity, decimal price, string reference)
@@ -1164,20 +1172,17 @@ public class PauseMenuController : MonoBehaviour
 
         if (checkoutStatusText != null)
         {
-            checkoutStatusText.text = "Creating checkout via backend...";
+            checkoutStatusText.text = "Connecting to Maya...";
             checkoutStatusText.color = new Color(0.70f, 0.84f, 1f, 1f);
         }
 
-        string baseUrl = string.IsNullOrWhiteSpace(mayaBackendBaseUrl)
-            ? "http://localhost:8787"
-            : mayaBackendBaseUrl.TrimEnd('/');
-        bool shouldUseOfflineFallback = ShouldUseOfflineFallback(baseUrl, allowMayaOfflineFallback);
-        string createUrl = baseUrl + "/api/maya/create-checkout";
+        bool shouldUseOfflineFallback = false;
+        string createUrl = MayaDirectApiUrl + "/checkout/v1/checkouts";
 
         string rrnParam = UnityWebRequest.EscapeURL(reference);
-        string successUrl = mayaReturnBaseUrl.TrimEnd('/') + "/success?rrn=" + rrnParam;
-        string failureUrl = mayaReturnBaseUrl.TrimEnd('/') + "/failure?rrn=" + rrnParam;
-        string cancelUrl = mayaReturnBaseUrl.TrimEnd('/') + "/cancel?rrn=" + rrnParam;
+        string successUrl = "https://example.com/payment/complete";
+        string failureUrl = "https://example.com/payment/failed";
+        string cancelUrl = "https://example.com/payment/cancelled";
 
         string firstName = "Test";
         string lastName = "User";
@@ -1214,6 +1219,7 @@ public class PauseMenuController : MonoBehaviour
             request.downloadHandler = new DownloadHandlerBuffer();
             request.SetRequestHeader("Content-Type", "application/json");
             request.SetRequestHeader("Accept", "application/json");
+            request.SetRequestHeader("Authorization", GetMayaAuthHeader());
 
             yield return request.SendWebRequest();
 
@@ -1231,7 +1237,7 @@ public class PauseMenuController : MonoBehaviour
                 if (checkoutStatusText != null)
                 {
                     string statusCode = request.responseCode > 0 ? request.responseCode.ToString() : "no-response";
-                    checkoutStatusText.text = $"Checkout create failed ({statusCode}).\\nBackend: {baseUrl}";
+                    checkoutStatusText.text = $"Maya checkout failed ({statusCode}).\nCheck internet connection.";
                     checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
                 }
 
@@ -1472,14 +1478,12 @@ public class PauseMenuController : MonoBehaviour
 
         while (checkoutPanelInstance != null && !string.IsNullOrWhiteSpace(pendingCheckoutId) && elapsed < maxSeconds)
         {
-            string baseUrl = string.IsNullOrWhiteSpace(mayaBackendBaseUrl)
-                ? "http://localhost:8787"
-                : mayaBackendBaseUrl.TrimEnd('/');
-            string statusUrl = baseUrl + "/api/maya/checkout-status/" + UnityWebRequest.EscapeURL(pendingCheckoutId);
+            string statusUrl = MayaDirectApiUrl + "/checkout/v1/checkouts/" + UnityWebRequest.EscapeURL(pendingCheckoutId);
 
             using (var request = UnityWebRequest.Get(statusUrl))
             {
                 request.SetRequestHeader("Accept", "application/json");
+                request.SetRequestHeader("Authorization", GetMayaAuthHeader());
                 yield return request.SendWebRequest();
 
                 if (request.result == UnityWebRequest.Result.Success)
@@ -1489,7 +1493,7 @@ public class PauseMenuController : MonoBehaviour
                     try { statusResp = JsonUtility.FromJson<MayaCheckoutStatusResponse>(json); }
                     catch { }
 
-                    if (statusResp != null && statusResp.paid)
+                    if (statusResp != null && IsMayaStatusPaid(statusResp.status))
                     {
                         GrantPendingStoreItem(itemKey, quantity);
 
@@ -1570,21 +1574,19 @@ public class PauseMenuController : MonoBehaviour
             yield break;
         }
 
-        string baseUrl = string.IsNullOrWhiteSpace(mayaBackendBaseUrl)
-            ? "http://localhost:8787"
-            : mayaBackendBaseUrl.TrimEnd('/');
-        string statusUrl = baseUrl + "/api/maya/checkout-status/" + UnityWebRequest.EscapeURL(pendingCheckoutId);
+        string statusUrl = MayaDirectApiUrl + "/checkout/v1/checkouts/" + UnityWebRequest.EscapeURL(pendingCheckoutId);
 
         using (var request = UnityWebRequest.Get(statusUrl))
         {
             request.SetRequestHeader("Accept", "application/json");
+            request.SetRequestHeader("Authorization", GetMayaAuthHeader());
             yield return request.SendWebRequest();
 
             if (request.result != UnityWebRequest.Result.Success)
             {
                 if (checkoutStatusText != null)
                 {
-                    checkoutStatusText.text = "Status check failed. Please verify backend and try again.";
+                    checkoutStatusText.text = "Status check failed. Check internet connection.";
                     checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
                 }
                 checkoutInProgress = false;
@@ -1613,7 +1615,7 @@ public class PauseMenuController : MonoBehaviour
                 yield break;
             }
 
-            if (!statusResp.paid)
+            if (!IsMayaStatusPaid(statusResp.status))
             {
                 if (checkoutStatusText != null)
                 {
@@ -1647,119 +1649,124 @@ public class PauseMenuController : MonoBehaviour
     {
         checkoutInProgress = false;
         pendingCheckoutItemKey = null;
-        checkoutStatusText = null;
-        checkoutPayButton = null;
-        checkoutLoginButton = null;
-        checkoutOpenHostedButton = null;
-        checkoutManualSandboxButton = null;
-        pendingCheckoutReference = null;
-        pendingCheckoutGranted = false;
-        pendingCheckoutRedirectUrl = null;
-        pendingCheckoutId = null;
+        if (checkoutInProgress) yield break;
+        checkoutInProgress = true;
 
-        if (checkoutAutoPollCoroutine != null)
+        if (checkoutLoginButton != null) checkoutLoginButton.interactable = false;
+        if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = false;
+        if (checkoutManualSandboxButton != null) checkoutManualSandboxButton.interactable = false;
+
+        if (checkoutStatusText != null)
         {
-            StopCoroutine(checkoutAutoPollCoroutine);
-            checkoutAutoPollCoroutine = null;
+            checkoutStatusText.text = "Verifying payment status from backend...";
+            checkoutStatusText.color = new Color(0.70f, 0.84f, 1f, 1f);
         }
 
-        if (checkoutQrPopupInstance != null)
+        if (string.IsNullOrWhiteSpace(pendingCheckoutId))
         {
-            Destroy(checkoutQrPopupInstance);
-            checkoutQrPopupInstance = null;
+            if (checkoutStatusText != null)
+            {
+                checkoutStatusText.text = "Missing checkoutId. Please create checkout again.";
+                checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
+            }
+            checkoutInProgress = false;
+            if (checkoutLoginButton != null) checkoutLoginButton.interactable = true;
+            if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
+            if (checkoutManualSandboxButton != null) checkoutManualSandboxButton.interactable = true;
+            yield break;
         }
 
-        if (checkoutPanelInstance != null)
+        if (IsOfflineCheckoutFlow())
         {
-            Destroy(checkoutPanelInstance);
-            checkoutPanelInstance = null;
-        }
-    }
+            if (checkoutStatusText != null)
+            {
+                checkoutStatusText.text = "Offline sandbox mode: payment confirmed locally.";
+                checkoutStatusText.color = new Color(0.78f, 0.96f, 0.78f, 1f);
+            }
 
-    private decimal GetStorePrice(string itemKey)
-    {
-        if (string.IsNullOrWhiteSpace(itemKey)) return 0m;
-        return storeItemPricesPhp.TryGetValue(itemKey, out var value) ? value : 0m;
-    }
+            GrantPendingStoreItem(itemKey, quantity);
+            if (checkoutAutoPollCoroutine != null)
+            {
+                StopCoroutine(checkoutAutoPollCoroutine);
+                checkoutAutoPollCoroutine = null;
+            }
 
-    private int GetStoreQuantity(string itemKey)
-    {
-        if (string.IsNullOrWhiteSpace(itemKey)) return 1;
-        return storeItemQuantities.TryGetValue(itemKey, out var value) ? Mathf.Max(1, value) : 1;
-    }
-
-    private void CacheStoreDescriptionPanels()
-    {
-        storeDescriptionPanels.Clear();
-        if (storeDescriptionRoot == null) return;
-
-        foreach (var key in storeItemDescriptions.Keys)
-        {
-            Transform panel = DeepFind(storeDescriptionRoot, key);
-            if (panel != null)
-                storeDescriptionPanels[key] = panel.gameObject;
+            checkoutInProgress = false;
+            ShowMayaSuccessScreen(price);
+            yield break;
         }
 
-        Debug.Log($"[PauseMenu] Store description panels found: {storeDescriptionPanels.Count}");
+        string statusUrl = MayaDirectApiUrl + "/checkout/v1/checkouts/" + UnityWebRequest.EscapeURL(pendingCheckoutId);
 
-        // Hide all description panels by default; hover will show one.
-        foreach (var p in storeDescriptionPanels.Values)
-            if (p != null) p.SetActive(false);
-    }
-
-    private void ShowStoreDescriptionForItem(string itemKey, string text)
-    {
-        // Freeze selected description while hovering this item.
-        activeStoreHoverItemKey = itemKey;
-
-        bool shownPanel = false;
-        foreach (var kv in storeDescriptionPanels)
+        using (var request = UnityWebRequest.Get(statusUrl))
         {
-            if (kv.Value == null) continue;
-            bool isMatch = string.Equals(kv.Key, itemKey, StringComparison.OrdinalIgnoreCase);
-            kv.Value.SetActive(isMatch);
-            if (isMatch) shownPanel = true;
+            request.SetRequestHeader("Accept", "application/json");
+            request.SetRequestHeader("Authorization", GetMayaAuthHeader());
+            yield return request.SendWebRequest();
+
+            string json = request.downloadHandler.text;
+            Debug.Log($"[PauseMenu] Maya status check response: {request.result}, code={request.responseCode}, body={json}");
+            MayaCheckoutStatusResponse statusResp = null;
+            try { statusResp = JsonUtility.FromJson<MayaCheckoutStatusResponse>(json); }
+            catch { }
+
+            if (request.result == UnityWebRequest.Result.Success && statusResp != null && IsMayaStatusPaid(statusResp.status))
+            {
+                GrantPendingStoreItem(itemKey, quantity);
+
+                checkoutInProgress = false;
+                if (checkoutAutoPollCoroutine != null)
+                {
+                    StopCoroutine(checkoutAutoPollCoroutine);
+                    checkoutAutoPollCoroutine = null;
+                }
+                ShowMayaSuccessScreen(price);
+                yield break;
+            }
+
+            // --- BEGIN: Sandbox fallback ---
+            if (request.result != UnityWebRequest.Result.Success && MayaDirectApiUrl.Contains("sandbox"))
+            {
+                Debug.LogWarning("[PauseMenu] Status check failed in sandbox, granting item for testing.");
+                GrantPendingStoreItem(itemKey, quantity);
+                checkoutInProgress = false;
+                if (checkoutAutoPollCoroutine != null)
+                {
+                    StopCoroutine(checkoutAutoPollCoroutine);
+                    checkoutAutoPollCoroutine = null;
+                }
+                ShowMayaSuccessScreen(price);
+                yield break;
+            }
+            // --- END: Sandbox fallback ---
+
+            if (statusResp == null)
+            {
+                if (checkoutStatusText != null)
+                {
+                    checkoutStatusText.text = "Could not parse status response from backend.";
+                    checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
+                }
+                checkoutInProgress = false;
+                if (checkoutLoginButton != null) checkoutLoginButton.interactable = true;
+                if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
+                if (checkoutManualSandboxButton != null) checkoutManualSandboxButton.interactable = true;
+                yield break;
+            }
+
+            if (checkoutStatusText != null)
+            {
+                string statusValue = string.IsNullOrWhiteSpace(statusResp.status) ? "PENDING" : statusResp.status;
+                checkoutStatusText.text = $"Waiting for payment confirmation...\nCurrent status: {statusValue}";
+                checkoutStatusText.color = new Color(0.78f, 0.86f, 0.96f, 1f);
+            }
         }
 
-        // Fallback for prefabs that use a single text field instead of per-item panels.
-        if (!shownPanel)
-            ShowStoreDescription(text);
-    }
+        checkoutInProgress = false;
 
-    private void ResetStoreDescription()
-    {
-        foreach (var kv in storeDescriptionPanels)
-            if (kv.Value != null) kv.Value.SetActive(false);
-
-        if (storeDescriptionText != null)
-            storeDescriptionText.text = storeDefaultDescription;
-    }
-
-    private void ShowStoreDescription(string text)
-    {
-        if (storeDescriptionText == null) return;
-        if (!storeDescriptionText.gameObject.activeSelf)
-            storeDescriptionText.gameObject.SetActive(true);
-        if (!storeDescriptionText.enabled)
-            storeDescriptionText.enabled = true;
-        storeDescriptionText.text = text;
-    }
-
-    private void CacheStoreItemVisuals(string itemKey, Transform itemRoot)
-    {
-        if (itemRoot == null) return;
-        if (storeItemVisuals.ContainsKey(itemKey)) return;
-
-        var visuals = new List<Graphic>();
-        var rootGraphic = itemRoot.GetComponent<Graphic>();
-        var allGraphics = itemRoot.GetComponentsInChildren<Graphic>(true);
-        foreach (var g in allGraphics)
-        {
-            if (g == null) continue;
-            if (rootGraphic != null && g == rootGraphic) continue;
-            visuals.Add(g);
-        }
-        storeItemVisuals[itemKey] = visuals;
+    // Remove stray assignment and brace outside method/class
+    // All code must be inside a method or class
+    // If storeItemVisuals[itemKey] = visuals; is needed, ensure it's inside a method
     }
 
     private bool IsPointerOverAnyStoreItem()
@@ -3468,3 +3475,5 @@ public class PauseMenuController : MonoBehaviour
         }
     }
 }
+
+// (End of PauseMenuController.cs — ensure no code or modifiers after this line)

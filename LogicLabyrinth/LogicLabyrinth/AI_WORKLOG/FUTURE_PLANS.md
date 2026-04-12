@@ -1,5 +1,15 @@
 # Future Plans
 
+
+- PauseMenuController.cs is now error-free and game launches. Re-validate PauseMenu and store UI after hotfix: ensure all store interactions work as expected.
+
+## Immediate validation (Lantern permanent ownership)
+- Buy `Lantern` from Store in Play Mode and complete Maya checkout.
+- Confirm player data stores `hasLantern = true` and purchase remains after relog.
+- Confirm Lantern does NOT auto-enable collectible candle state (`InventoryManager.HasCandle`) on login/continue.
+- Confirm map candles still follow their own pickup/spawn flow independently.
+- Continue Game path: verify Lantern ownership persists without candle-state side effects.
+
 ## Immediate validation (profile reset regression)
 - Log in with the account that previously reverted profile data.
 - Open Account Profile and confirm current values are correct.
@@ -65,6 +75,11 @@
 ## Immediate validation (new Google profile Name caret - visual fallback)
 - Reopen the popup and confirm a visible blinking `|` now appears directly after the current Name text.
 - Type and backspace a few characters and confirm the blinking `|` follows the end of the text.
+
+## Immediate validation (Account Profile long email ellipsis)
+- Open Account Profile with a long Gmail value and confirm it no longer wraps to the next line.
+- Confirm the email displays as a single line with trailing `...` when it exceeds field width.
+- Confirm Save still keeps the full original email value in data (display truncation only).
 
 ## Immediate validation (store offline fallback)
 - Open pause menu store and click `Buy` for at least one item.
