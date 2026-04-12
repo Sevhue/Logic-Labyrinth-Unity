@@ -297,6 +297,10 @@ namespace StarterAssets
 				return;
 			}
 
+			// Auto-restore locked gameplay cursor after UI closes.
+			if (!_tabCursorVisible && (Cursor.lockState != CursorLockMode.Locked || Cursor.visible))
+				SetGameplayCursorVisible(false);
+
 #if ENABLE_INPUT_SYSTEM
 			// TAB toggles gameplay cursor visibility/lock so players can quickly use the mouse.
 			if (Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame)

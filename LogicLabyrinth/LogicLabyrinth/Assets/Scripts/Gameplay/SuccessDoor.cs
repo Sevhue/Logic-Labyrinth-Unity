@@ -519,7 +519,7 @@ public class SuccessDoor : MonoBehaviour
     private int GetNextLevelNumber(int sceneLevel)
     {
         if (sceneLevel == 8)
-            return -1;
+            return 9;
 
         if (sceneLevel > 0)
             return sceneLevel + 1;

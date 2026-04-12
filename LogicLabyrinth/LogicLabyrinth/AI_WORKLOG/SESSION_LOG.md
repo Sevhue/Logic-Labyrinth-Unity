@@ -1,6 +1,101 @@
 # Session Log
 
+## 2026-04-13
+
+### Hotfix: New Google profile setup now shows blinking caret in Name immediately
+- User report: when `COMPLETE THY PROFILE` appears for new Google users, Name field did not show blinking `|`, so it looked non-editable.
+- Minimal fix in `Assets/Scripts/UI/NewPlayerSetupUI.cs`:
+  - after building the popup, run a one-frame delayed focus routine:
+    - select Name input via `EventSystem`
+    - call `Select()` + `ActivateInputField()`
+    - place caret at end of current text
+- Result: Name field now shows blinking caret immediately on popup open, signaling editable text.
+- Compile check: `NewPlayerSetupUI.cs` has no errors.
+
+### Hotfix (2nd pass): New Google profile popup now creates EventSystem for visible TMP caret
+- User retest still showed no blinking `|` in Name.
+- Root cause: runtime popup could open without an active `EventSystem`, preventing TMP input from entering real selected/caret state.
+- Minimal follow-up in `Assets/Scripts/UI/NewPlayerSetupUI.cs`:
+  - added local `EnsureEventSystem()` before popup interaction setup
+  - strengthened focus coroutine with end-of-frame activation and explicit selection reset
+  - enabled explicit caret rendering with `customCaretColor = true` and wider caret width
+- Result: popup now has the minimum UI infrastructure TMP needs to display a visible blinking caret in the Name field.
+- Compile check: `NewPlayerSetupUI.cs` has no errors.
+
+### Hotfix (3rd pass, reliable visual fallback): Name field now draws its own blinking `|`
+- User retest confirmed typing/deleting worked, but native TMP caret was still invisible.
+- Smallest reliable fix: add a local visual blinking pipe inside the Name field instead of continuing to chase native TMP caret rendering.
+- Change in `Assets/Scripts/UI/NewPlayerSetupUI.cs`:
+  - created `VisibleCaret` TMP label inside the Name field viewport
+  - positioned it after the current text width
+  - blinked it while the Name field is focused
+  - updated its position as text changes
+- Result: the popup now visibly shows a blinking `|` cue in the Name field even when TMP's built-in caret stays hidden.
+- Compile check: `NewPlayerSetupUI.cs` has no errors.
+
+### Hotfix (2nd pass): X-close now force-resets gameplay look-lock input flags
+- User retest still showed unlocked cursor (`lock=None, visible=True`) after clicking `X`, requiring TAB cycle.
+- Root cause: close path could re-enable input component without explicitly restoring its lock/look flags in the same method.
+- Minimal direct fix in `Assets/Scripts/Puzzle/PuzzleTableController.cs` (`SetUIMode(false)`):
+  - after re-enabling `StarterAssetsInputs`, now force:
+    - `cursorInputForLook = true`
+    - `cursorLocked = true`
+    - `LookInput(Vector2.zero)`
+- Result: `X` close now performs the same practical relock reset expected from a TAB recovery, without needing TAB.
+- Compile check: `PuzzleTableController.cs` has no errors.
+
 ## 2026-04-12
+
+### Hotfix: Level1 table dialogue no longer stacks/overlaps
+- User report: Level1 table dialogue text appears stacked on top of itself.
+- Root cause (smallest safe fix): duplicate `PostDialogueBoardExtension` UI objects can coexist under puzzle table root, causing overlapping text render.
+- Minimal fix in `Assets/Scripts/Gameplay/CutsceneController.cs`:
+  - In `CreatePostDialogueBoardExtension(...)`, added a cleanup loop that destroys any existing child named `PostDialogueBoardExtension` before creating a new one.
+- Result: only one post-dialogue board extension remains active, preventing stacked dialogue text.
+- Compile check: `CutsceneController.cs` has no errors.
+
+### Hotfix (2nd pass): Global stale dialogue-extension cleanup for Level1
+- User retest showed overlap still present in Level1 post-dialogue message area.
+- Follow-up smallest fix in `Assets/Scripts/Gameplay/CutsceneController.cs`:
+  - Added global cleanup in `CreatePostDialogueBoardExtension(...)` to destroy all existing objects named `PostDialogueBoardExtension` across the scene before creating a new one.
+- Result: prevents duplicate extension panels from separate/duplicated flows and avoids simultaneous stacked message render.
+- Compile check: `CutsceneController.cs` has no errors.
+
+### Hotfix (3rd pass, simplest): Single-label message rendering for Level1 table hint
+- User requested strict simplest fix for remaining overlap.
+- Minimal direct fix in `Assets/Scripts/Gameplay/CutsceneController.cs`:
+  - `RunPostDialogueMessageSequence()` now renders both sentences using `postDialogueTextPrimary` only.
+  - `postDialogueTextSecondary` remains disabled during sequence.
+- Result: overlap between the two tutorial lines is eliminated by design (only one TMP label is ever used for display).
+- Compile check: `CutsceneController.cs` has no errors.
+
+### Hotfix: X-close no longer requires TAB to restore mouse look
+- User report: after closing puzzle/other UI with `X`, mouse look remains stuck until pressing `TAB` twice.
+- Root cause: when puzzle/truth-table UI unlocks cursor, gameplay cursor lock was not auto-restored on close unless tab-toggle ran.
+- Minimal fix in `Assets/StarterAssets/FirstPersonController/Scripts/FirstPersonController.cs`:
+  - Added a post-UI auto-relock check in `Update()`:
+    - if gameplay is active and `_tabCursorVisible` is false but cursor is still unlocked/visible, call `SetGameplayCursorVisible(false)`.
+- Result: closing UI via `X` immediately returns normal locked mouse look without manual TAB workaround.
+- Compile check: `FirstPersonController.cs` has no errors.
+
+### Hotfix: Level8 fall transition now shows LEVEL 9 text
+- User request: keep intended Level8 fall/no-floor behavior, but show `LEVEL 9` during transition like earlier level progressions.
+- Root cause: `SuccessDoor.GetNextLevelNumber(8)` returned `-1`, so transition text was intentionally skipped (`AddLevelTransitionText` only runs for values `> 0`).
+- Minimal fix in `Assets/Scripts/Gameplay/SuccessDoor.cs`:
+  - Changed Level8 next-level display target from `-1` to `9`.
+- Result: after Level8 success, the transition overlay now displays `LEVEL 9` while preserving the existing load flow.
+- Compile check: `SuccessDoor.cs` has no errors.
+
+### Hotfix: Level7 puzzle solve now auto-advances to Level8
+- User report: in Level7, after answering correctly and entering the success room, Level8 transition did not trigger.
+- Root cause (smallest confirmed code path): `InteractiveTable` auto-advance branch only included Level5/Level6, so Level7 could get blocked when relying on door/key trigger wiring.
+- Minimal fix in `Assets/Scripts/Gameplay/InteractiveTable.cs`:
+  - Changed auto-advance condition from `(currentLevel == 5 || currentLevel == 6)` to `(currentLevel == 5 || currentLevel == 6 || currentLevel == 7)`.
+- Result: solving Level7 puzzle now consistently triggers completion flow and next-level load path.
+- Compile check: `InteractiveTable.cs` has no errors.
+
+### Worklog updates
+- Located AI worklog folder at `AI_WORKLOG/` and updated session + future-plan tracking for this Level7 issue.
 
 ### Hotfix: Solved puzzle now consumes used gates from real inventory
 - User report: after successful puzzle solve, gates used in slots should be removed from inventory.

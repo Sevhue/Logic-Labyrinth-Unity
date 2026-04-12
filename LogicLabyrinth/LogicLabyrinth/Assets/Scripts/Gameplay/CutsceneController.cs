@@ -677,6 +677,23 @@ public class CutsceneController : MonoBehaviour
     {
         if (parent == null) return;
 
+        // Global safety cleanup: remove stale extensions created by any duplicate flow.
+        Transform[] allTransforms = FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < allTransforms.Length; i++)
+        {
+            Transform t = allTransforms[i];
+            if (t != null && t.name == "PostDialogueBoardExtension")
+                Destroy(t.gameObject);
+        }
+
+        // Safety cleanup: only one extension panel should exist at a time.
+        for (int i = parent.childCount - 1; i >= 0; i--)
+        {
+            Transform child = parent.GetChild(i);
+            if (child != null && child.name == "PostDialogueBoardExtension")
+                Destroy(child.gameObject);
+        }
+
         if (postDialogueBoardExtension != null)
             Destroy(postDialogueBoardExtension);
 
@@ -770,9 +787,9 @@ public class CutsceneController : MonoBehaviour
         if (postDialogueTextPrimary == null || postDialogueTextSecondary == null)
             yield break;
 
-        postDialogueTextPrimary.gameObject.SetActive(false);
-        postDialogueTextSecondary.gameObject.SetActive(true);
-        yield return StartCoroutine(TypeSentence(postDialogueTextSecondary, secondLine, postDialogueTypeCharsPerSecond * 1.2f));
+        // Keep a single active label to prevent any visual overlap race between two TMP objects.
+        postDialogueTextSecondary.gameObject.SetActive(false);
+        yield return StartCoroutine(TypeSentence(postDialogueTextPrimary, secondLine, postDialogueTypeCharsPerSecond * 1.2f));
     }
 
     private IEnumerator TypeSentence(TextMeshProUGUI target, string sentence, float charsPerSecond)

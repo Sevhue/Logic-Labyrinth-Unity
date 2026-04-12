@@ -11,6 +11,61 @@
   - `Restored local session snapshot.`
   - any `Cloud save skipped (offline/local mode)` warnings.
 
+## Immediate validation (Level7 -> Level8 progression hotfix)
+- Open `Level7` and solve the table question correctly.
+- Confirm puzzle-complete flow triggers without requiring additional door-trigger interaction.
+- Confirm scene transitions to `Level8`.
+- Confirm player is controllable after load and no stuck fade/black overlay remains.
+- If transition still fails, capture 10 console lines containing `[InteractiveTable]`, `[SuccessDoor]`, or `[LevelManager]`.
+
+## Immediate validation (Level8 fall transition LEVEL 9 text)
+- Open `Level8` and complete the puzzle successfully.
+- Confirm door opens and player falls as intended (no-floor behavior unchanged).
+- During the fall/transition overlay, confirm `LEVEL 9` text is visible.
+- Confirm no stuck black screen during/after overlay.
+- If `LEVEL 9` text is missing, capture 10 console lines containing `[SuccessDoor]`.
+
+## Immediate validation (Level1 table dialogue overlap)
+- Open `Level1`, interact with the puzzle table, and wait for post-dialogue board text.
+- Confirm only one dialogue sentence is visible at a time (no doubled/stacked letters).
+- Close and reopen the puzzle table once and confirm overlap does not return.
+- If overlap still appears, capture 10 console lines containing `[Cutscene]`.
+
+## Immediate validation (Level1 overlap 2nd-pass global cleanup)
+- Restart play mode (fresh session), enter `Level1`, and open the table once.
+- Confirm there is exactly one `PostDialogueBoardExtension` visual block (single text render).
+- Open/close the table rapidly 2-3 times and confirm text remains single.
+- If overlap still appears, include screenshot + 10 console lines with `[Cutscene]` and count of `PostDialogueBoardExtension` objects.
+
+## Immediate validation (Level1 simplest single-label fix)
+- Restart play mode and open Level1 puzzle table.
+- Confirm first sentence appears, then is replaced by second sentence in the same location.
+- Confirm there is no stacked/doubled text at any point.
+
+## Immediate validation (cursor relock after X close)
+- Open puzzle table, click `X` to close, and confirm mouse-look works immediately.
+- Repeat for truth-table/other closeable overlays that unlock cursor.
+- Confirm `TAB` toggle still works normally for manual cursor show/hide.
+- If issue persists, capture 10 lines with `[MotionDebug] Cursor changed` from console.
+
+## Immediate validation (cursor relock after X close - 2nd pass)
+- Open puzzle table, click `X`, and confirm debug no longer reports `lock=None, visible=True` while gameplay is active.
+- Confirm mouse-look starts immediately without any TAB press.
+- Repeat open/close cycle 3 times and confirm behavior is consistent.
+
+## Immediate validation (new Google profile Name caret)
+- Create/login with a new Google account that triggers `COMPLETE THY PROFILE`.
+- Confirm Name field is focused automatically and blinking `|` is visible without clicking.
+- Confirm typing works immediately and existing prefilled name keeps caret at the end.
+
+## Immediate validation (new Google profile Name caret - 2nd pass)
+- Reopen the same popup in a fresh run and confirm blinking `|` is now visible in Name before any click.
+- Confirm dropdowns still open normally after the popup-created EventSystem safeguard.
+
+## Immediate validation (new Google profile Name caret - visual fallback)
+- Reopen the popup and confirm a visible blinking `|` now appears directly after the current Name text.
+- Type and backspace a few characters and confirm the blinking `|` follows the end of the text.
+
 ## Immediate validation (store offline fallback)
 - Open pause menu store and click `Buy` for at least one item.
 - With local Maya backend stopped/unreachable, confirm checkout enters local sandbox confirmation flow instead of hard-failing on backend error.

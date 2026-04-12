@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
@@ -42,6 +43,7 @@ public class NewPlayerSetupUI : MonoBehaviour
     private TMP_Dropdown   ageDropdown;
     private TextMeshProUGUI errorText;
     private Button         confirmButton;
+    private TextMeshProUGUI nameFieldVisualCaret;
 
     // Callback to invoke after the user finishes setup
     private System.Action onSetupComplete;
@@ -115,6 +117,7 @@ public class NewPlayerSetupUI : MonoBehaviour
         scaler.referenceResolution = new Vector2(1920, 1080);
 
         uiRoot.AddComponent<GraphicRaycaster>();
+    EnsureEventSystem();
 
         // ── Dimmed background ──
         GameObject dimBG = CreateChild(uiRoot, "DimBG");
@@ -206,6 +209,8 @@ public class NewPlayerSetupUI : MonoBehaviour
                 nameField.text = player.username;
         }
 
+        SetupNameFieldVisualCaret();
+
         // ── Gender dropdown ──
         CreateLabel(content, "GENDER", 16, GOLD, FontStyles.SmallCaps);
         genderDropdown = CreateDropdown(content, new List<string>
@@ -255,7 +260,101 @@ public class NewPlayerSetupUI : MonoBehaviour
         // ── Decorative bottom bar ──
         CreateDecorBar(content);
 
+        // Show a blinking caret immediately so players know the name field is editable.
+        StartCoroutine(FocusNameFieldNextFrame());
+
         Debug.Log("[NewPlayerSetupUI] Medieval profile setup UI built.");
+    }
+
+    private IEnumerator FocusNameFieldNextFrame()
+    {
+        yield return null;
+        yield return new WaitForEndOfFrame();
+
+        if (nameField == null)
+            yield break;
+
+        if (EventSystem.current != null)
+        {
+            EventSystem.current.SetSelectedGameObject(null);
+            EventSystem.current.SetSelectedGameObject(nameField.gameObject);
+        }
+
+        nameField.ForceLabelUpdate();
+        nameField.Select();
+        nameField.ActivateInputField();
+        nameField.caretPosition = nameField.text.Length;
+        nameField.selectionAnchorPosition = nameField.text.Length;
+        nameField.selectionFocusPosition = nameField.text.Length;
+        UpdateNameFieldVisualCaret();
+        StartCoroutine(BlinkNameFieldVisualCaret());
+    }
+
+    private void SetupNameFieldVisualCaret()
+    {
+        if (nameField == null || nameField.textViewport == null || nameField.textComponent == null)
+            return;
+
+        GameObject caretGO = CreateChild(nameField.textViewport.gameObject, "VisibleCaret");
+        RectTransform caretRT = caretGO.AddComponent<RectTransform>();
+        caretRT.anchorMin = new Vector2(0f, 0.5f);
+        caretRT.anchorMax = new Vector2(0f, 0.5f);
+        caretRT.pivot = new Vector2(0f, 0.5f);
+        caretRT.sizeDelta = new Vector2(16f, 28f);
+
+        nameFieldVisualCaret = caretGO.AddComponent<TextMeshProUGUI>();
+        nameFieldVisualCaret.text = "|";
+        nameFieldVisualCaret.fontSize = nameField.textComponent.fontSize;
+        nameFieldVisualCaret.color = GOLD;
+        nameFieldVisualCaret.alignment = TextAlignmentOptions.MidlineLeft;
+        nameFieldVisualCaret.raycastTarget = false;
+
+        nameField.onValueChanged.AddListener(_ => UpdateNameFieldVisualCaret());
+        nameField.onSelect.AddListener(_ => UpdateNameFieldVisualCaret());
+        nameField.onDeselect.AddListener(_ =>
+        {
+            if (nameFieldVisualCaret != null)
+                nameFieldVisualCaret.enabled = false;
+        });
+
+        UpdateNameFieldVisualCaret();
+    }
+
+    private IEnumerator BlinkNameFieldVisualCaret()
+    {
+        while (nameFieldVisualCaret != null)
+        {
+            bool shouldShow = nameField != null && nameField.isFocused;
+            nameFieldVisualCaret.enabled = shouldShow && !nameFieldVisualCaret.enabled;
+            UpdateNameFieldVisualCaret();
+            yield return new WaitForSecondsRealtime(0.5f);
+        }
+    }
+
+    private void UpdateNameFieldVisualCaret()
+    {
+        if (nameField == null || nameFieldVisualCaret == null || nameField.textComponent == null || nameField.textViewport == null)
+            return;
+
+        RectTransform caretRT = nameFieldVisualCaret.rectTransform;
+        RectTransform viewportRT = nameField.textViewport;
+        string currentText = nameField.text ?? string.Empty;
+        float textWidth = nameField.textComponent.GetPreferredValues(currentText).x;
+        float maxX = Mathf.Max(0f, viewportRT.rect.width - 10f);
+        caretRT.anchoredPosition = new Vector2(Mathf.Min(textWidth + 2f, maxX), 0f);
+    }
+
+    private void EnsureEventSystem()
+    {
+        if (EventSystem.current != null) return;
+
+        GameObject esGO = new GameObject("EventSystem_Runtime");
+        esGO.AddComponent<EventSystem>();
+#if ENABLE_INPUT_SYSTEM
+        esGO.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+#else
+        esGO.AddComponent<StandaloneInputModule>();
+#endif
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -442,7 +541,9 @@ public class NewPlayerSetupUI : MonoBehaviour
         inputField.fontAsset = inputTMP.font;
         inputField.pointSize = 20;
         inputField.characterLimit = 24;
+        inputField.customCaretColor = true;
         inputField.caretColor = GOLD;
+        inputField.caretWidth = 3;
         inputField.selectionColor = new Color(GOLD.r, GOLD.g, GOLD.b, 0.3f);
 
         return inputField;

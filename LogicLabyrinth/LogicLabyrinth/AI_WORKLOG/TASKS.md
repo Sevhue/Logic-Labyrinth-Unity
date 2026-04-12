@@ -1,6 +1,16 @@
 # Tasks
 
 ## Active
+- Validate visible blinking `|` overlay now appears in new Google profile Name field.
+- Re-validate new Google profile popup caret after EventSystem + stronger TMP activation fix.
+- Validate new Google profile popup shows blinking caret in Name field on first open.
+- Re-validate X-close cursor relock after SetUIMode(false) input-flag force reset.
+- Validate cursor auto-relocks after closing UI with X (no TAB workaround).
+- Validate Level1 single-label post-dialogue text fix removes overlap.
+- Re-validate Level1 table dialogue overlap after global extension cleanup (2nd pass).
+- Validate Level1 table dialogue no longer stacks/overlaps.
+- Validate Level8 fall transition now displays LEVEL 9 text.
+- Validate Level7 puzzle solve now auto-advances to Level8 after latest hotfix.
 - Validate Level2 puzzle questions Q1..Q5 in Play Mode after level-specific prefab assignment fix.
 - Validate Level3 puzzle open flow and ensure question UI renders correctly.
 - Validate Level4 puzzle questions Q1..Q5 in Play Mode after level-specific prefab assignment fix.
@@ -32,6 +42,16 @@
 - Add optional fallback UI warning if expected `QY` panel is missing.
 
 ## Completed
+- Hotfix applied: NewPlayerSetupUI now draws a local blinking visual `|` overlay in the Name field.
+- Hotfix applied: NewPlayerSetupUI now ensures EventSystem exists and forces TMP caret rendering/activation for Name field.
+- Hotfix applied: NewPlayerSetupUI now auto-focuses Name input and shows blinking caret (`|`) on open.
+- Hotfix applied: X-close now force-resets `StarterAssetsInputs` cursor/look flags in `SetUIMode(false)`.
+- Hotfix applied: gameplay cursor now auto-relocks after puzzle/truth-table UI closes.
+- Hotfix applied: Level1 post-dialogue sequence now uses one TMP label for both messages (secondary label disabled).
+- Hotfix applied: global cleanup now removes all stale `PostDialogueBoardExtension` objects before creating a new one.
+- Hotfix applied: Level1 table dialogue extension now cleans duplicate panels before creating a new one.
+- Hotfix applied: Level8 transition display target now shows LEVEL 9 text.
+- Hotfix applied: included Level7 in InteractiveTable auto-advance condition for post-solve progression.
 - Fixed gate pickup reliability by replacing strict center-ray-only gate validation with line-of-sight checks in `SimpleGateCollector`.
 - Verified `GateSpawner` setup for Level2/Level3/Level4 (prefabs, spawn points, counts).
 - Fixed question panel lookup scoping in `PuzzleTableController` to use current level root (`Level{currentLevelNumber}`).

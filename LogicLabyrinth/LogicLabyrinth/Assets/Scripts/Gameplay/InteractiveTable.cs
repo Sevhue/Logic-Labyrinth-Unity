@@ -370,7 +370,7 @@ public class InteractiveTable : MonoBehaviour
         {
             puzzleAlreadySolved = true;
 
-            bool autoAdvanceLevel = (currentLevel == 5 || currentLevel == 6);
+            bool autoAdvanceLevel = (currentLevel == 5 || currentLevel == 6 || currentLevel == 7);
 
             if (autoAdvanceLevel)
             {

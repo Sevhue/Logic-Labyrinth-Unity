@@ -1273,6 +1273,13 @@ public class PuzzleTableController : MonoBehaviour
             // ── Re-enable everything ──
             if (cachedFPC != null) cachedFPC.enabled = true;
             if (cachedInputs != null) cachedInputs.enabled = true;
+            if (cachedInputs != null)
+            {
+                // Mirror gameplay relock state so X-close behaves like a full tab-reset.
+                cachedInputs.cursorInputForLook = true;
+                cachedInputs.cursorLocked = true;
+                cachedInputs.LookInput(Vector2.zero);
+            }
             // cachedCC was never disabled — no need to re-enable
             if (cachedCollector != null) cachedCollector.enabled = true;
             if (cachedCinemachineBrain != null) cachedCinemachineBrain.enabled = true;

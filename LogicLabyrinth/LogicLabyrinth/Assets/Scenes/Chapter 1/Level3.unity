@@ -31230,9 +31230,6 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 6312544953983036060, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: -1
       addedObject: {fileID: 691231739}
-    - targetCorrespondingSourceObject: {fileID: 6312544953983036060, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 1986205485}
     - targetCorrespondingSourceObject: {fileID: -6721003476841389914, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
       insertIndex: -1
       addedObject: {fileID: 2036022700}
@@ -32823,26 +32820,6 @@ GameObject:
   m_CorrespondingSourceObject: {fileID: 6312544953983036060, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
   m_PrefabInstance: {fileID: 1986205083}
   m_PrefabAsset: {fileID: 0}
---- !u!114 &1986205485
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1986205484}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e2090b7fd7a8c744284fe2989bbec976, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::SuccessDoor
-  lightColor: {r: 0.3, g: 1, b: 0.5, a: 1}
-  pulseSpeed: 2
-  baseLightIntensity: 2
-  baseLightRange: 3
-  minSecondsAfterOpenBeforeTransition: 0.15
-  recentPlayerTouchGraceSeconds: 0.75
-  doorwayTriggerCount: 3
-  doorwayTriggerHorizontalSpread: 0.7
 --- !u!1 &1986205486 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: -6944363349700419941, guid: 095162485976f5649bf83c18fdfa9478, type: 3}
