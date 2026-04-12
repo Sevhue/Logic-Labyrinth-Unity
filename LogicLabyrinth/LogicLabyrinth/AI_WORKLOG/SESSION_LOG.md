@@ -2,6 +2,23 @@
 
 ## 2026-04-12
 
+### Hotfix: Best Campaign dropdown forced compact size below label
+- User request: make the Account Profile `Level 2 1:48.86` dropdown visibly smaller and directly below `Best Campaign`.
+- Minimal layout-only fix in `Assets/Scripts/UI/UIManager.cs` (`ConfigureCampaignDropdownLayout` + creation defaults):
+  - Reduced closed control size to compact dimensions (`~200x34` range).
+  - Reduced caption/item font sizes (`18` -> `14`).
+  - Tightened vertical offset to sit closer under `Best Campaign`.
+  - Forced `localScale = Vector3.one` and added `LayoutElement` constraints to prevent stretch.
+  - Reduced expanded template height (`260` -> `200`) to keep dropdown list compact.
+- Compile check: `UIManager.cs` has no errors.
+
+### Hotfix: Hide duplicate Best Campaign time text behind dropdown
+- User request: hide the white `1:48` text that appears behind the dropdown.
+- Minimal text-only fix in `Assets/Scripts/UI/UIManager.cs`:
+  - Changed Best Campaign stat block rendering from `Best Campaign\n\n{time}` to `Best Campaign` label only.
+  - Dropdown now remains the only visible control showing campaign time values.
+- Compile check: `UIManager.cs` has no errors.
+
 ### Feature: Chapter4 scene created and wired like Chapter3
 - User request: set up Chapter4 scene the same way as Chapter3 unified-map flow.
 - Added new scene file: `Assets/Scenes/Chapter 4/Chapter4.unity`.
@@ -1370,4 +1387,128 @@
 - Expected result:
   - Store hover no longer flickers.
   - TAB cursor toggle no longer causes stuck camera spin.
+
+### Hotfix: Profile panel reverting to older saved data after relogin/restart
+- User report: profile keeps resetting back to older values on next open/start.
+- Git history/blame review:
+  - `TryDatabaseCredentialLogin` path was introduced in commit `5882d30` (DB fallback login path).
+  - This path updated `currentPlayer` but did not persist the local session snapshot.
+- Root cause:
+  - When login succeeds via DB fallback (common if Firebase Auth sign-in fails), profile data is loaded in memory only.
+  - On next startup, app may restore an older `LL_LAST_PLAYER_JSON` snapshot, making profile fields appear reset.
+- Minimal fix in `Assets/Scripts/Managers/AccountManager.cs`:
+  - In `TryDatabaseCredentialLogin` success branch, added:
+    - `MarkExplicitLogout(false);`
+    - `PersistLocalSessionSnapshot();`
+  - Kept existing flow and structure unchanged.
+- Compile status:
+  - `AccountManager.cs` has no errors.
+
+### Hotfix: Account Profile stats panel not showing recorded values
+- User report: right panel should show recorded stats (like best-time list screenshot), but `Puzzle Solved`, `Total Played`, and best campaign area stayed default placeholders.
+- Root cause:
+  - `PopulateAccountProfileFields()` only updated a subset of stat texts and did not bind total/best timing data into placeholder values or dropdown options.
+- Minimal fixes:
+  1. `Assets/Scripts/UI/UIManager.cs`
+     - In `PopulateAccountProfileFields()` stats section:
+       - Added small local duration formatter (`m:ss`).
+       - Mapped `Total Played` placeholder (`--:--`) to `PlayerData.totalPlayedSeconds`.
+       - Mapped `Best Campaign` placeholder to sum of `bestLevelTimes`.
+       - Populated any TMP dropdown inside stats panel with per-level best times (e.g., `Level 2   1:48`).
+       - Kept fallback as `--:--` when no times exist.
+  2. `Assets/Scripts/Managers/AccountManager.cs`
+     - Applied requested smallest follow-up patch in `RefreshPlayerDataFromFirebase()`:
+       - `MarkExplicitLogout(false);`
+       - `PersistLocalSessionSnapshot();`
+- Compile status:
+  - `UIManager.cs` and `AccountManager.cs` have no errors.
+
+### Hotfix: Account Profile right-side stats still showing placeholders after first patch
+- User report (with screenshot): right-side stats still appeared as default (`Puzzle Solved = 0`, `Total Played = --.--`).
+- Root cause found during double-check:
+  - `AccountProfile.prefab` stores each stat as one multiline TMP text block (example: `Total Played\n\n--.--`), not separate label/value nodes.
+  - Initial matcher only replaced standalone placeholders (`--:--`) and missed prefab's `--.--` variant and multiline block structure.
+- Minimal targeted fix in `Assets/Scripts/UI/UIManager.cs`:
+  - Updated stats binding to detect by label text content (`maze depth`, `puzzle solved`, `total played`, `best campaign`) and rewrite full multiline text block.
+  - Added fallback puzzle count source: if `completedPuzzles` is empty, use `bestLevelTimes.Count`.
+  - Added fallback total-played source: if `totalPlayedSeconds` is 0, use summed best-campaign time.
+  - Kept best-time dropdown population and unified formatting to `LevelTimer.FormatTime(...)`.
+- Compile status:
+  - `UIManager.cs` has no errors.
+
+### Feature/Hotfix: Account Profile campaign dropdown mirrors screenshot layout (Level 2-9)
+- User request: keep dropdown style UI and show all campaign levels with times updating per saved data.
+- Minimal code-only fix in `Assets/Scripts/UI/UIManager.cs`:
+  - In `PopulateAccountProfileFields()` dropdown population:
+    - Always build options for `Level 2` through `Level 9`.
+    - Show recorded value when available (e.g., `Level 2   1:48.86`).
+    - Show placeholder when missing (`Level X   --:--`).
+  - Keeps existing scene UI instance and updates it from player data each refresh.
+- Compile status:
+  - `UIManager.cs` has no errors.
+
+### Hotfix: Campaign dropdown not appearing ("there is nothing")
+- User report: stats text updates, but no dropdown appears in Account Profile panel.
+- Root cause:
+  - Scene instance of Account Profile did not have a dedicated campaign dropdown object under the stats board.
+  - Previous population code only filled dropdowns if one already existed.
+- Minimal fix in `Assets/Scripts/UI/UIManager.cs`:
+  - Added `EnsureCampaignLevelDropdown(boarder)`.
+  - On profile refresh, if no `CampaignLevelDropdown` exists, code clones a valid existing `TMP_Dropdown` from scene and places it under `Boarder`.
+  - Dropdown is then populated with `Level 2` to `Level 9` entries and times/placeholders.
+- Compile status:
+  - `UIManager.cs` has no errors.
+
+### Hotfix: Campaign dropdown visual style mismatched (default white instead of medieval brown/gold)
+- User report: dropdown exists but should look like themed screenshot (dark brown list, gold text), not default white popup.
+- Minimal fix in `Assets/Scripts/UI/UIManager.cs`:
+  - Added `StyleCampaignDropdown(TMP_Dropdown dropdown)` and called it before population.
+  - Styled dropdown root background + border to medieval palette.
+  - Styled caption/item/arrow/checkmark text colors to gold.
+  - Styled template list background/items/toggle highlight colors for dark-brown list with readable gold rows.
+  - Adjusted fallback dropdown position/size under stats board for cleaner alignment.
+- Compile status:
+  - `UIManager.cs` has no errors.
+
+### Hotfix: Campaign dropdown too large and misplaced
+- User request: place dropdown under `Best Campaign` value and make it smaller.
+- Minimal layout fix in `Assets/Scripts/UI/UIManager.cs`:
+  - Added `ConfigureCampaignDropdownLayout(TMP_Dropdown)`.
+  - Applied for both created and existing campaign dropdown instances.
+  - New compact layout:
+    - anchored below right-side campaign value area,
+    - reduced control size,
+    - reduced caption/item font size,
+    - constrained template popup height.
+- Compile status:
+  - `UIManager.cs` has no errors.
+
+### Hotfix: Campaign dropdown anchored exactly below Best Campaign with matching width
+- User request: dropdown must sit directly below `Best Campaign` and be the same (or smaller) length.
+- Minimal targeted layout fix in `Assets/Scripts/UI/UIManager.cs`:
+  - Captured `Best Campaign` text rect during stats refresh.
+  - Updated `ConfigureCampaignDropdownLayout(...)` to anchor dropdown relative to that rect.
+  - Dropdown now matches Best Campaign width (with safe minimum) and sits directly below it.
+  - Kept compact height and reduced popup list height.
+- Compile status:
+  - `UIManager.cs` has no errors.
+
+### Hotfix: Dropdown still stretched too wide after placement update
+- User report: dropdown remained full-width/oversized and not visually constrained under Best Campaign.
+- Minimal follow-up fix in `Assets/Scripts/UI/UIManager.cs`:
+  - Kept anchor target below Best Campaign.
+  - Enforced compact fixed height and clamped width range.
+  - Disabled root `ContentSizeFitter` and ignored layout via `LayoutElement` to stop auto-stretch.
+  - Forced dropdown template inactive after layout pass.
+- Compile status:
+  - `UIManager.cs` has no errors.
+
+### Hotfix: CS7036 compile break after dropdown layout signature change
+- Error: `UIManager.ConfigureCampaignDropdownLayout(TMP_Dropdown, RectTransform)` required 2 args, one call site still passed 1.
+- Minimal fix in `Assets/Scripts/UI/UIManager.cs`:
+  - Updated fallback call inside `EnsureCampaignLevelDropdown(...)`:
+    - `ConfigureCampaignDropdownLayout(dropdown);`
+    - -> `ConfigureCampaignDropdownLayout(dropdown, null);`
+- Compile status:
+  - `UIManager.cs` has no errors.
 

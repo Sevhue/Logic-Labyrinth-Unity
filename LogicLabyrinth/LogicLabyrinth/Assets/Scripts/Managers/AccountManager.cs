@@ -613,6 +613,8 @@ public class AccountManager : MonoBehaviour
 
                 currentPlayer = JsonUtility.FromJson<PlayerData>(rawJson);
                 NormalizePlayerIdentityFields(currentPlayer);
+                MarkExplicitLogout(false);
+                PersistLocalSessionSnapshot();
                 TryFlushPendingCloudSync("refresh-player-data");
 
                 Debug.Log($"[RefreshPlayerData] Deserialized: gates AND={currentPlayer.andGatesCollected}, OR={currentPlayer.orGatesCollected}, NOT={currentPlayer.notGatesCollected}");
@@ -813,6 +815,8 @@ public class AccountManager : MonoBehaviour
             NormalizePlayerIdentityFields(data);
             currentPlayer = data;
             CacheLastKnownUserId(userRef.Key);
+            MarkExplicitLogout(false);
+            PersistLocalSessionSnapshot();
             TryFlushPendingCloudSync("login-db-credential-fallback");
             Debug.Log("[AccountManager] Login fallback succeeded via DB password hash verification.");
 

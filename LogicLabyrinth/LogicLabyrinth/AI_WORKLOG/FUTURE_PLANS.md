@@ -1,5 +1,33 @@
 # Future Plans
 
+## Immediate validation (profile reset regression)
+- Log in with the account that previously reverted profile data.
+- Open Account Profile and confirm current values are correct.
+- Make a small edit (for example Name suffix), press `SAVE`, and return to main menu.
+- Fully stop play mode, start again, and log in through the same route used before (including fallback scenario if Firebase Auth fails).
+- Reopen Account Profile and confirm values remain the latest saved values (no reset to older snapshot).
+- If reset still appears, capture `AccountManager` logs around:
+  - `Login fallback succeeded via DB password hash verification.`
+  - `Restored local session snapshot.`
+  - any `Cloud save skipped (offline/local mode)` warnings.
+
+## Immediate validation (Account Profile stats panel)
+- Open Account Profile and confirm `Puzzle Solved` equals completed puzzle count (not stuck at default `0` unless no puzzles solved).
+- Confirm `Total Played` shows formatted recorded time (not `--:--` after completing timed levels).
+- Open the best-campaign dropdown and confirm it lists recorded level best times (example: `Level 2   1:48`).
+- Confirm dropdown gracefully shows `--:--` when no best times exist.
+- Trigger `RefreshPlayerDataFromFirebase` path (load/refresh flow), then reopen Account Profile and confirm stats still persist correctly.
+- Confirm right-side multiline labels are replaced in-place (no remaining prefab placeholders like `--.--` or `--:--` when data exists).
+- Confirm dropdown list always shows `Level 2` to `Level 9` in order.
+- Confirm levels without records show `--:--`, and recorded levels update live after save/refresh.
+- Confirm dropdown is visible under the stats board every time Account Profile opens (no blank/missing control).
+- Confirm dropdown visual style matches medieval panel (dark brown background, gold text, highlighted selected row), not default white UI style.
+- Confirm dropdown control is directly below `Best Campaign` and width matches (or is smaller than) the Best Campaign stat block.
+- Confirm dropdown no longer stretches across the panel and remains compact after reopening Account Profile.
+- Confirm closed dropdown height is compact (~34px visual) and text appears smaller than stat labels.
+- Confirm no duplicate white `Best Campaign` value text appears behind/under the dropdown.
+- Compile guard: ensure no CS7036 remains for `ConfigureCampaignDropdownLayout` call sites.
+
 ## Immediate validation (Options volume adjuster visibility)
 - Open gameplay, press `ESC`, then open `Settings`.
 - Confirm two slider adjusters (`Music`, `SFX`) are visible directly under `VOLUME`.

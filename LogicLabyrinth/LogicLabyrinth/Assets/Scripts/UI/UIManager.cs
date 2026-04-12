@@ -547,26 +547,260 @@ public class UIManager : MonoBehaviour
         Transform boarder = FindChildRecursive(accountProfilePanel.transform, "Boarder");
         if (boarder != null)
         {
+            // Ensure the campaign dropdown exists in this panel instance.
+            EnsureCampaignLevelDropdown(boarder);
+
+            float bestCampaignSeconds = 0f;
+            var bestTimes = AccountManager.ParseBestTimes(p.bestLevelTimes ?? "");
+            foreach (var kvp in bestTimes)
+                bestCampaignSeconds += kvp.Value;
+
+            int puzzleCount = p.completedPuzzles != null ? p.completedPuzzles.Count : 0;
+            if (puzzleCount <= 0 && bestTimes.Count > 0)
+                puzzleCount = bestTimes.Count;
+
+            float effectiveTotalPlayed = p.totalPlayedSeconds > 0f ? p.totalPlayedSeconds : bestCampaignSeconds;
+            string totalPlayedText = LevelTimer.FormatTime(effectiveTotalPlayed);
+            string bestCampaignText = bestTimes.Count > 0 ? LevelTimer.FormatTime(bestCampaignSeconds) : "--:--";
+
             TextMeshProUGUI[] statTexts = boarder.GetComponentsInChildren<TextMeshProUGUI>(true);
+            RectTransform bestCampaignRect = null;
             foreach (var txt in statTexts)
             {
                 string lower = txt.text.Trim().ToLower();
 
-                // Update the "level" text (below "Maze Depth")
-                if (lower == "level" || lower.StartsWith("level"))
+                if (lower.Contains("maze depth"))
                 {
-                    txt.text = $"Level {p.unlockedLevels}";
+                    txt.text = $"Maze Depth\n\nLevel {p.unlockedLevels}";
                 }
-                // Update the puzzles count (below "Puzzle Solved")
-                else if (lower == "0" || (int.TryParse(lower, out _) && !lower.Contains(":")))
+                else if (lower.Contains("puzzle solved"))
                 {
-                    int puzzleCount = p.completedPuzzles != null ? p.completedPuzzles.Count : 0;
-                    txt.text = puzzleCount.ToString();
+                    txt.text = $"Puzzle Solved\n\n{puzzleCount}";
                 }
+                else if (lower.Contains("total played"))
+                {
+                    txt.text = $"Total Played\n\n{totalPlayedText}";
+                }
+                else if (lower.Contains("best campaign"))
+                {
+                    // Keep only the label here so the dropdown is the single source of displayed time.
+                    txt.text = "Best Campaign";
+                    bestCampaignRect = txt.rectTransform;
+                }
+            }
+
+            // If the profile has a best-campaign dropdown, populate it with per-level best times.
+            TMP_Dropdown[] statDropdowns = boarder.GetComponentsInChildren<TMP_Dropdown>(true);
+            foreach (var dropdown in statDropdowns)
+            {
+                ConfigureCampaignDropdownLayout(dropdown, bestCampaignRect);
+                StyleCampaignDropdown(dropdown);
+
+                var options = new System.Collections.Generic.List<string>();
+                // Match the profile screenshot format: always show campaign levels 2-9.
+                for (int lvl = 2; lvl <= 9; lvl++)
+                {
+                    if (bestTimes.TryGetValue(lvl, out float secs))
+                        options.Add($"Level {lvl}   {LevelTimer.FormatTime(secs)}");
+                    else
+                        options.Add($"Level {lvl}   --:--");
+                }
+
+                dropdown.ClearOptions();
+                dropdown.AddOptions(options);
+                dropdown.value = 0;
+                dropdown.RefreshShownValue();
             }
         }
 
         Debug.Log($"[UIManager] Populated AccountProfilePanel: name='{displayName}', email='{email}', gender='{p.gender}', age='{p.age}'");
+    }
+
+    /// <summary>
+    /// Ensures the Account Profile stats board has a campaign dropdown.
+    /// If none exists in the scene instance, clone an existing TMP_Dropdown style and place it under Boarder.
+    /// </summary>
+    private TMP_Dropdown EnsureCampaignLevelDropdown(Transform boarder)
+    {
+        if (boarder == null) return null;
+
+        Transform existing = FindChildRecursive(boarder, "CampaignLevelDropdown");
+        if (existing != null)
+        {
+            TMP_Dropdown existingDropdown = existing.GetComponent<TMP_Dropdown>();
+            if (existingDropdown != null) return existingDropdown;
+        }
+
+        TMP_Dropdown[] allDropdowns = FindObjectsByType<TMP_Dropdown>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        TMP_Dropdown templateSource = null;
+        foreach (var dd in allDropdowns)
+        {
+            if (dd == null) continue;
+            if (dd.template == null || dd.captionText == null || dd.itemText == null) continue;
+            templateSource = dd;
+            break;
+        }
+
+        if (templateSource == null)
+        {
+            Debug.LogWarning("[UIManager] Could not create campaign dropdown: no TMP_Dropdown template source found in scene.");
+            return null;
+        }
+
+        GameObject go = Instantiate(templateSource.gameObject, boarder);
+        go.name = "CampaignLevelDropdown";
+        go.SetActive(true);
+
+        RectTransform rt = go.GetComponent<RectTransform>();
+        if (rt != null)
+        {
+            rt.anchorMin = new Vector2(0.5f, 0f);
+            rt.anchorMax = new Vector2(0.5f, 0f);
+            rt.pivot = new Vector2(0.5f, 0f);
+            rt.anchoredPosition = new Vector2(120f, 78f);
+            rt.sizeDelta = new Vector2(220f, 34f);
+        }
+
+        TMP_Dropdown dropdown = go.GetComponent<TMP_Dropdown>();
+        if (dropdown != null)
+        {
+            ConfigureCampaignDropdownLayout(dropdown, null);
+            StyleCampaignDropdown(dropdown);
+            dropdown.value = 0;
+            dropdown.RefreshShownValue();
+        }
+
+        return dropdown;
+    }
+
+    private void ConfigureCampaignDropdownLayout(TMP_Dropdown dropdown, RectTransform bestCampaignRect)
+    {
+        if (dropdown == null) return;
+
+        RectTransform rt = dropdown.GetComponent<RectTransform>();
+        if (rt != null)
+        {
+            // Place directly below Best Campaign and keep compact fixed sizing.
+            if (bestCampaignRect != null)
+            {
+                rt.SetParent(bestCampaignRect.parent, false);
+                rt.anchorMin = new Vector2(0.5f, 0.5f);
+                rt.anchorMax = new Vector2(0.5f, 0.5f);
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.localScale = Vector3.one;
+
+                float width = Mathf.Clamp(bestCampaignRect.rect.width * 0.62f, 170f, 220f);
+                float yOffset = (bestCampaignRect.rect.height * 0.5f) + 30f;
+
+                rt.anchoredPosition = new Vector2(bestCampaignRect.anchoredPosition.x, bestCampaignRect.anchoredPosition.y - yOffset);
+                rt.sizeDelta = new Vector2(width, 34f);
+            }
+            else
+            {
+                rt.anchorMin = new Vector2(0.5f, 0.5f);
+                rt.anchorMax = new Vector2(0.5f, 0.5f);
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.localScale = Vector3.one;
+                rt.anchoredPosition = new Vector2(120f, -112f);
+                rt.sizeDelta = new Vector2(200f, 34f);
+            }
+        }
+
+        // Prevent cloned dropdowns from being stretched by auto-layout components.
+        ContentSizeFitter fitter = dropdown.GetComponent<ContentSizeFitter>();
+        if (fitter != null) fitter.enabled = false;
+        LayoutElement layoutElement = dropdown.GetComponent<LayoutElement>();
+        if (layoutElement == null) layoutElement = dropdown.gameObject.AddComponent<LayoutElement>();
+        layoutElement.ignoreLayout = true;
+        layoutElement.preferredWidth = 200f;
+        layoutElement.preferredHeight = 34f;
+        layoutElement.flexibleWidth = 0f;
+        layoutElement.flexibleHeight = 0f;
+
+        if (dropdown.captionText != null)
+            dropdown.captionText.fontSize = 14f;
+        if (dropdown.itemText != null)
+            dropdown.itemText.fontSize = 14f;
+
+        if (dropdown.template != null)
+        {
+            RectTransform trt = dropdown.template;
+            trt.anchorMin = new Vector2(0f, 0f);
+            trt.anchorMax = new Vector2(1f, 0f);
+            trt.pivot = new Vector2(0.5f, 1f);
+            trt.anchoredPosition = new Vector2(0f, -2f);
+            trt.sizeDelta = new Vector2(0f, 200f);
+            dropdown.template.gameObject.SetActive(false);
+        }
+    }
+
+    private void StyleCampaignDropdown(TMP_Dropdown dropdown)
+    {
+        if (dropdown == null) return;
+
+        Color darkBg = new Color(0.15f, 0.10f, 0.05f, 0.98f);
+        Color goldText = new Color(0.84f, 0.86f, 0.54f, 1f);
+        Color border = new Color(0.72f, 0.58f, 0.30f, 1f);
+        Color selectedBg = new Color(0.45f, 0.36f, 0.18f, 1f);
+
+        Image rootImg = dropdown.GetComponent<Image>();
+        if (rootImg != null)
+        {
+            rootImg.color = darkBg;
+            Outline outline = rootImg.GetComponent<Outline>();
+            if (outline == null) outline = rootImg.gameObject.AddComponent<Outline>();
+            outline.effectColor = border;
+            outline.effectDistance = new Vector2(1f, -1f);
+        }
+
+        if (dropdown.captionText != null)
+            dropdown.captionText.color = goldText;
+
+        if (dropdown.itemText != null)
+            dropdown.itemText.color = goldText;
+
+        Transform arrow = dropdown.transform.Find("Arrow");
+        if (arrow != null)
+        {
+            Image arrowImg = arrow.GetComponent<Image>();
+            if (arrowImg != null) arrowImg.color = goldText;
+        }
+
+        if (dropdown.template != null)
+        {
+            Image templateImg = dropdown.template.GetComponent<Image>();
+            if (templateImg != null) templateImg.color = darkBg;
+
+            Image[] templateImages = dropdown.template.GetComponentsInChildren<Image>(true);
+            foreach (var img in templateImages)
+            {
+                if (img == null) continue;
+                string n = img.gameObject.name.ToLowerInvariant();
+                if (n.Contains("item background") || n == "item")
+                    img.color = darkBg;
+                else if (n.Contains("checkmark"))
+                    img.color = goldText;
+            }
+
+            TextMeshProUGUI[] templateTexts = dropdown.template.GetComponentsInChildren<TextMeshProUGUI>(true);
+            foreach (var t in templateTexts)
+            {
+                if (t == null) continue;
+                t.color = goldText;
+            }
+
+            Toggle[] toggles = dropdown.template.GetComponentsInChildren<Toggle>(true);
+            foreach (var t in toggles)
+            {
+                ColorBlock cb = t.colors;
+                cb.normalColor = darkBg;
+                cb.highlightedColor = selectedBg;
+                cb.selectedColor = selectedBg;
+                cb.pressedColor = selectedBg;
+                cb.disabledColor = darkBg;
+                t.colors = cb;
+            }
+        }
     }
 
     /// <summary>
