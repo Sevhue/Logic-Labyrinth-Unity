@@ -3,6 +3,7 @@ using UnityEngine.UI;
 using UnityEngine.InputSystem;
 using TMPro;
 using StarterAssets;
+using System.Collections;
 using System.Collections.Generic;
 
 /// <summary>
@@ -13,15 +14,25 @@ using System.Collections.Generic;
 /// </summary>
 public class TruthTableDisplay : MonoBehaviour
 {
+
+
     /// <summary>True while the truth table panel is visible.</summary>
     public static bool IsOpen { get; private set; }
 
     [Header("Display")]
-    [Tooltip("Assign the Level7 prefab from Assets/Prefabs/Table/Table/Level7/Level7.prefab")]
+    [Tooltip("Assign the Level prefab (e.g. Assets/Prefabs/Table/Table/Level7/Level7.prefab or Level8.prefab)")]
     public GameObject displayPanelPrefab;
+    
+    [Tooltip("Level number (7 or 8) to select correct answer key mappings")]
+    public int levelNumber = 7;
 
     [Header("Attempts")]
     public int maxAttempts = 3;
+    [Header("Door")]
+    [Tooltip("Door transform to rotate open when the answer is correct. Defaults to this object.")]
+    public Transform doorToOpen;
+    public float openAngleY = -95f;
+    public float openDuration = 1f;
 
     private GameObject _panelInstance; // the Level7 prefab instance
     private GameObject _canvasGO;      // the fullscreen overlay canvas wrapper
@@ -34,6 +45,14 @@ public class TruthTableDisplay : MonoBehaviour
     private Color _unknownDefaultColor = new Color(0.2f, 0.95f, 0.2f, 1f);
     private readonly Color _selectedBlinkColorA = new Color(0.35f, 1f, 0.35f, 1f);
     private readonly Color _selectedBlinkColorB = new Color(0.85f, 1f, 0.85f, 1f);
+    private Transform _activeQuestionPanel;
+    private GameObject _feedbackPanel;
+    private TextMeshProUGUI _feedbackText;
+    private Coroutine _hideFeedbackRoutine;
+    private bool _solved;
+    private bool _doorOpened;
+    private Quaternion _doorClosedRotation;
+    private Quaternion _doorOpenRotation;
 
     // ─────────────────────────────────────────────────────────────
     //  PUBLIC API
@@ -42,6 +61,7 @@ public class TruthTableDisplay : MonoBehaviour
     public void OpenDisplay()
     {
         if (IsOpen) return;
+        if (_solved) return;
 
         if (displayPanelPrefab == null)
         {
@@ -72,6 +92,18 @@ public class TruthTableDisplay : MonoBehaviour
         IsOpen = false;
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
+        RestoreGameplayMouseLook();
+    }
+
+    private static void RestoreGameplayMouseLook()
+    {
+        StarterAssetsInputs inputs = FindFirstObjectByType<StarterAssetsInputs>();
+        if (inputs != null)
+        {
+            inputs.cursorInputForLook = true;
+            inputs.cursorLocked = true;
+            inputs.LookInput(Vector2.zero);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -97,9 +129,18 @@ public class TruthTableDisplay : MonoBehaviour
 
         _canvasGO.AddComponent<GraphicRaycaster>();
 
+        if (doorToOpen == null)
+            doorToOpen = transform;
+        if (doorToOpen != null)
+        {
+            _doorClosedRotation = doorToOpen.localRotation;
+            _doorOpenRotation = _doorClosedRotation * Quaternion.Euler(0f, openAngleY, 0f);
+        }
+
         BuildControlsUI();
         BuildBinaryInputUI();
         BuildTutorialUI();
+        BuildFeedbackUI();
     }
 
     /// <summary>
@@ -271,6 +312,40 @@ public class TruthTableDisplay : MonoBehaviour
         body.raycastTarget = false;
     }
 
+    private void BuildFeedbackUI()
+    {
+        if (_feedbackPanel != null)
+            Destroy(_feedbackPanel);
+
+        _feedbackPanel = new GameObject("FeedbackPanel");
+        _feedbackPanel.transform.SetParent(_canvasGO.transform, false);
+
+        RectTransform fbRect = _feedbackPanel.AddComponent<RectTransform>();
+        fbRect.anchorMin = new Vector2(0.35f, 0.40f);
+        fbRect.anchorMax = new Vector2(0.65f, 0.60f);
+        fbRect.offsetMin = Vector2.zero;
+        fbRect.offsetMax = Vector2.zero;
+
+        Image bg = _feedbackPanel.AddComponent<Image>();
+        bg.color = new Color(0f, 0f, 0f, 0f);
+
+        _feedbackText = new GameObject("FeedbackText").AddComponent<TextMeshProUGUI>();
+        _feedbackText.transform.SetParent(_feedbackPanel.transform, false);
+
+        RectTransform txtRect = _feedbackText.GetComponent<RectTransform>();
+        txtRect.anchorMin = Vector2.zero;
+        txtRect.anchorMax = Vector2.one;
+        txtRect.offsetMin = Vector2.zero;
+        txtRect.offsetMax = Vector2.zero;
+
+        _feedbackText.alignment = TextAlignmentOptions.Center;
+        _feedbackText.fontStyle = FontStyles.Bold;
+        _feedbackText.fontSize = 80f;
+        _feedbackText.raycastTarget = false;
+
+        _feedbackPanel.SetActive(false);
+    }
+
     private static TextMeshProUGUI CreateValueDisplay(Transform parent, string text, Vector2 anchorMin, Vector2 anchorMax, Color bgColor, Color textColor)
     {
         GameObject go = new GameObject("SelectedValueDisplay");
@@ -332,6 +407,7 @@ public class TruthTableDisplay : MonoBehaviour
     {
         _unknownCells.Clear();
         _selectedUnknownCell = null;
+        _activeQuestionPanel = activeQuestionPanel;
         if (_selectedValueText != null)
             _selectedValueText.text = "?";
 
@@ -392,13 +468,173 @@ public class TruthTableDisplay : MonoBehaviour
 
     private void OnSubmit()
     {
-        if (_attemptsUsed >= maxAttempts) return;
+        if (_solved || _attemptsUsed >= maxAttempts) return;
+
+        string qName = _activeQuestionPanel != null ? _activeQuestionPanel.name : string.Empty;
+        List<string> expected = GetExpectedAnswers(qName);
+
+        if (expected == null || expected.Count == 0)
+        {
+            ShowFeedback("No answer key for this question.", new Color(1f, 0.7f, 0.2f, 1f), 1.2f, 42f);
+            return;
+        }
+
+        if (_unknownCells.Count != expected.Count)
+        {
+            ShowFeedback("Box count mismatch.", new Color(1f, 0.7f, 0.2f, 1f), 1.2f, 42f);
+            return;
+        }
+
+        for (int i = 0; i < _unknownCells.Count; i++)
+        {
+            string value = _unknownCells[i] != null ? _unknownCells[i].text.Trim() : string.Empty;
+            if (value != "0" && value != "1")
+            {
+                ShowFeedback("Fill all boxes!", new Color(1f, 0.8f, 0.2f, 1f), 1.0f, 46f);
+                return;
+            }
+        }
+
+        bool allCorrect = true;
+        for (int i = 0; i < _unknownCells.Count; i++)
+        {
+            string actual = _unknownCells[i].text.Trim();
+            if (actual != expected[i])
+            {
+                allCorrect = false;
+                break;
+            }
+        }
+
+        if (allCorrect)
+        {
+            _solved = true;
+            ShowFeedback("CORRECT!", new Color(0.2f, 1f, 0.3f, 1f), 0.9f, 70f);
+            if (AudioManager.Instance != null)
+                AudioManager.Instance.PlayCorrectAnswerSound();
+            OpenDoor();
+            _submitButton.interactable = false;
+            StartCoroutine(CloseAfterDelay(0.35f));
+            return;
+        }
 
         _attemptsUsed++;
-        CloseDisplay();
+        RefreshAttemptsUI();
+        ShowFeedback("WRONG!", new Color(1f, 0.1f, 0.1f, 1f), 0.9f, 80f);
+        ResetUnknownCellsToQuestionMarks();
 
         if (_attemptsUsed >= maxAttempts)
+        {
             TriggerGameOver();
+            return;
+        }
+    }
+
+    private List<string> GetExpectedAnswers(string questionName)
+    {
+        if (levelNumber == 8)
+        {
+            switch (questionName)
+            {
+                case "Q1":
+                    return new List<string> { "1", "1", "1", "1", "0", "0" };
+                case "Q2":
+                    return new List<string> { "1", "0", "0", "0", "1", "0" };
+                case "Q3":
+                    return new List<string> { "1", "1", "1", "1", "1", "1" };
+                case "Q4":
+                    return new List<string> { "1", "0", "0", "0", "0", "0" };
+                case "Q5":
+                    return new List<string> { "1", "1", "1", "1", "1", "0", "0" };
+                default:
+                    return null;
+            }
+        }
+
+        // Default path stays Level 7 for backward compatibility.
+        switch (questionName)
+        {
+            case "Q1":
+                return new List<string> { "1", "1", "1", "0", "1", "0", "1", "0", "1", "0", "0" };
+            case "Q2":
+                return new List<string> { "1", "0", "0", "0", "0", "0", "0", "1", "1", "1", "1", "1" };
+            case "Q3":
+                return new List<string> { "0", "1", "1", "1", "1", "0", "0", "1", "1", "0", "0", "0" };
+            case "Q4":
+                return new List<string> { "1", "1", "1", "1", "0", "0" };
+            case "Q5":
+                return new List<string> { "0", "1", "0", "0", "1", "1" };
+            default:
+                return null;
+        }
+    }
+
+    private void ResetUnknownCellsToQuestionMarks()
+    {
+        for (int i = 0; i < _unknownCells.Count; i++)
+        {
+            TextMeshProUGUI cell = _unknownCells[i];
+            if (cell == null) continue;
+
+            cell.text = "?";
+            cell.color = _unknownDefaultColor;
+        }
+
+        _selectedUnknownCell = null;
+        if (_selectedValueText != null)
+            _selectedValueText.text = "?";
+    }
+
+    private void ShowFeedback(string message, Color color, float autoHideDelay, float fontSize)
+    {
+        if (_feedbackPanel == null || _feedbackText == null) return;
+
+        if (_hideFeedbackRoutine != null)
+            StopCoroutine(_hideFeedbackRoutine);
+
+        _feedbackText.text = message;
+        _feedbackText.color = color;
+        _feedbackText.fontSize = fontSize;
+        _feedbackPanel.SetActive(true);
+
+        if (autoHideDelay > 0f)
+            _hideFeedbackRoutine = StartCoroutine(HideFeedbackAfterDelay(autoHideDelay));
+    }
+
+    private IEnumerator HideFeedbackAfterDelay(float delay)
+    {
+        yield return new WaitForSecondsRealtime(delay);
+        if (_feedbackPanel != null)
+            _feedbackPanel.SetActive(false);
+    }
+
+    private IEnumerator CloseAfterDelay(float delay)
+    {
+        yield return new WaitForSecondsRealtime(delay);
+        CloseDisplay();
+    }
+
+    private void OpenDoor()
+    {
+        if (_doorOpened || doorToOpen == null) return;
+        _doorOpened = true;
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayUnlockDoorSound();
+        StartCoroutine(AnimateDoorOpen());
+    }
+
+    private System.Collections.IEnumerator AnimateDoorOpen()
+    {
+        float t = 0f;
+        Quaternion start = doorToOpen.localRotation;
+        while (t < openDuration)
+        {
+            t += Time.deltaTime;
+            float p = Mathf.Clamp01(t / Mathf.Max(0.01f, openDuration));
+            doorToOpen.localRotation = Quaternion.Slerp(start, _doorOpenRotation, p);
+            yield return null;
+        }
+        doorToOpen.localRotation = _doorOpenRotation;
     }
 
     private void TriggerGameOver()

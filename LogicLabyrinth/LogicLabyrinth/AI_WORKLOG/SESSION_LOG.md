@@ -1,6 +1,338 @@
 # Session Log
 
+## 2026-04-12
+
+### Feature: Chapter4 scene created and wired like Chapter3
+- User request: set up Chapter4 scene the same way as Chapter3 unified-map flow.
+- Added new scene file: `Assets/Scenes/Chapter 4/Chapter4.unity`.
+  - Includes default scene settings + Chapter 4 FBX prefab instance (`guid: 22f4ad31e94ab4e44a09a61b12727dfe`).
+- Added scene meta: `Assets/Scenes/Chapter 4/Chapter4.unity.meta` (`guid: d4a4b5d6e7f8091a2b3c4d5e6f7a8b9d`).
+- Updated chapter selection flow in `Assets/Scripts/UI/LevelSelectionController.cs`:
+  - Chapter 4 button now bypasses level sub-panel and directly loads `Chapter4` scene.
+- Updated `ProjectSettings/EditorBuildSettings.asset`:
+  - Added `Assets/Scenes/Chapter 4/Chapter4.unity` to Build Settings.
+- Compile check: `LevelSelectionController.cs` has no errors.
+
+### Hotfix: Chapter 4 FBX floor colliders missing
+- Root cause: `Assets/Scenes/Chapter 4/Chapter 4.fbx.meta` had `addColliders: 0` (same as Chapter 3 floor pass-through bug).
+- Fix: `addColliders: 0` → `addColliders: 1` in `Chapter 4.fbx.meta`.
+- All gameplay scene gates (UIManager, PauseMenuController, PlayerController, LevelManager) already included `Chapter4` — no further code changes needed.
+
+### Feature: Volume adjustment UI added to Settings panel
+- User request: Add working volume sliders to the Settings/Options panel (shown when pausing and clicking Settings).
+- Changes:
+  1. **[AudioManager.cs](Assets/Scripts/Managers/AudioManager.cs)**:
+     - Added `GetMusicVolume()` — returns current music volume (0-1)
+     - Added `GetSFXVolume()` — returns current SFX volume (0-1)
+  2. **[PauseMenuController.cs](Assets/Scripts/UI/PauseMenuController.cs)**:
+     - Added `WireVolumeSliders()` method — creates two sliders (Music / SFX) that update live
+     - Sliders are drawn at runtime in the Settings panel above the Graphics section
+     - Call added to `ShowSettingsOverlay()` to wire sliders when Settings opens
+- How it works:
+  - Music slider ranges 0-1, updates `AudioManager.SetMusicVolume()`
+  - SFX slider ranges 0-1, updates `AudioManager.SetSFXVolume()`
+  - Sliders initialize to current AudioManager volumes
+  - Adjusting either slider immediately changes in-game audio
+- Verification: Compile check passed, no errors.
+
+### Feature: Gameplay SFX hooks wired for newly added clips
+- User request: "now make the code for this so i can hear them" after assigning new audio clips.
+- Minimal wiring added to existing gameplay event points (no structural refactor):
+  1. `Assets/StarterAssets/FirstPersonController/Scripts/FirstPersonController.cs`
+    - `PlayWalkSound()` while grounded and moving (footstep cooldown)
+    - `PlayRunSound()` while grounded, moving, and sprinting (faster cooldown)
+    - `PlayJumpSound()` on jump trigger
+    - `PlayClickSound()` on left mouse click
+    - `PlayDamageSound()` in `ApplyDamage()`
+  2. `Assets/Scripts/Gameplay/TutorialDoor.cs`
+    - `PlayUnlockDoorSound()` when Tutorial door unlocks
+  3. `Assets/Scripts/Gameplay/SuccessDoor.cs`
+    - `PlayUnlockDoorSound()` when Success door unlocks
+  4. `Assets/Scripts/Gameplay/TruthTableDisplay.cs`
+    - `PlayCorrectAnswerSound()` on correct truth-table submission
+    - `PlayUnlockDoorSound()` when Truth door opens
+  5. `Assets/Scripts/Managers/LevelManager.cs`
+    - `PlayCorrectAnswerSound()` in `PuzzleCompleted()`
+  6. `Assets/Scripts/Gameplay/AdrenalineConsumableController.cs`
+    - `PlayDrinkSound()` when adrenaline is consumed successfully
+- Compile check: no errors in all modified files.
+
+### Hotfix: TMP enum compile error in pause settings volume labels
+- User report:
+  - `Assets\Scripts\UI\PauseMenuController.cs(2463,53): error CS0117: 'TextAlignmentOptions' does not contain a definition for 'MiddleLeft'`
+  - `Assets\Scripts\UI\PauseMenuController.cs(2525,51): error CS0117: 'TextAlignmentOptions' does not contain a definition for 'MiddleLeft'`
+- Root cause: current TMP version in project does not expose `TextAlignmentOptions.MiddleLeft`.
+- Minimal fix:
+  - Replaced both with `TextAlignmentOptions.Left` in `PauseMenuController.cs`.
+- Result: compile check on `PauseMenuController.cs` returns no errors.
+
+### Future Plan (quick verify)
+- Open pause -> settings in play mode and confirm Music/SFX label alignment still looks correct.
+
+### Future Plan (audio verify pass)
+- In Level gameplay, hold W and confirm repeating walk SFX.
+- Hold Shift+W and confirm run SFX cadence.
+- Press Space and confirm jump SFX.
+- Click mouse and confirm click SFX.
+- Unlock `Door_Tutorial`, `Door_Success`, and Truth door; confirm unlock SFX each time.
+- Complete a puzzle/truth table correctly; confirm correct-answer SFX.
+- Take trap damage; confirm damage SFX.
+- Use ADR (adrenaline) from hotbar; confirm drink SFX.
+
+### Future Plan
+- Verify in-game: pause → Settings → drag sliders and hear music/SFX volume change in real-time.
+- If audio listener warning appears: remove from FirstPersonPlayer, keep only on MainCamera.
+
+### Verification checklist for Chapter 4
+- [ ] Open `Chapter4.unity` in Unity Editor — confirm FBX renders correctly.
+- [ ] Press Play in Chapter4: confirm player does NOT fall through floor.
+- [ ] Confirm HUD (health/stamina/hotbar) appears same as Level scenes.
+- [ ] Confirm ESC pause works in Chapter4.
+- [ ] Confirm head light / player light appears.
+- [ ] If "2 audio listeners" warning: remove AudioListener from FirstPersonPlayer prefab, keep only on MainCamera.
+
+### Future Plan
+- Open `Chapter4.unity` in Unity and verify player spawn/UI/light parity behaves like Chapter3 flow.
+- If needed, tune Chapter4 map transform (position/rotation) after first in-editor playtest.
+
+### Hotfix: UIManager startup path wrong for Chapter3 (mainLoginPanel missing)
+- User error:
+  - `UIManager: mainLoginPanel is MISSING in Inspector!`
+  - Call path: `UIManager.Start -> ShowMainLoginPanel` while playing Chapter3.
+- Root cause:
+  - `UIManager.Start()` used menu-account flow by default, even in Chapter3 direct-play.
+  - In gameplay scenes, the runtime UIManager has no menu panel references like `mainLoginPanel`.
+- Minimal fix in `Assets/Scripts/UI/UIManager.cs`:
+  - In `Start()`, detect gameplay scenes (`Level*`, `Chapter3`, `Chapter4`) and call `ShowGameUI()` immediately, then `return`.
+  - Added helper `IsGameplaySceneName(string sceneName)` for consistent scene classification.
+- Result:
+  - Prevents Chapter3 from entering login/main-menu UI path.
+  - Avoids `mainLoginPanel` missing error and aligns startup with other level gameplay flow.
+
+### Future Plan (quick test)
+- Play Chapter3 directly and confirm:
+  - No `mainLoginPanel` missing error.
+  - HUD appears and gameplay continues.
+  - Pause/input/light systems remain active.
+- If any null UI field still appears, patch only that specific field path with runtime auto-link fallback.
+
+### Hotfix: "Failed to find or create UIManager" on Chapter3 play
+- User reported runtime error from `LevelManager.OnSceneLoaded`: `Failed to find or create UIManager!` and game not playing correctly.
+- Minimal fix in `Assets/Scripts/Managers/LevelManager.cs`:
+  - Added guaranteed fallback creation:
+    - if prefab/find path fails, create `UIManager_Runtime` GameObject and add `UIManager` component.
+  - Added direct-play HUD bootstrap:
+    - when in gameplay scene and `isLoadingGame == false`, call `UIManager.Instance.ShowGameUI()`.
+    - This handles pressing Play directly in Chapter3 without menu flow.
+- Compile status: no errors in `LevelManager.cs`.
+
+### Future Plan (quick verify)
+- Press Play directly in Chapter3:
+  - Confirm the UIManager error no longer appears.
+  - Confirm HUD appears and game proceeds (health/stamina/hotbar).
+  - Confirm pause/menu controls still function.
+- If any UI reference is still null in Chapter3, next smallest step is adding runtime auto-links for missing `GameUI` children in `UIManager.ShowGameUI` path.
+
+### Hotfix: Chapter3 direct-play parity (same runtime setup as Level1-9)
+- User feedback: Chapter3 still did not reliably show same behavior as Level scenes (head light, HP/stamina, pause/input) especially when testing directly.
+- Root cause: when entering Play directly on Chapter3, core managers may not exist yet because normal Main-menu startup path was bypassed.
+- Minimal fix applied:
+  - Added new file `Assets/Scripts/Managers/GameplayRuntimeBootstrap.cs`.
+  - Uses `[RuntimeInitializeOnLoadMethod(BeforeSceneLoad)]` to auto-create and persist:
+    - `LevelManager`
+    - `PauseMenuController`
+  - This guarantees Chapter scenes run through the same manager pipeline as existing Level scenes.
+- Lighting fallback improvement:
+  - Updated `Assets/Scripts/Gameplay/DungeonLightingManager.cs` in `AttachPlayerLight()`.
+  - If no player with CharacterController is found, it now falls back to attaching light to active view camera object.
+  - Prevents missing player-light in unusual startup orders.
+- Compile status: no errors.
+
+### Future Plan (immediate validation)
+- Reopen Unity Play in Chapter3 and verify in one run:
+  - Head/player light appears (or camera fallback light if player lookup races).
+  - Health/stamina/hotbar appears (via LevelUIManager -> GameInventoryUI bootstrap path).
+  - ESC pause works in Chapter3.
+  - Shift sprint and Tab cursor flow work.
+- If Chapter3 is still darker than intended after parity fixes, next smallest step is a single-value tune in `DungeonLightingManager` (`playerLightRange` / `playerLightIntensity`) without structural changes.
+
+### Hotfix: Chapter3 missing health/stamina/pause/input parity with Level5
+- User report (with screenshots): Chapter3 lacked Level5 behavior (HUD elements, pause flow, expected gameplay input behavior, and player light parity checks).
+- Root cause: multiple scripts were gated by scene-name checks that only allowed `Level*` scenes, so `Chapter3` was treated like non-gameplay in key paths.
+- Minimal fixes applied (no structural scene rewrite):
+  - `Assets/Scripts/UI/UIManager.cs`
+    - Scene gameplay checks now include `Chapter3` and `Chapter4`.
+    - Player activation path now treats Chapter scenes as gameplay, preventing player being disabled in Chapter3.
+    - On scene load, gameplay bootstrap now runs for Chapter scenes too.
+  - `Assets/Scripts/UI/PauseMenuController.cs`
+    - Replaced strict `StartsWith("Level")` checks with `IsGameplaySceneName(...)` helper (`Level*`, `Chapter3`, `Chapter4`).
+    - ESC pause handling, scene-load store-button setup, HUD store button setup, and quit interception now run in Chapter scenes.
+  - `Assets/Scripts/Player/PlayerController.cs`
+    - Cursor-lock gameplay loop now includes `Chapter3` and `Chapter4` scenes.
+  - `Assets/Scripts/Managers/LevelManager.cs`
+    - Added `EnsureLevelUIManagerForGameplayScene(...)` and call site in `OnSceneLoaded`.
+    - This auto-creates `LevelUIManager` when missing; `LevelUIManager` in turn ensures `GameInventoryUI`, which builds health/stamina/hotbar UI at runtime.
+- Compile status: all edited files report no errors.
+
+### Future Plan (verification)
+- Playtest Chapter3 from StoryBoard:
+  - Confirm HUD appears (health, stamina, hotbar/inventory) similar to Level5.
+  - Confirm ESC pause/settings/store button flow works.
+  - Confirm cursor lock/free-look behavior and Tab interaction behavior are restored.
+  - Confirm sprint (Shift) remains functional while cursor is locked.
+  - Confirm player light object (`PlayerDungeonLight`) is created at runtime and visibility is comparable to Level5 baseline.
+- If still too dark after parity fixes, do a targeted `DungeonLightingManager` tuning pass (range/intensity only) as the next smallest step.
+
+### Hotfix: Chapter3 lighting + core gameplay systems parity with Levels 1-5
+- User report: Chapter3 lighting looked wrong on character, and gameplay systems like stamina/health/inventory/settings should behave like prior levels.
+- Simplest-first runtime fix in `Assets/Scripts/Managers/LevelManager.cs` (no scene-structure rewrite):
+  - Added gameplay-scene classifier: `IsGameplayScene(sceneName)` returns true for `Level*`, `Chapter3`, and `Chapter4`.
+  - Updated `OnSceneLoaded` to run `EnsureDungeonLightingManager()` for gameplay scenes (not only `Level*`).
+  - Updated key/candle reset block to run for gameplay scenes.
+  - Added `EnsureInventoryManagerForGameplayScene(isGameplayScene)` to auto-create `InventoryManager` if missing in Chapter3/Chapter4 scenes.
+- Why this fixes user issue:
+  - Character light behavior comes from `DungeonLightingManager` attaching player light at runtime.
+  - Inventory UI/state dependencies require `InventoryManager` singleton to exist.
+  - `UIManager` show flow already runs on scene load; this patch ensures supporting managers are present.
+- Compile check: `LevelManager.cs` no errors.
+
+### Future Plan (validation)
+- Playtest path: Main -> StoryBoard -> Chapter 3.
+- Confirm:
+  - Character receives runtime light (visibility profile similar to Levels 1-5).
+  - HUD elements (stamina/health/inventory/settings) are present and responsive.
+  - No missing singleton warnings for `InventoryManager` / `UIManager` in console.
+- If lighting is still too dark/bright on Chapter3 specifically, tune `DungeonLightingManager` exposed values (range/intensity/fog) as a targeted balancing pass.
+
+### Hotfix: Chapter3 player falling through floor
+- User report: player spawns and passes through floor in `Chapter3` scene.
+- Root cause found: FBX importer had colliders disabled (`addColliders: 0`) for `Assets/Scenes/Chapter 3/Chapter 3.fbx.meta`.
+- Minimal fix applied: set `addColliders: 1` to auto-generate mesh colliders for imported chapter geometry.
+
+### Future Plan (hotfix validation)
+- In Unity, reimport `Chapter 3.fbx` (or toggle any import setting and Apply) to regenerate colliders.
+- Open `Chapter3.unity`, ensure player spawn Y is above ground, then Play and verify no floor fall-through.
+- If any floor segment still has gaps, add explicit `MeshCollider` only to missing geometry pieces as targeted follow-up.
+
+### Feature: Chapter 3 now loads as a single unified map scene
+- User request: replace Level9-12 individual levels with a single Chapter3 FBX scene; clicking Chapter 3 in level selection skips level sub-panel and goes directly to the new map.
+- **Deleted** (old Chapter 3 levels + FBXes):
+  - `Assets/Scenes/Chapter 3/Level9.unity` + meta
+  - `Assets/Scenes/Chapter 3/Level10.unity` + meta
+  - `Assets/Scenes/Chapter 3/Level11.unity` + meta
+  - `Assets/Scenes/Chapter 3/Level12.unity` + meta
+  - `Assets/Scenes/Chapter 3/chapter3problem9.fbx` + meta
+  - `Assets/Scenes/Chapter 3/chapter3problem10.fbx` + meta
+  - `Assets/Scenes/Chapter 3/chapter3problem11.fbx` + meta
+  - `Assets/Scenes/Chapter 3/chapter3problem12.fbx` + meta
+- **Created** `Assets/Scenes/Chapter 3/Chapter3.unity` — empty scene (GUID: c3a4b5d6e7f8091a2b3c4d5e6f7a8b9c). User must open Unity, open this scene, drag `Chapter 3.fbx` into the scene hierarchy, and save.
+- **Updated** `ProjectSettings/EditorBuildSettings.asset` — removed Level9-12 entries, added Chapter3.unity.
+- **Updated** `Assets/Scripts/Managers/LevelManager.cs` — added `LoadChapterScene(string sceneName)` method for direct scene loading outside level numbering system.
+- **Updated** `Assets/Scripts/UI/LevelSelectionController.cs` — in `ShowChapter(int chapterNumber)`, added early return for chapterNumber == 3 that calls `LevelManager.LoadChapterScene("Chapter3")` instead of showing level sub-panel.
+- Compile check: no errors.
+
+### Future Plan
+- **ACTION REQUIRED (Unity Editor):** Open `Assets/Scenes/Chapter 3/Chapter3.unity`, drag `Chapter 3.fbx` into the scene, add player spawn point, managers, etc., then save.
+- After scene is built in Unity, add Build Settings registration via Unity Editor (it may auto-detect but confirm via File > Build Settings).
+- If same treatment needed for Chapter 4: follow same pattern — create Chapter4.unity, add `LoadChapterScene("Chapter4")` bypass in ShowChapter for chapterNumber == 4, register in Build Settings.
+- Playtest: from menu → Story Board → Chapter 3 → should immediately load Chapter3 scene without showing Level sub-panel.
+
+### Feature complete: Level8 answer keys wired (match opens door)
+- User provided Level8 answer keys and requested door opening on match.
+- Updated `Assets/Scripts/Gameplay/TruthTableDisplay.cs` Level8 branch in `GetExpectedAnswers()`:
+  - `Q1`: `1,1,1,1,0,0`
+  - `Q2`: `1,0,0,0,1,0`
+  - `Q3`: `1,1,1,1,1,1`
+  - `Q4`: `1,0,0,0,0,0`
+  - `Q5`: `1,1,1,1,1,0,0`
+- Behavior confirmation:
+  - Existing submit flow already checks `allCorrect` and calls `OpenDoor()` on match.
+  - Wrong answers still show `WRONG!`, consume attempt, and reset cells to `?`.
+- Compile check:
+  - `TruthTableDisplay.cs`: no errors.
+
+### Future Plan (updated)
+- Playtest Level8 in-scene with all Q1-Q5 variants:
+  - Confirm each accepted pattern matches the intended box order in prefab.
+  - Confirm Q5 has exactly 7 `?` cells to match the 7-key mapping.
+  - Verify correct submission opens `TruthDoor` and closes panel cleanly.
+- If any question reports `Box count mismatch.`, adjust only that question's key length/order to match prefab cell order.
+
+### Feature setup: Level8 TruthDoor now opens Level8 truth-table UI (same behavior as Level7)
+- User request: when pressing `E` on Level8 `TruthDoor`, open Level8 prefab with the same UI/interaction flow as Level7.
+- Simplest-first implementation (no structural rewrite): reused existing `TruthTableDisplay` instead of creating a duplicate class.
+- Updated `Assets/Scripts/Gameplay/TruthTableDisplay.cs`:
+  - Added serialized field `levelNumber` (default `7`).
+  - Extended answer selection logic to branch by level.
+  - Backward-safe fallback: any non-`8` value uses the existing Level7 answer keys.
+  - Level8 branch currently has placeholder empty answer keys (waiting for user-provided keys).
+- Updated scene wiring in `Assets/Scenes/Chapter 2/Level8.unity`:
+  - Added `TruthTableDisplay` component to `TruthDoor`.
+  - Set `displayPanelPrefab` to Level8 prefab (`guid: 8868382dc58b24248a0712b48968021d`, `fileID: 3885312232087431334`).
+  - Set `levelNumber: 8`.
+  - Kept attempts and door-open settings consistent with Level7 (`maxAttempts: 3`, `openAngleY: -95`, `openDuration: 1`).
+- Interaction path validation:
+  - `SimpleGateCollector` already detects and opens `TruthTableDisplay` on `E`; no additional interaction-script change needed.
+- Compile check:
+  - `TruthTableDisplay.cs`: no errors.
+
+### Future Plan
+- Fill Level8 answer keys in `TruthTableDisplay.GetExpectedAnswers()` once user provides Q1-Q5 values.
+- Playtest Level8 flow end-to-end:
+  - `E` on `TruthDoor` opens Level8 UI.
+  - Select `?` -> assign `1/0` -> submit -> wrong/correct feedback works.
+  - Correct submission opens the door.
+  - Closing with `X` restores mouse-look immediately.
+- Optional cleanup after key delivery:
+  - Update class summary text to mention Level7/Level8 shared use explicitly.
+
 ## 2026-04-11
+
+### Fix: mouse-look stuck after closing TruthTable with `X`
+- User report: after closing Level7 truth table with `X`, player could move with WASD but mouse-look was stuck until pressing Tab.
+- Root cause: while truth table is open, `FirstPersonController` sets `StarterAssetsInputs.cursorInputForLook = false`. On close, `TruthTableDisplay` only restored cursor lock/visibility and did not restore `cursorInputForLook`.
+- Minimal fix in `Assets/Scripts/Gameplay/TruthTableDisplay.cs`:
+  - Added `RestoreGameplayMouseLook()` and called it in `CloseDisplay()`.
+  - It restores `StarterAssetsInputs.cursorInputForLook = true` and `cursorLocked = true`.
+- Result: closing with `X` now returns camera look control immediately (no Tab workaround).
+- Compile check: No errors.
+
+### UX tweak: on wrong submit, auto-clear answers back to `?`
+- User request: when answer is wrong, auto-clear filled cells.
+- Implemented in `Assets/Scripts/Gameplay/TruthTableDisplay.cs`:
+  - Added `ResetUnknownCellsToQuestionMarks()`.
+  - On wrong submit path (`WRONG!`), all tracked unknown cells are reset to `?` and default green color.
+  - Clears current selected cell and resets left selected-value display to `?`.
+- Attempts and game-over flow remain unchanged.
+- Compile check: No errors.
+
+### Hotfix: CS0305 on `IEnumerator` in TruthTableDisplay
+- User reported compile errors:
+  - `TruthTableDisplay.cs(...): CS0305 Using the generic type 'IEnumerator<T>' requires 1 type arguments`
+- Root cause: file used non-generic `IEnumerator` methods without importing `System.Collections`.
+- Fix in `Assets/Scripts/Gameplay/TruthTableDisplay.cs`: added `using System.Collections;`.
+- Result: compile check now reports no errors.
+
+### Feature: Level7 submit validation with Q1-Q5 answer keys + door opens on correct
+- User provided exact answer keys for Q1..Q5 (Box1..BoxN) and requested:
+  - on wrong: show `WRONG!` in red (same style as Levels 5/6),
+  - on correct: open the door.
+- Implemented in `Assets/Scripts/Gameplay/TruthTableDisplay.cs` with minimal scope:
+  - `OnSubmit()` now validates current active question against user-provided answer arrays.
+  - Attempts are consumed only on wrong answer (not every submit).
+  - Wrong answer feedback: `WRONG!` red center text.
+  - Correct answer feedback: `CORRECT!` green, then opens door by rotating assigned `doorToOpen` transform.
+  - Added door settings: `doorToOpen`, `openAngleY`, `openDuration`.
+  - Added fill guard: shows `Fill all boxes!` if any answer cell is not `0/1`.
+  - Added question/box count guard: shows `Box count mismatch.` if prefab `?` count differs from configured answer count.
+  - Locks puzzle after success (`_solved=true`, submit disabled, door opened once).
+- Answer keys encoded exactly as provided:
+  - Q1: 11 values
+  - Q2: 12 values
+  - Q3: 12 values
+  - Q4: 6 values
+  - Q5: 6 values
+- Compile check: No errors.
 
 ### UX polish: selected `?` blink + tutorial moved right + re-edit same cell
 - User requested three UI improvements for Level7 truth-table input:

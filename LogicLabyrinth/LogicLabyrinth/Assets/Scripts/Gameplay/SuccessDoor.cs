@@ -232,6 +232,8 @@ public class SuccessDoor : MonoBehaviour
     {
         Debug.Log("[SuccessDoor] Player has the success key! Unlocking door...");
         IsDoorOpen = true;
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayUnlockDoorSound();
 
         // Consume the key
         PlayerHasSuccessKey = false;

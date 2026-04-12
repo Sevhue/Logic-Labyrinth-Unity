@@ -188,8 +188,8 @@ public class PauseMenuController : MonoBehaviour
 
     void Update()
     {
-        // ESC only works in level scenes
-        if (!SceneManager.GetActiveScene().name.StartsWith("Level")) return;
+        // ESC only works in gameplay scenes
+        if (!IsGameplaySceneName(SceneManager.GetActiveScene().name)) return;
 
         if (Input.GetKeyDown(KeyCode.Escape))
         {
@@ -282,7 +282,7 @@ public class PauseMenuController : MonoBehaviour
             CleanupStoreHUDButton();
             CloseStoreOverlay();
         }
-        else if (scene.name.StartsWith("Level"))
+        else if (IsGameplaySceneName(scene.name))
         {
             StartCoroutine(EnsureStoreButtonDelayed());
         }
@@ -352,7 +352,7 @@ public class PauseMenuController : MonoBehaviour
 
     private void EnsureStoreHUDButton()
     {
-        if (!SceneManager.GetActiveScene().name.StartsWith("Level")) return;
+        if (!IsGameplaySceneName(SceneManager.GetActiveScene().name)) return;
 
         if (storeButtonInstance != null) return;
 
@@ -2396,6 +2396,9 @@ public class PauseMenuController : MonoBehaviour
         // Wire BackButton
         WireSettingsBackButton();
 
+        // Wire Volume sliders (Music, SFX)
+        WireVolumeSliders();
+
         // Wire Quality buttons (Low, Medium, High, Ultra)
         WireQualityButtons();
 
@@ -2405,6 +2408,164 @@ public class PauseMenuController : MonoBehaviour
     // ---- Quality tooltip ----
     private GameObject qualityTooltip;
     private TextMeshProUGUI qualityTooltipText;
+
+    /// <summary>
+    /// Creates and wires Music and SFX volume sliders in the Settings panel.
+    /// </summary>
+    private void WireVolumeSliders()
+    {
+        if (settingsInstance == null) return;
+
+        // Find or create volume container
+        Transform volumeContainer = DeepFind(settingsInstance.transform, "VolumeContainer");
+        if (volumeContainer == null)
+        {
+            // Create a container for volume controls under the VOLUME label
+            volumeContainer = new GameObject("VolumeContainer").transform;
+            volumeContainer.SetParent(settingsInstance.transform.Find("Panel") ?? settingsInstance.transform, false);
+            volumeContainer.SetAsFirstSibling(); // Keep it near the top, before GRAPHICS section
+            
+            RectTransform rt = volumeContainer.gameObject.AddComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.5f, 0.5f);
+            rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+            rt.sizeDelta = new Vector2(300, 80);
+        }
+
+        // Clear any existing volume sliders
+        foreach (Transform child in volumeContainer)
+        {
+            if (child.name.Contains("VolumeSlider"))
+                Destroy(child.gameObject);
+        }
+
+        // ==================== Music Volume Slider ====================
+        GameObject musicSliderGO = new GameObject("MusicVolumeSlider");
+        musicSliderGO.transform.SetParent(volumeContainer, false);
+        RectTransform musicSliderRT = musicSliderGO.AddComponent<RectTransform>();
+        musicSliderRT.anchoredPosition = new Vector2(0, 20);
+        musicSliderRT.sizeDelta = new Vector2(250, 30);
+
+        // Label
+        GameObject musicLabelGO = new GameObject("Label");
+        musicLabelGO.transform.SetParent(musicSliderGO.transform, false);
+        RectTransform musicLabelRT = musicLabelGO.AddComponent<RectTransform>();
+        musicLabelRT.anchorMin = Vector2.zero;
+        musicLabelRT.anchorMax = new Vector2(0.3f, 1f);
+        musicLabelRT.offsetMin = Vector2.zero;
+        musicLabelRT.offsetMax = Vector2.zero;
+        
+        TextMeshProUGUI musicLabel = musicLabelGO.AddComponent<TextMeshProUGUI>();
+        musicLabel.text = "Music";
+        musicLabel.fontSize = 12;
+        musicLabel.color = new Color(0.85f, 0.75f, 0.45f, 1f);
+        musicLabel.alignment = TextAlignmentOptions.Left;
+
+        // Slider
+        GameObject musicSliderBackgroundGO = new GameObject("Background");
+        musicSliderBackgroundGO.transform.SetParent(musicSliderGO.transform, false);
+        RectTransform musicSliderBgRT = musicSliderBackgroundGO.AddComponent<RectTransform>();
+        musicSliderBgRT.anchorMin = new Vector2(0.35f, 0f);
+        musicSliderBgRT.anchorMax = new Vector2(1f, 1f);
+        musicSliderBgRT.offsetMin = Vector2.zero;
+        musicSliderBgRT.offsetMax = Vector2.zero;
+        
+        Image musicSliderBg = musicSliderBackgroundGO.AddComponent<Image>();
+        musicSliderBg.color = new Color(0.2f, 0.2f, 0.2f, 0.8f);
+        
+        Slider musicSlider = musicSliderGO.AddComponent<Slider>();
+        musicSlider.minValue = 0f;
+        musicSlider.maxValue = 1f;
+        musicSlider.value = AudioManager.Instance != null ? AudioManager.Instance.GetMusicVolume() : 0.5f;
+        
+        // Fill rect for slider
+        GameObject musicFillGO = new GameObject("Fill");
+        musicFillGO.transform.SetParent(musicSliderBackgroundGO.transform, false);
+        RectTransform musicFillRT = musicFillGO.AddComponent<RectTransform>();
+        musicFillRT.anchorMin = Vector2.zero;
+        musicFillRT.anchorMax = Vector2.zero;
+        musicFillRT.offsetMin = Vector2.zero;
+        musicFillRT.offsetMax = Vector2.zero;
+        musicFillRT.sizeDelta = new Vector2(0, 0);
+        
+        Image musicFill = musicFillGO.AddComponent<Image>();
+        musicFill.color = new Color(1f, 0.84f, 0f, 0.8f);
+        
+        musicSlider.targetGraphic = musicSliderBg;
+        musicSlider.fillRect = musicFillRT;
+        
+        musicSlider.onValueChanged.AddListener(value =>
+        {
+            if (AudioManager.Instance != null)
+                AudioManager.Instance.SetMusicVolume(value);
+            Debug.Log($"[PauseMenu] Music Volume set to {value:F2}");
+        });
+
+        // ==================== SFX Volume Slider ====================
+        GameObject sfxSliderGO = new GameObject("SFXVolumeSlider");
+        sfxSliderGO.transform.SetParent(volumeContainer, false);
+        RectTransform sfxSliderRT = sfxSliderGO.AddComponent<RectTransform>();
+        sfxSliderRT.anchoredPosition = new Vector2(0, -20);
+        sfxSliderRT.sizeDelta = new Vector2(250, 30);
+
+        // Label
+        GameObject sfxLabelGO = new GameObject("Label");
+        sfxLabelGO.transform.SetParent(sfxSliderGO.transform, false);
+        RectTransform sfxLabelRT = sfxLabelGO.AddComponent<RectTransform>();
+        sfxLabelRT.anchorMin = Vector2.zero;
+        sfxLabelRT.anchorMax = new Vector2(0.3f, 1f);
+        sfxLabelRT.offsetMin = Vector2.zero;
+        sfxLabelRT.offsetMax = Vector2.zero;
+        
+        TextMeshProUGUI sfxLabel = sfxLabelGO.AddComponent<TextMeshProUGUI>();
+        sfxLabel.text = "SFX";
+        sfxLabel.fontSize = 12;
+        sfxLabel.color = new Color(0.85f, 0.75f, 0.45f, 1f);
+        sfxLabel.alignment = TextAlignmentOptions.Left;
+
+        // Slider
+        GameObject sfxSliderBackgroundGO = new GameObject("Background");
+        sfxSliderBackgroundGO.transform.SetParent(sfxSliderGO.transform, false);
+        RectTransform sfxSliderBgRT = sfxSliderBackgroundGO.AddComponent<RectTransform>();
+        sfxSliderBgRT.anchorMin = new Vector2(0.35f, 0f);
+        sfxSliderBgRT.anchorMax = new Vector2(1f, 1f);
+        sfxSliderBgRT.offsetMin = Vector2.zero;
+        sfxSliderBgRT.offsetMax = Vector2.zero;
+        
+        Image sfxSliderBg = sfxSliderBackgroundGO.AddComponent<Image>();
+        sfxSliderBg.color = new Color(0.2f, 0.2f, 0.2f, 0.8f);
+        
+        Slider sfxSlider = sfxSliderGO.AddComponent<Slider>();
+        sfxSlider.minValue = 0f;
+        sfxSlider.maxValue = 1f;
+        sfxSlider.value = AudioManager.Instance != null ? AudioManager.Instance.GetSFXVolume() : 0.5f;
+        
+        // Fill rect for slider
+        GameObject sfxFillGO = new GameObject("Fill");
+        sfxFillGO.transform.SetParent(sfxSliderBackgroundGO.transform, false);
+        RectTransform sfxFillRT = sfxFillGO.AddComponent<RectTransform>();
+        sfxFillRT.anchorMin = Vector2.zero;
+        sfxFillRT.anchorMax = Vector2.zero;
+        sfxFillRT.offsetMin = Vector2.zero;
+        sfxFillRT.offsetMax = Vector2.zero;
+        sfxFillRT.sizeDelta = new Vector2(0, 0);
+        
+        Image sfxFill = sfxFillGO.AddComponent<Image>();
+        sfxFill.color = new Color(1f, 0.84f, 0f, 0.8f);
+        
+        sfxSlider.targetGraphic = sfxSliderBg;
+        sfxSlider.fillRect = sfxFillRT;
+        
+        sfxSlider.onValueChanged.AddListener(value =>
+        {
+            if (AudioManager.Instance != null)
+                AudioManager.Instance.SetSFXVolume(value);
+            Debug.Log($"[PauseMenu] SFX Volume set to {value:F2}");
+        });
+
+        Debug.Log("[PauseMenu] Volume sliders wired successfully.");
+    }
 
     /// <summary>
     /// Wires the Low / Medium / High / Ultra quality buttons, highlights the active one,
@@ -3042,7 +3203,7 @@ public class PauseMenuController : MonoBehaviour
 
         // Allow quit immediately from the main menu — no save needed
         string sceneName = SceneManager.GetActiveScene().name;
-        if (!sceneName.StartsWith("Level"))
+        if (!IsGameplaySceneName(sceneName))
             return true;
 
         // If the dialog is already up, keep blocking — let the player decide
@@ -3115,6 +3276,12 @@ public class PauseMenuController : MonoBehaviour
             tmp.font = medievalFont;
 
         StartCoroutine(DestroyAfterUnscaledTime(feedbackGO, 3f));
+    }
+
+    private static bool IsGameplaySceneName(string sceneName)
+    {
+        return !string.IsNullOrEmpty(sceneName) &&
+               (sceneName.StartsWith("Level") || sceneName == "Chapter3" || sceneName == "Chapter4");
     }
 
     private System.Collections.IEnumerator DestroyAfterUnscaledTime(GameObject go, float delay)

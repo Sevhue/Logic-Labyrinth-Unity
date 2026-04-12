@@ -205,6 +205,8 @@ public class TutorialDoor : MonoBehaviour
     {
         Debug.Log("[TutorialDoor] Player has the key! Unlocking door...");
         IsDoorOpen = true;
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayUnlockDoorSound();
 
         // Consume the key — remove it from inventory and hotbar
         PlayerHasKey = false;

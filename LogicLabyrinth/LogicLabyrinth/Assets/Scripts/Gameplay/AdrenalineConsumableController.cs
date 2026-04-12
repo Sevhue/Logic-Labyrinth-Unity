@@ -166,6 +166,9 @@ public class AdrenalineConsumableController : MonoBehaviour
             return;
         }
 
+        if (AudioManager.Instance != null)
+            AudioManager.Instance.PlayDrinkSound();
+
         if (!boostActive)
             CacheAndApplyBoost();
 

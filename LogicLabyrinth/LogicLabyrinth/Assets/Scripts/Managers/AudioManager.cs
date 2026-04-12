@@ -9,13 +9,25 @@ public class AudioManager : MonoBehaviour
     public AudioSource musicSource;
     public AudioSource sfxSource;
 
-    [Header("Audio Clips")]
+    [Header("Audio Clips - Music")]
     public AudioClip backgroundMusic;
     public AudioClip lobbyMusic;
     public AudioClip inGameMusic;
+
+    [Header("Audio Clips - Gameplay SFX")]
     public AudioClip gatePickupSound;
     public AudioClip puzzleCompleteSound;
     public AudioClip portalSound;
+    public AudioClip correctAnswerSound;
+    public AudioClip unlockDoorSound;
+    public AudioClip damageSound;
+    public AudioClip drinkSound;
+
+    [Header("Audio Clips - Player SFX")]
+    public AudioClip walkSound;
+    public AudioClip runSound;
+    public AudioClip jumpSound;
+    public AudioClip clickSound;
 
     void Awake()
     {
@@ -122,6 +134,46 @@ public class AudioManager : MonoBehaviour
         PlaySFX(portalSound);
     }
 
+    public void PlayCorrectAnswerSound()
+    {
+        PlaySFX(correctAnswerSound);
+    }
+
+    public void PlayUnlockDoorSound()
+    {
+        PlaySFX(unlockDoorSound);
+    }
+
+    public void PlayDamageSound()
+    {
+        PlaySFX(damageSound);
+    }
+
+    public void PlayDrinkSound()
+    {
+        PlaySFX(drinkSound);
+    }
+
+    public void PlayWalkSound()
+    {
+        PlaySFX(walkSound);
+    }
+
+    public void PlayRunSound()
+    {
+        PlaySFX(runSound);
+    }
+
+    public void PlayJumpSound()
+    {
+        PlaySFX(jumpSound);
+    }
+
+    public void PlayClickSound()
+    {
+        PlaySFX(clickSound);
+    }
+
     public void PlaySFX(AudioClip clip)
     {
         if (sfxSource != null && clip != null)
@@ -144,5 +196,15 @@ public class AudioManager : MonoBehaviour
         {
             sfxSource.volume = volume;
         }
+    }
+
+    public float GetMusicVolume()
+    {
+        return musicSource != null ? musicSource.volume : 0.5f;
+    }
+
+    public float GetSFXVolume()
+    {
+        return sfxSource != null ? sfxSource.volume : 0.5f;
     }
 }

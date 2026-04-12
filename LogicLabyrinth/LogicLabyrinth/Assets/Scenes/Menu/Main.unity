@@ -8411,6 +8411,12 @@ MonoBehaviour:
   voidYThreshold: -60
   emergencyMaxAbsCoordinate: 100000
   safetyCheckInterval: 0.25
+  enableOutOfBoundsRescue: 0
+  disableOutOfBoundsRescueInLevel6: 1
+  enableMotionDebugLogger: 1
+  disableLevel6InvisibleBlockers: 1
+  disableChapter2InvisibleBlockers: 1
+  disableAllLevelInvisibleBlockers: 1
   currentLevelPuzzle:
     variantId: 
     logicExpression: 
@@ -44763,9 +44769,19 @@ MonoBehaviour:
   musicSource: {fileID: 0}
   sfxSource: {fileID: 0}
   backgroundMusic: {fileID: 0}
+  lobbyMusic: {fileID: 8300000, guid: b7b150e29dfe49e4898ac9a228ab787c, type: 3}
+  inGameMusic: {fileID: 8300000, guid: 3a01b07af953c0f4ead388df64af7448, type: 3}
   gatePickupSound: {fileID: 0}
   puzzleCompleteSound: {fileID: 0}
   portalSound: {fileID: 0}
+  correctAnswerSound: {fileID: 0}
+  unlockDoorSound: {fileID: 0}
+  damageSound: {fileID: 0}
+  drinkSound: {fileID: 0}
+  walkSound: {fileID: 8300000, guid: 458905f3c801eb943b0a9eb3de6456e6, type: 3}
+  runSound: {fileID: 8300000, guid: bb704f32beb808c4db9c33943549a938, type: 3}
+  jumpSound: {fileID: 8300000, guid: c462c980db42bb04f9f06e6f55211cb2, type: 3}
+  clickSound: {fileID: 8300000, guid: 10b569ad43ab5de4b9ad704c6f7e66dd, type: 3}
 --- !u!1 &1799016613
 GameObject:
   m_ObjectHideFlags: 0

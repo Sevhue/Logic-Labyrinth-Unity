@@ -372,6 +372,13 @@ public class DungeonLightingManager : MonoBehaviour
         GameObject playerObj = FindPlayerWithCharacterController();
         if (playerObj == null)
         {
+            Camera viewCam = FindViewCamera();
+            if (viewCam != null)
+                playerObj = viewCam.gameObject;
+        }
+
+        if (playerObj == null)
+        {
             Debug.LogWarning("[DungeonLighting] Could not find player! Will retry...");
             StartCoroutine(RetryAttachLight());
             return;

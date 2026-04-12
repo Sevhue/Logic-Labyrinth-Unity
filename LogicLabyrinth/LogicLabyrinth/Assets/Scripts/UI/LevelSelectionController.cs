@@ -88,6 +88,27 @@ public class LevelSelectionController : MonoBehaviour
     /// </summary>
     public void ShowChapter(int chapterNumber)
     {
+        // Chapter 3 and 4 have single unified maps — skip level panel and load directly.
+        if (chapterNumber == 3)
+        {
+            Debug.Log("[LevelSelection] Chapter 3: loading Chapter3 scene directly.");
+            if (LevelManager.Instance != null)
+                LevelManager.Instance.LoadChapterScene("Chapter3");
+            else
+                UnityEngine.SceneManagement.SceneManager.LoadScene("Chapter3");
+            return;
+        }
+
+        if (chapterNumber == 4)
+        {
+            Debug.Log("[LevelSelection] Chapter 4: loading Chapter4 scene directly.");
+            if (LevelManager.Instance != null)
+                LevelManager.Instance.LoadChapterScene("Chapter4");
+            else
+                UnityEngine.SceneManagement.SceneManager.LoadScene("Chapter4");
+            return;
+        }
+
         // Activate this panel
         gameObject.SetActive(true);
 

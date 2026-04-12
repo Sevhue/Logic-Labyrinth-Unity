@@ -1,6 +1,14 @@
 # Future Plans
 
 ## Immediate validation (Level6 Table + 7-slot inventory checks)
+- Validate Level7 answer-key submit flow:
+  - open Level7, answer selected Q with an incorrect value and press SUBMIT,
+  - confirm centered red `WRONG!` appears and attempts decrement by 1,
+  - answer selected Q with all correct values and press SUBMIT,
+  - confirm `CORRECT!` appears,
+  - confirm TruthDoor rotates open,
+  - confirm table does not reopen after solve,
+  - confirm mismatch/fill guards: `Fill all boxes!` or `Box count mismatch.` when applicable.
 - Validate new Level7 truth-table input flow:
   - open Level7 and press E on TruthDoor,
   - verify board renders correctly (no overlap/invisible state),

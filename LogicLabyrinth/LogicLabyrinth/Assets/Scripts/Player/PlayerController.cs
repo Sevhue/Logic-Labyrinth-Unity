@@ -69,7 +69,8 @@ public class PlayerController : MonoBehaviour
 
         // Auto-lock cursor in level scenes (but not during camera-only cutscene phase)
         string currentScene = SceneManager.GetActiveScene().name;
-        if (currentScene.StartsWith("Level") && !CutsceneController.CameraOnlyMode)
+        bool isGameplayScene = currentScene.StartsWith("Level") || currentScene == "Chapter3" || currentScene == "Chapter4";
+        if (isGameplayScene && !CutsceneController.CameraOnlyMode)
         {
             if (cursorFreelookDisabled)
             {

@@ -134,6 +134,13 @@ public class UIManager : MonoBehaviour
         WireLoggedInPanelButtons();
         WireLoginPanelButtons();
 
+        string currentScene = SceneManager.GetActiveScene().name;
+        if (IsGameplaySceneName(currentScene))
+        {
+            ShowGameUI();
+            return;
+        }
+
         if (AccountManager.Instance != null && AccountManager.Instance.GetCurrentPlayer() != null)
         {
             ShowMainMenu();
@@ -296,8 +303,7 @@ public class UIManager : MonoBehaviour
         {
             Debug.Log($"Found player: {playerObject.name}");
             string currentScene = SceneManager.GetActiveScene().name;
-            bool isMenuScene = currentScene == "Main" || currentScene == "MainMenu" || currentScene == "SampleScene";
-            bool isLevelScene = currentScene.StartsWith("Level");
+            bool isLevelScene = currentScene.StartsWith("Level") || currentScene == "Chapter3" || currentScene == "Chapter4";
 
             if (isLevelScene)
             {
@@ -314,6 +320,12 @@ public class UIManager : MonoBehaviour
         {
             Debug.LogWarning("Could not find player object in scene!");
         }
+    }
+
+    private static bool IsGameplaySceneName(string sceneName)
+    {
+        return !string.IsNullOrEmpty(sceneName) &&
+               (sceneName.StartsWith("Level") || sceneName == "Chapter3" || sceneName == "Chapter4");
     }
 
 
@@ -1599,7 +1611,9 @@ public class UIManager : MonoBehaviour
         FindPlayerObject();
         AutoFindInteractPrompt();
 
-        if (scene.name.StartsWith("Level") || scene.name == "SampleScene")
+        bool isGameplayScene = scene.name.StartsWith("Level") || scene.name == "SampleScene" || scene.name == "Chapter3" || scene.name == "Chapter4";
+
+        if (isGameplayScene)
         {
             if (gameUI == null) gameUI = GameObject.Find("GameUI");
             GameObject foundText = GameObject.Find("GateCountText");

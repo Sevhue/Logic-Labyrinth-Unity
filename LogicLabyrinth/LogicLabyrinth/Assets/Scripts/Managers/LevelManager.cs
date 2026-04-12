@@ -86,15 +86,17 @@ public class LevelManager : MonoBehaviour
     {
         Debug.Log("Scene loaded: " + scene.name + ", isLoadingGame: " + isLoadingGame);
 
+        bool isGameplayScene = IsGameplayScene(scene.name);
+
         if (scene.name == "Level1")
             CleanupDuplicateLevel1Doors();
 
-        if (scene.name.StartsWith("Level"))
+        if (isGameplayScene)
             EnsureDungeonLightingManager();
 
         // ── Reset static key/candle flags on every level load ──
         // These statics can persist across scenes and even editor play sessions.
-        if (scene.name.StartsWith("Level"))
+        if (isGameplayScene)
         {
             TutorialDoor.PlayerHasKey = false;
             TutorialDoor.TutorialKeyCollected = false;
@@ -110,6 +112,9 @@ public class LevelManager : MonoBehaviour
             lastSafePlayerSampleTime = -999f;
             currentSceneVoidThreshold = float.NegativeInfinity;
         }
+
+        EnsureInventoryManagerForGameplayScene(isGameplayScene);
+        EnsureLevelUIManagerForGameplayScene(isGameplayScene);
 
 
         if (UIManager.Instance == null)
@@ -132,6 +137,13 @@ public class LevelManager : MonoBehaviour
                 UIManager.Instance = FindAnyObjectByType<UIManager>();
             }
 
+            if (UIManager.Instance == null)
+            {
+                Debug.LogWarning("[LevelManager] UIManager prefab reference missing or not found; creating runtime UIManager fallback.");
+                GameObject runtimeUIManager = new GameObject("UIManager_Runtime");
+                UIManager.Instance = runtimeUIManager.AddComponent<UIManager>();
+            }
+
             if (UIManager.Instance != null)
             {
                 Debug.Log("UIManager found/created successfully");
@@ -140,6 +152,13 @@ public class LevelManager : MonoBehaviour
             {
                 Debug.LogError("Failed to find or create UIManager!");
             }
+        }
+
+        // When pressing Play directly in a gameplay scene, isLoadingGame can be false.
+        // Force gameplay UI initialization so HUD and controls are available.
+        if (isGameplayScene && UIManager.Instance != null && !isLoadingGame)
+        {
+            UIManager.Instance.ShowGameUI();
         }
 
         if (isLoadingGame)
@@ -246,6 +265,32 @@ public class LevelManager : MonoBehaviour
             StartCoroutine(EnsureOnlyNamedTableIsInteractiveInLevel6());
         }
 
+    }
+
+    private static bool IsGameplayScene(string sceneName)
+    {
+        return !string.IsNullOrEmpty(sceneName) &&
+               (sceneName.StartsWith("Level") || sceneName == "Chapter3" || sceneName == "Chapter4");
+    }
+
+    private void EnsureInventoryManagerForGameplayScene(bool isGameplayScene)
+    {
+        if (!isGameplayScene || InventoryManager.Instance != null)
+            return;
+
+        GameObject inventoryManager = new GameObject("InventoryManager");
+        inventoryManager.AddComponent<InventoryManager>();
+        Debug.Log("[LevelManager] Auto-created InventoryManager for gameplay scene.");
+    }
+
+    private void EnsureLevelUIManagerForGameplayScene(bool isGameplayScene)
+    {
+        if (!isGameplayScene || LevelUIManager.Instance != null)
+            return;
+
+        GameObject levelUIManager = new GameObject("LevelUIManager");
+        levelUIManager.AddComponent<LevelUIManager>();
+        Debug.Log("[LevelManager] Auto-created LevelUIManager for gameplay scene.");
     }
 
     private System.Collections.IEnumerator EnsureOnlyNamedTableIsInteractiveInLevel6()
@@ -628,6 +673,8 @@ public class LevelManager : MonoBehaviour
         {
             isPuzzleCompleted = true;
             Debug.Log($"Level {currentLevel} puzzle completed!");
+            if (AudioManager.Instance != null)
+                AudioManager.Instance.PlayCorrectAnswerSound();
 
             // Stop the level timer and record the best time
             if (LevelTimer.Instance != null)
@@ -1212,6 +1259,18 @@ public class LevelManager : MonoBehaviour
         return true;
     }
 
+
+    /// <summary>
+    /// Loads a named scene directly (used for chapter scenes like "Chapter3" that bypass level numbering).
+    /// </summary>
+    public void LoadChapterScene(string sceneName)
+    {
+        isLoadingGame = true;
+        if (InventoryManager.Instance != null)
+            InventoryManager.Instance.ResetInventory();
+        Debug.Log($"[LevelManager] Loading chapter scene: {sceneName}");
+        SceneManager.LoadScene(sceneName);
+    }
 
     public void LoadLevelFromSelection(int level)
     {

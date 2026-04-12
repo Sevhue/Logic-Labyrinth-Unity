@@ -158,6 +158,7 @@ namespace StarterAssets
 		private StarterAssetsInputs _input;
 		private GameObject _mainCamera;
 		private bool _tabCursorVisible;
+		private float _nextFootstepSoundTime;
 
 		private const float _threshold = 0.01f;
 		private const float MaxVerticalSnapPerFrame = 4.0f;
@@ -263,6 +264,9 @@ namespace StarterAssets
 
 		private void Update()
 		{
+			if (Input.GetMouseButtonDown(0) && AudioManager.Instance != null)
+				AudioManager.Instance.PlayClickSound();
+
 			UpdateDamageFeedback();
 
 			if (IsDead)
@@ -445,6 +449,7 @@ namespace StarterAssets
 				IsExhausted = false;
 
 			bool isSprinting = wantsSprint && canSprint;
+			TryPlayMovementSound(isSprinting);
 
 			if (isSprinting)
 			{
@@ -754,6 +759,8 @@ namespace StarterAssets
 				{
 					// the square root of H * -2 * G = how much velocity needed to reach desired height
 					_verticalVelocity = Mathf.Sqrt(JumpHeight * -2f * Gravity);
+					if (AudioManager.Instance != null)
+						AudioManager.Instance.PlayJumpSound();
 				}
 
 				// jump timeout
@@ -803,6 +810,25 @@ namespace StarterAssets
 			return Mathf.Clamp(lfAngle, lfMin, lfMax);
 		}
 
+		private void TryPlayMovementSound(bool isSprinting)
+		{
+			if (AudioManager.Instance == null) return;
+			if (!Grounded) return;
+			if (_input == null || _input.move.sqrMagnitude <= 0.01f) return;
+			if (Time.time < _nextFootstepSoundTime) return;
+
+			if (isSprinting)
+			{
+				AudioManager.Instance.PlayRunSound();
+				_nextFootstepSoundTime = Time.time + 0.32f;
+			}
+			else
+			{
+				AudioManager.Instance.PlayWalkSound();
+				_nextFootstepSoundTime = Time.time + 0.45f;
+			}
+		}
+
 		private void OnDrawGizmosSelected()
 		{
 			Color transparentGreen = new Color(0.0f, 1.0f, 0.0f, 0.35f);
@@ -833,6 +859,8 @@ namespace StarterAssets
 			_nextDamageAllowedTime = Time.time + Mathf.Max(0f, DamageCooldownSeconds);
 			CurrentHealth = Mathf.Clamp(CurrentHealth - damageAmount, 0f, MaxHealth);
 			TriggerDamageFeedback();
+			if (AudioManager.Instance != null)
+				AudioManager.Instance.PlayDamageSound();
 
 			if (CurrentHealth <= 0f)
 			{
