@@ -1252,6 +1252,12 @@ namespace StarterAssets
 			GameObject dropped = Instantiate(prefab, spawnPos, Quaternion.identity);
 			dropped.name = $"Dropped_{gateType.ToUpper()}_Gate";
 
+			if (System.Enum.TryParse(gateType, true, out Interactable.GateType parsedType)
+				&& Interactable.TryGetLastCollectedScale(parsedType, out Vector3 cachedScale))
+			{
+				dropped.transform.localScale = cachedScale;
+			}
+
 			IgnoreDroppedGateWithPlayer(dropped);
 
 			GateSpawnDelay spawnDelay = dropped.AddComponent<GateSpawnDelay>();

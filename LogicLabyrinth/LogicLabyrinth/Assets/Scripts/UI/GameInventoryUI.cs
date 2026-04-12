@@ -286,8 +286,12 @@ public class GameInventoryUI : MonoBehaviour
         }
 
         int oldGateTotal = 0;
+        int oldAdrenalineTotal = 0;
         for (int i = 0; i < SLOT_COUNT; i++)
+        {
             if (IsGateItem(oldSlots[i])) oldGateTotal++;
+            if (oldSlots[i] == ItemType.Adrenaline) oldAdrenalineTotal++;
+        }
 
         // First pass: keep existing items in the same slot when still needed.
         for (int i = 0; i < SLOT_COUNT; i++)
@@ -338,6 +342,11 @@ public class GameInventoryUI : MonoBehaviour
         // Non-gate items (key/candle/adrenaline) keep their current positions.
         if (targetGateTotal < oldGateTotal)
             CompactGatesLeft(newSlots);
+
+        // If adrenaline was consumed and removed from a leading slot, compact all items left
+        // so slot numbering descends naturally (e.g., slot 2 shifts into slot 1).
+        if (targetAdrenaline < oldAdrenalineTotal)
+            CompactAllItemsLeft(newSlots);
 
         // Copy back to live slots.
         for (int i = 0; i < SLOT_COUNT; i++)
@@ -395,6 +404,21 @@ public class GameInventoryUI : MonoBehaviour
             if (slots[i] != ItemType.None) continue;
             slots[i] = gates[gateIndex++];
         }
+    }
+
+    private void CompactAllItemsLeft(ItemType[] slots)
+    {
+        ItemType[] packed = new ItemType[SLOT_COUNT];
+        int write = 0;
+
+        for (int i = 0; i < SLOT_COUNT; i++)
+        {
+            if (slots[i] == ItemType.None) continue;
+            packed[write++] = slots[i];
+        }
+
+        for (int i = 0; i < SLOT_COUNT; i++)
+            slots[i] = packed[i];
     }
 
     private int FindLastSlotOf(ItemType type)

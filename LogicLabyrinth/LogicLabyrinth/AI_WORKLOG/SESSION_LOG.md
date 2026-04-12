@@ -2,6 +2,35 @@
 
 ## 2026-04-12
 
+### Hotfix: Solved puzzle now consumes used gates from real inventory
+- User report: after successful puzzle solve, gates used in slots should be removed from inventory.
+- Root cause: puzzle table used `sessionInventory` for drag/drop and did not commit placed gates to `InventoryManager` on success.
+- Minimal fix in `Assets/Scripts/Puzzle/PuzzleTableController.cs`:
+  - Added `ConsumePlacedGatesFromInventory()`.
+  - Called it once at start of `OnPuzzleComplete()`.
+  - For each placed slot gate, removes one matching real gate (`AND`/`OR`/`NOT`) via `InventoryManager.RemoveGate(...)`.
+- Result: successful submit now consumes the exact gates used in the solved arrangement.
+- Compile check: `PuzzleTableController.cs` has no errors.
+
+### Hotfix: Adrenaline consume now compacts hotbar slot order
+- User report: when adrenaline is consumed from slot 1, remaining items did not descend (slot 2 should shift to slot 1).
+- Root cause: hotbar rebuild only compacted gate items (`AND/OR/NOT`) after removals; adrenaline removal could leave leading empty slots.
+- Minimal fix in `Assets/Scripts/UI/GameInventoryUI.cs`:
+  - Track old adrenaline slot count during rebuild.
+  - When adrenaline count decreases, run `CompactAllItemsLeft(...)` so non-empty items shift left.
+  - Kept existing gate compaction behavior unchanged.
+- Result: consuming adrenaline now updates slot numbering as expected (no lingering empty slot before remaining items).
+- Compile check: `GameInventoryUI.cs` has no errors.
+
+### Hotfix: Death-dropped gates now preserve collected size
+- User report: when dying while carrying gates, dropped gates return to original prefab size instead of keeping picked/drop size.
+- Root cause: death drop path in `FirstPersonController` used its own spawn method and did not apply cached collected scale.
+- Minimal fix in `Assets/StarterAssets/FirstPersonController/Scripts/FirstPersonController.cs`:
+  - In `SpawnDroppedGateAt(...)`, parse gate type and reuse `Interactable.TryGetLastCollectedScale(...)`.
+  - If cached scale exists, apply it to the spawned dropped gate before enabling delayed pickup.
+- Result: death drop now matches existing Q-drop behavior for preserved gate size.
+- Compile check: `FirstPersonController.cs` has no errors.
+
 ### Hotfix: Store offline fallback auto-enabled for localhost backend
 - User report: store keeps showing offline again.
 - Root cause: checkout create flow only entered offline sandbox fallback when `allowMayaOfflineFallback` was manually enabled, while default backend URL is local (`http://localhost:8787`) and often unavailable.

@@ -18,6 +18,27 @@
 - Confirm `Verify Now` or auto-confirm path grants the purchased item and refreshes inventory UI.
 - If backend is reachable with valid payload, confirm hosted checkout still opens normally.
 
+## Immediate validation (death-drop gate size preservation)
+- Pick up at least one visibly non-default-sized gate of each type used in level (`AND`/`OR`/`NOT`).
+- Press `Q` once to confirm regular drop still keeps collected size.
+- Pick those gates back up, then die while carrying them.
+- From death camera/overlay perspective, confirm dropped gates keep the same collected size (no revert to prefab default scale).
+- Respawn and re-collect one of the death-dropped gates, then drop again to confirm scale remains consistent across the full cycle.
+
+## Immediate validation (adrenaline consume slot compaction)
+- Ensure at least two items are visible in hotbar with `ADR` in an earlier slot and another item in a later slot.
+- Consume one adrenaline charge using the normal flow (`select ADR` + `F`).
+- If adrenaline is exhausted/removed, confirm remaining items shift left (example: old slot 2 becomes slot 1).
+- Confirm no visual stale slot remains between filled slots.
+- Confirm subsequent pickups/drops still rebuild hotbar correctly.
+
+## Immediate validation (puzzle success consumes used gates)
+- Enter a puzzle level with known starting gate counts (record AND/OR/NOT before opening table).
+- Place a specific combination in slots (example: 2x AND, 1x OR, 1x NOT) and submit a correct answer.
+- After success and puzzle close, confirm inventory counts decreased by exactly the placed combination.
+- Reopen/continue gameplay and confirm no extra gate deduction occurs after the first successful submit.
+- Smoke-check wrong attempt path: submit wrong once and confirm returned gates are still not consumed until a successful solve.
+
 ## Immediate validation (Level3 door interaction target)
 - In `Level3`, look toward the exit-door area where both `Design` and `Success_Door` can be in range.
 - Press `E` and confirm interaction resolves to `Success_Door` (not the `Design` tutorial door).

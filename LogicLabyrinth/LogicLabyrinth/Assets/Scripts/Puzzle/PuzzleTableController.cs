@@ -1063,6 +1063,8 @@ public class PuzzleTableController : MonoBehaviour
     {
         Debug.Log("[PuzzleTable] PUZZLE COMPLETE!");
 
+        ConsumePlacedGatesFromInventory();
+
         if (submitButton != null)
         {
             Button btn = submitButton.GetComponent<Button>();
@@ -1105,6 +1107,35 @@ public class PuzzleTableController : MonoBehaviour
         }
 
         StartCoroutine(DelayedPuzzleComplete());
+    }
+
+    private void ConsumePlacedGatesFromInventory()
+    {
+        if (InventoryManager.Instance == null) return;
+
+        int andUsed = 0;
+        int orUsed = 0;
+        int notUsed = 0;
+
+        foreach (var slot in dropSlots)
+        {
+            if (slot == null || !slot.PlacedGate.HasValue) continue;
+
+            switch (slot.PlacedGate.Value)
+            {
+                case GateType.AND:
+                    if (InventoryManager.Instance.RemoveGate("AND")) andUsed++;
+                    break;
+                case GateType.OR:
+                    if (InventoryManager.Instance.RemoveGate("OR")) orUsed++;
+                    break;
+                case GateType.NOT:
+                    if (InventoryManager.Instance.RemoveGate("NOT")) notUsed++;
+                    break;
+            }
+        }
+
+        Debug.Log($"[PuzzleTable] Consumed solved gates from inventory: AND={andUsed}, OR={orUsed}, NOT={notUsed}");
     }
 
     private IEnumerator DelayedPuzzleComplete()
