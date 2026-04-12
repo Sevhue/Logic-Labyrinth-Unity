@@ -2,6 +2,28 @@
 
 ## 2026-04-12
 
+### Hotfix: Store offline fallback auto-enabled for localhost backend
+- User report: store keeps showing offline again.
+- Root cause: checkout create flow only entered offline sandbox fallback when `allowMayaOfflineFallback` was manually enabled, while default backend URL is local (`http://localhost:8787`) and often unavailable.
+- Minimal fix in `Assets/Scripts/UI/PauseMenuController.cs`:
+  - Added `ShouldUseOfflineFallback(baseUrl, allowConfiguredFallback)` helper.
+  - Auto-enables fallback when backend host is local (`localhost`, `127.0.0.1`, `::1`) even if the inspector flag is false.
+  - Kept existing explicit behavior: if `allowMayaOfflineFallback` is true, fallback remains enabled for any backend URL.
+  - Reused this decision in both failure paths:
+    - create-checkout request network failure,
+    - invalid create-checkout payload response.
+- Result: store no longer hard-fails as "offline" in local/dev sessions; it continues via existing sandbox confirmation flow.
+- Compile check: `PauseMenuController.cs` has no errors.
+
+### Hotfix: Main scene fallback flag disabled to avoid forced offline sandbox
+- User report: store still showing offline sandbox.
+- Found serialized `PauseMenuController` config in `Assets/Scenes/Menu/Main.unity`:
+  - `mayaBackendBaseUrl: http://localhost:8787`
+  - `allowMayaOfflineFallback: 1`
+- Minimal scene-config fix:
+  - Set `allowMayaOfflineFallback: 0` in `Main.unity` so checkout no longer force-enters offline sandbox mode from scene config.
+- Note: real hosted checkout still requires reachable backend URL (non-localhost) or running local backend.
+
 ### Hotfix: Best Campaign dropdown forced compact size below label
 - User request: make the Account Profile `Level 2 1:48.86` dropdown visibly smaller and directly below `Best Campaign`.
 - Minimal layout-only fix in `Assets/Scripts/UI/UIManager.cs` (`ConfigureCampaignDropdownLayout` + creation defaults):
@@ -18,6 +40,56 @@
   - Changed Best Campaign stat block rendering from `Best Campaign\n\n{time}` to `Best Campaign` label only.
   - Dropdown now remains the only visible control showing campaign time values.
 - Compile check: `UIManager.cs` has no errors.
+
+### Hotfix: Level3 E-interact now prioritizes Success_Door over Design door
+- User request: in Level3, pressing `E` should open `Success_Door`, not `Design`.
+- Minimal behavior fix in `Assets/Scripts/Gameplay/SimpleGateCollector.cs`:
+  - Reordered interaction priority so `SuccessDoor` is checked before `TutorialDoor` for:
+    - active target execution on `E`,
+    - direct-ray fallback branch,
+    - prompt/target assignment after cast (`bestSuccessDoor` branch now before `bestDoor`).
+- Result: when both door types are candidates, `Success_Door` is selected first.
+- Compile check: `SimpleGateCollector.cs` has no errors.
+
+### Feature: Level 1-4 success doors enforced as key-open + Level 5-6 auto-next on puzzle solve
+- User request:
+  - Ensure every `Door_Success` / `Success_Door` opens by success key in Level1-4 after puzzle completion.
+  - On Level5 and Level6, solving puzzle should show completion and auto-teleport to next level.
+  - Keep level-to-level progression display behavior for later levels.
+- Minimal changes (no structural refactor):
+  1. `Assets/Scripts/Managers/LevelManager.cs`
+     - Sync `currentLevel` from loaded scene name in `OnSceneLoaded` (supports direct scene play).
+     - Added `EnsureSuccessDoorKeyFlowForEarlyLevels(sceneName)`:
+       - On Level1-4 only, finds objects named `Door_Success` / `Success_Door` and adds `SuccessDoor` component if missing.
+  2. `Assets/Scripts/Gameplay/InteractiveTable.cs`
+     - In solved flow (`WatchForPuzzleClose`):
+       - Level5/Level6: call `LevelManager.Instance.PuzzleCompleted()` to show complete flow and auto-load next level.
+       - Other levels: keep existing success-key spawn behavior.
+- Compile check: `LevelManager.cs` and `InteractiveTable.cs` have no errors.
+
+### Feature: Level7/8 auto-transition timing + Level8 -> Chapter3 routing
+- User request:
+  - After solving truth table and opening door in Level7/Level8, transition after ~3 seconds.
+  - After Level8, load `Chapter3` instead of `Level9`.
+- Minimal fix in `Assets/Scripts/Gameplay/SuccessDoor.cs`:
+  - Added Level7/8-specific auto-transition path in `AnimateDoorOpenOnly()`.
+  - Added serialized delay field `level7And8AutoTransitionDelaySeconds` (default `3f`).
+  - Added `AutoTransitionAfterDelay(...)` coroutine to start existing transition flow after delay.
+  - In `RunLevelTransition(...)`, if current scene is Level8, load `Chapter3` directly.
+  - `GetNextLevelNumber(...)` now returns `-1` for Level8 to avoid `Level9` fallback use.
+- Compile check: `SuccessDoor.cs` has no errors.
+
+### Hotfix: Q-drop gate keeps collected size
+- User request: when dropping gates with `Q`, dropped gate size should remain the same as when it was picked up.
+- Minimal fix (no system refactor):
+  1. `Assets/Scripts/Gameplay/Interactable.cs`
+    - Added runtime cache `lastCollectedScaleByType`.
+    - On gate pickup (`Interact()`), stores `transform.localScale` for that gate type.
+    - Exposed `TryGetLastCollectedScale(...)` helper.
+  2. `Assets/Scripts/UI/SwapGateUI.cs`
+    - In drop spawn path, resolve cached scale by gate type and apply it to spawned dropped gate.
+    - If no cached scale exists yet, existing default spawn scale behavior remains.
+- Compile check: `Interactable.cs` and `SwapGateUI.cs` have no errors.
 
 ### Feature: Chapter4 scene created and wired like Chapter3
 - User request: set up Chapter4 scene the same way as Chapter3 unified-map flow.

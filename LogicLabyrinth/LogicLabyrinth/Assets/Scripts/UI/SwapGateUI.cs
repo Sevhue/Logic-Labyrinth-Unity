@@ -440,12 +440,40 @@ public class SwapGateUI : MonoBehaviour
         GameObject dropped = Instantiate(prefab, dropPos, Quaternion.identity);
         dropped.name = $"Dropped_{gateType.ToUpper()}_Gate";
 
+        if (TryResolveDropScaleFromCollectedGate(gateType, out Vector3 preservedScale))
+            dropped.transform.localScale = preservedScale;
+
         IgnoreDroppedGateWithPlayerStatic(dropped, player);
 
         GateSpawnDelay spawnDelay = dropped.AddComponent<GateSpawnDelay>();
         spawnDelay.delay = 1.2f;
 
         Debug.Log($"[SwapGateUI] Spawned dropped {gateType.ToUpper()} gate at {dropPos}");
+    }
+
+    private static bool TryResolveDropScaleFromCollectedGate(string gateType, out Vector3 scale)
+    {
+        scale = Vector3.one;
+
+        Interactable.GateType parsed;
+        switch (gateType.ToUpper())
+        {
+            case "AND": parsed = Interactable.GateType.AND; break;
+            case "OR": parsed = Interactable.GateType.OR; break;
+            case "NOT": parsed = Interactable.GateType.NOT; break;
+            default: return false;
+        }
+
+        if (Interactable.TryGetLastCollectedScale(parsed, out Vector3 cachedScale))
+        {
+            if (cachedScale.x > 0f && cachedScale.y > 0f && cachedScale.z > 0f)
+            {
+                scale = cachedScale;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static GameObject ResolveGatePrefab(string gateType, GameObject andPfb, GameObject orPfb, GameObject notPfb)

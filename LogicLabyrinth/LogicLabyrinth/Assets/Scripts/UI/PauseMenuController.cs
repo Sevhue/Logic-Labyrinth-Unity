@@ -1129,6 +1129,20 @@ public class PauseMenuController : MonoBehaviour
         rt.offsetMax = Vector2.zero;
     }
 
+    private static bool ShouldUseOfflineFallback(string baseUrl, bool allowConfiguredFallback)
+    {
+        if (allowConfiguredFallback) return true;
+        if (string.IsNullOrWhiteSpace(baseUrl)) return true;
+
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri uri))
+            return false;
+
+        string host = uri.Host ?? string.Empty;
+        return host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            || host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+            || host.Equals("::1", StringComparison.OrdinalIgnoreCase);
+    }
+
     private System.Collections.IEnumerator CreateMayaCheckoutAndOpen(string itemKey, int quantity, decimal price, string reference)
     {
         if (checkoutInProgress) yield break;
@@ -1157,6 +1171,7 @@ public class PauseMenuController : MonoBehaviour
         string baseUrl = string.IsNullOrWhiteSpace(mayaBackendBaseUrl)
             ? "http://localhost:8787"
             : mayaBackendBaseUrl.TrimEnd('/');
+        bool shouldUseOfflineFallback = ShouldUseOfflineFallback(baseUrl, allowMayaOfflineFallback);
         string createUrl = baseUrl + "/api/maya/create-checkout";
 
         string rrnParam = UnityWebRequest.EscapeURL(reference);
@@ -1206,7 +1221,7 @@ public class PauseMenuController : MonoBehaviour
             {
                 Debug.LogWarning($"[PauseMenu] Maya checkout create failed. Url={createUrl} Result={request.result} Code={request.responseCode} Error={request.error}");
 
-                if (allowMayaOfflineFallback)
+                if (shouldUseOfflineFallback)
                 {
                     EnterOfflineCheckoutFallback(itemKey, quantity, price, reference);
                     checkoutInProgress = false;
@@ -1233,7 +1248,7 @@ public class PauseMenuController : MonoBehaviour
 
             if (response == null || string.IsNullOrWhiteSpace(response.redirectUrl) || string.IsNullOrWhiteSpace(response.checkoutId))
             {
-                if (allowMayaOfflineFallback)
+                if (shouldUseOfflineFallback)
                 {
                     Debug.LogWarning("[PauseMenu] Maya create-checkout returned invalid payload. Entering offline checkout fallback.");
                     EnterOfflineCheckoutFallback(itemKey, quantity, price, reference);

@@ -11,6 +11,15 @@ public class Interactable : MonoBehaviour
     public GateType gateType = GateType.AND;
     public string gateID; 
 
+    // Runtime cache so dropped gates can match the most recently collected visual size per gate type.
+    private static readonly System.Collections.Generic.Dictionary<GateType, Vector3> lastCollectedScaleByType =
+        new System.Collections.Generic.Dictionary<GateType, Vector3>();
+
+    public static bool TryGetLastCollectedScale(GateType type, out Vector3 scale)
+    {
+        return lastCollectedScaleByType.TryGetValue(type, out scale);
+    }
+
     void Start()
     {
         // Generate a deterministic ID if one wasn't set in the Inspector.
@@ -78,6 +87,9 @@ public class Interactable : MonoBehaviour
     public void Interact()
     {
         Debug.Log($"COLLECTED {gateType} GATE!");
+
+        // Cache current scale so inventory drops can keep the same size later.
+        lastCollectedScaleByType[gateType] = transform.localScale;
 
        
         InventoryManager inventory = FindAnyObjectByType<InventoryManager>();

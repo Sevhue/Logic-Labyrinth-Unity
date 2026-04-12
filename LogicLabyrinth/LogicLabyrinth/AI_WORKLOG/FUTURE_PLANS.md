@@ -11,6 +11,47 @@
   - `Restored local session snapshot.`
   - any `Cloud save skipped (offline/local mode)` warnings.
 
+## Immediate validation (store offline fallback)
+- Open pause menu store and click `Buy` for at least one item.
+- With local Maya backend stopped/unreachable, confirm checkout enters local sandbox confirmation flow instead of hard-failing on backend error.
+- Confirm status message indicates backend unavailable/local sandbox mode.
+- Confirm `Verify Now` or auto-confirm path grants the purchased item and refreshes inventory UI.
+- If backend is reachable with valid payload, confirm hosted checkout still opens normally.
+
+## Immediate validation (Level3 door interaction target)
+- In `Level3`, look toward the exit-door area where both `Design` and `Success_Door` can be in range.
+- Press `E` and confirm interaction resolves to `Success_Door` (not the `Design` tutorial door).
+- Confirm prompt remains `Press E to open` near `Success_Door` and does not prefer `Design` when both are candidates.
+- Smoke-check `Level1` tutorial flow still works: tutorial door can still be opened with `E` in its normal sequence.
+
+## Immediate validation (Level1-8 progression behavior)
+- Level1-4:
+  - solve puzzle, collect success key, interact with `Door_Success` / `Success_Door` and confirm door unlock/open requires key.
+  - verify locked message appears before key, and open succeeds after key pickup.
+- Level5-6:
+  - solve puzzle and confirm no key pickup is required.
+  - confirm puzzle-complete flow appears and level auto-loads to next level.
+- Level4/6/7/8 doorway progression:
+  - after entering opened success doorway, confirm transition text shows target level and loads corresponding next level.
+  - verify sequence mapping remains correct (4->5, 6->7, 7->8, 8->9 if available in build settings).
+- Direct scene play sanity:
+  - start Play directly in Level5 or Level6 and confirm solve -> auto-next uses correct current scene level (not Level1 fallback).
+
+## Immediate validation (Level7/8 timing + Chapter3 target)
+- Level7:
+  - solve truth table, trigger success door open, and confirm transition starts automatically after ~3 seconds (without requiring doorway re-entry).
+  - confirm destination is `Level8`.
+- Level8:
+  - solve truth table, trigger success door open, and confirm transition starts automatically after ~3 seconds.
+  - confirm destination scene is `Chapter3` (not `Level9`).
+- Verify fade/overlay flow still clears in destination scenes (no stuck black screen).
+
+## Immediate validation (Q-drop gate scale)
+- Pick up one gate of each type (`AND`, `OR`, `NOT`) in-level.
+- Press `Q`, drop each type from inventory, and confirm dropped mesh size matches the picked-up gate size.
+- For each type, pick up dropped gate again and re-drop once more to verify scale stays consistent across repeated cycles.
+- Smoke-check that drop collision delay and pickup interactions still work normally after scale application.
+
 ## Immediate validation (Account Profile stats panel)
 - Open Account Profile and confirm `Puzzle Solved` equals completed puzzle count (not stuck at default `0` unless no puzzles solved).
 - Confirm `Total Played` shows formatted recorded time (not `--:--` after completing timed levels).

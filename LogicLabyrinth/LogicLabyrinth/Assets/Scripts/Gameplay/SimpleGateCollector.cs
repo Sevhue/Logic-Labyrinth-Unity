@@ -104,15 +104,15 @@ public class SimpleGateCollector : MonoBehaviour
                 Debug.Log($"[SGC] Opening puzzle table: {currentTable.gameObject.name}");
                 currentTable.OpenPuzzleInterface();
             }
-            else if (currentDoor != null)
-            {
-                Debug.Log("[SGC] Interacting with door.");
-                currentDoor.TryInteract();
-            }
             else if (currentSuccessDoor != null)
             {
                 Debug.Log("[SGC] Interacting with success door.");
                 currentSuccessDoor.TryInteract();
+            }
+            else if (currentDoor != null)
+            {
+                Debug.Log("[SGC] Interacting with door.");
+                currentDoor.TryInteract();
             }
             else if (currentTruthDisplay != null)
             {
@@ -144,19 +144,19 @@ public class SimpleGateCollector : MonoBehaviour
                             }
                             else
                             {
-                                TutorialDoor directDoor = directHit.collider.GetComponent<TutorialDoor>();
-                                if (directDoor == null) directDoor = directHit.collider.GetComponentInParent<TutorialDoor>();
-                                if (directDoor != null && !directDoor.IsDoorOpen)
+                                SuccessDoor directSuccessDoor = directHit.collider.GetComponent<SuccessDoor>();
+                                if (directSuccessDoor == null) directSuccessDoor = directHit.collider.GetComponentInParent<SuccessDoor>();
+                                if (directSuccessDoor != null && !directSuccessDoor.IsDoorOpen)
                                 {
-                                    directDoor.TryInteract();
+                                    directSuccessDoor.TryInteract();
                                 }
                                 else
                                 {
-                                    SuccessDoor directSuccessDoor = directHit.collider.GetComponent<SuccessDoor>();
-                                    if (directSuccessDoor == null) directSuccessDoor = directHit.collider.GetComponentInParent<SuccessDoor>();
-                                    if (directSuccessDoor != null && !directSuccessDoor.IsDoorOpen)
+                                    TutorialDoor directDoor = directHit.collider.GetComponent<TutorialDoor>();
+                                    if (directDoor == null) directDoor = directHit.collider.GetComponentInParent<TutorialDoor>();
+                                    if (directDoor != null && !directDoor.IsDoorOpen)
                                     {
-                                        directSuccessDoor.TryInteract();
+                                        directDoor.TryInteract();
                                     }
                                     else
                                     {
@@ -530,6 +530,17 @@ public class SimpleGateCollector : MonoBehaviour
             currentSuccessDoor = null;
             ShowPrompt("Press E to open Puzzle Table");
         }
+        else if (bestSuccessDoor != null)
+        {
+            currentInteractable = null;
+            currentTable = null;
+            currentKey = null;
+            currentCandle = null;
+            currentDoor = null;
+            currentSuccessDoor = bestSuccessDoor;
+            currentTruthDisplay = null;
+            ShowPrompt("Press E to open");
+        }
         else if (bestDoor != null)
         {
             currentInteractable = null;
@@ -543,17 +554,6 @@ public class SimpleGateCollector : MonoBehaviour
                 ShowPrompt("Press E to open");
             else
                 HidePrompt();
-        }
-        else if (bestSuccessDoor != null)
-        {
-            currentInteractable = null;
-            currentTable = null;
-            currentKey = null;
-            currentCandle = null;
-            currentDoor = null;
-            currentSuccessDoor = bestSuccessDoor;
-            currentTruthDisplay = null;
-            ShowPrompt("Press E to open");
         }
         else if (bestTruthDisplay != null)
         {

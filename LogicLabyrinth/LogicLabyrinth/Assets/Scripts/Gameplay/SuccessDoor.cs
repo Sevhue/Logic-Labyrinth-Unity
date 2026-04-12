@@ -42,6 +42,7 @@ public class SuccessDoor : MonoBehaviour
     private readonly Collider[] overlapResults = new Collider[16];
     [SerializeField] private float minSecondsAfterOpenBeforeTransition = 0.15f;
     [SerializeField] private float recentPlayerTouchGraceSeconds = 0.75f;
+    [SerializeField] private float level7And8AutoTransitionDelaySeconds = 3f;
     [SerializeField] private int doorwayTriggerCount = 3;
     [SerializeField] private float doorwayTriggerHorizontalSpread = 0.7f;
 
@@ -307,6 +308,16 @@ public class SuccessDoor : MonoBehaviour
 
         Debug.Log("[SuccessDoor] Door is open. Enter/stand in doorway to transition.");
 
+        int sceneLevel = GetSceneLevelNumber();
+        if (sceneLevel == 7 || sceneLevel == 8)
+        {
+            // Level7/Level8 rule: auto-transition shortly after the truth-table success opens the door.
+            waitingForPlayerEntryAfterOpen = false;
+            int targetLevelForTransition = GetNextLevelNumber(sceneLevel);
+            StartCoroutine(AutoTransitionAfterDelay(sceneLevel, targetLevelForTransition, level7And8AutoTransitionDelaySeconds));
+            yield break;
+        }
+
         // If player just crossed during the opening animation or is currently overlapping,
         // transition without requiring a second back-and-forth pass through the doorway.
         bool playerRecentlyTouchedTrigger =
@@ -390,6 +401,14 @@ public class SuccessDoor : MonoBehaviour
         TryStartTransitionAfterEntry();
     }
 
+    private IEnumerator AutoTransitionAfterDelay(int sceneLevelForLoad, int targetLevelForTransition, float delaySeconds)
+    {
+        yield return new WaitForSeconds(Mathf.Max(0f, delaySeconds));
+        if (transitionStarted) yield break;
+        transitionStarted = true;
+        StartCoroutine(RunLevelTransition(sceneLevelForLoad, targetLevelForTransition));
+    }
+
     private IEnumerator RunLevelTransition(int sceneLevelForLoad, int targetLevelForTransition)
     {
         Debug.Log("[SuccessDoor] Player entered success doorway. Starting level transition...");
@@ -458,13 +477,20 @@ public class SuccessDoor : MonoBehaviour
         // Hold on black for a moment
         yield return new WaitForSeconds(2f);
 
-        // ── 5. Load next level ──
+        // ── 5. Load next level / chapter ──
         // Attach a self-fading script to the overlay — it will fade from black → clear
         // once the new scene finishes loading, then destroy itself.
         if (fadeGO != null)
             fadeGO.AddComponent<FadeOverlayAutoDestroy>();
 
-        if (LevelManager.Instance != null)
+        bool goToChapter3 = sceneLevelForLoad == 8;
+
+        if (goToChapter3)
+        {
+            Debug.Log("[SuccessDoor] Level8 complete. Loading Chapter3.");
+            SceneManager.LoadScene("Chapter3");
+        }
+        else if (LevelManager.Instance != null)
         {
             // Prefer scene-derived next level so direct scene testing still advances correctly
             // (e.g., Level3 -> Level4 even if LevelManager currentLevel was not initialized).
@@ -492,6 +518,9 @@ public class SuccessDoor : MonoBehaviour
 
     private int GetNextLevelNumber(int sceneLevel)
     {
+        if (sceneLevel == 8)
+            return -1;
+
         if (sceneLevel > 0)
             return sceneLevel + 1;
 

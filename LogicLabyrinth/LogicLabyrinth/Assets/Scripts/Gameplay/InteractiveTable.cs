@@ -370,17 +370,28 @@ public class InteractiveTable : MonoBehaviour
         {
             puzzleAlreadySolved = true;
 
-            if (successKeyObject == null)
-                ResolveSuccessKeyReference();
+            bool autoAdvanceLevel = (currentLevel == 5 || currentLevel == 6);
 
-            if (successKeyObject != null)
+            if (autoAdvanceLevel)
             {
-                successKeyObject.SetActive(true);
-                Debug.Log("[InteractiveTable] Puzzle solved! Success key spawned.");
+                Debug.Log($"[InteractiveTable] Puzzle solved on Level {currentLevel}. Auto-advancing to next level.");
+                if (LevelManager.Instance != null)
+                    LevelManager.Instance.PuzzleCompleted();
             }
             else
             {
-                Debug.LogWarning("[InteractiveTable] Puzzle solved, but no success key is assigned/found in scene.");
+                if (successKeyObject == null)
+                    ResolveSuccessKeyReference();
+
+                if (successKeyObject != null)
+                {
+                    successKeyObject.SetActive(true);
+                    Debug.Log("[InteractiveTable] Puzzle solved! Success key spawned.");
+                }
+                else
+                {
+                    Debug.LogWarning("[InteractiveTable] Puzzle solved, but no success key is assigned/found in scene.");
+                }
             }
         }
 

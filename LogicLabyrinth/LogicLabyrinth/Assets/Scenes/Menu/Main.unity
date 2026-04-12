@@ -33554,7 +33554,7 @@ MonoBehaviour:
   storePrefab: {fileID: 0}
   mayaBackendBaseUrl: http://localhost:8787
   mayaReturnBaseUrl: http://localhost:8787/maya-return
-  allowMayaOfflineFallback: 1
+  allowMayaOfflineFallback: 0
   allowMayaSandboxManualConfirm: 1
 --- !u!4 &1370026578
 Transform:

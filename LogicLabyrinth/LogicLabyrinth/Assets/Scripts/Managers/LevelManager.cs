@@ -88,8 +88,14 @@ public class LevelManager : MonoBehaviour
 
         bool isGameplayScene = IsGameplayScene(scene.name);
 
+        // Keep runtime level index aligned even when testing scenes directly from editor.
+        if (scene.name.StartsWith("Level") && int.TryParse(scene.name.Substring(5), out int parsedLevel))
+            currentLevel = parsedLevel;
+
         if (scene.name == "Level1")
             CleanupDuplicateLevel1Doors();
+
+        EnsureSuccessDoorKeyFlowForEarlyLevels(scene.name);
 
         if (isGameplayScene)
             EnsureDungeonLightingManager();
@@ -536,6 +542,34 @@ public class LevelManager : MonoBehaviour
         GameObject go = new GameObject("DungeonLightingManager_Auto");
         go.AddComponent<DungeonLightingManager>();
         Debug.Log("[LevelManager] Auto-created DungeonLightingManager for level scene.");
+    }
+
+    private void EnsureSuccessDoorKeyFlowForEarlyLevels(string sceneName)
+    {
+        if (sceneName != "Level1" && sceneName != "Level2" && sceneName != "Level3" && sceneName != "Level4")
+            return;
+
+        Transform[] all = FindObjectsByType<Transform>(FindObjectsSortMode.None);
+        int ensuredCount = 0;
+
+        for (int i = 0; i < all.Length; i++)
+        {
+            Transform t = all[i];
+            if (t == null) continue;
+
+            string n = t.name;
+            if (n != "Door_Success" && n != "Success_Door")
+                continue;
+
+            if (t.GetComponent<SuccessDoor>() == null)
+            {
+                t.gameObject.AddComponent<SuccessDoor>();
+                ensuredCount++;
+            }
+        }
+
+        if (ensuredCount > 0)
+            Debug.Log($"[LevelManager] Ensured SuccessDoor component on {ensuredCount} success door object(s) in {sceneName}.");
     }
 
     private void CleanupDuplicateNamedObjects(string exactName)
