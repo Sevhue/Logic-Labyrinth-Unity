@@ -31,9 +31,9 @@ public class GateJournal : MonoBehaviour
 
     private static readonly Dictionary<string, string> GateImagePaths = new Dictionary<string, string>
     {
-        { "NOT", "GateTutorials/NOT_Gate" },
-        { "AND", "GateTutorials/AND_Gate" },
-        { "OR",  "GateTutorials/OR_Gate"  },
+        { "NOT", "GateTutorials/New_NOTGate" },
+        { "AND", "GateTutorials/New_ANDGate" },
+        { "OR",  "GateTutorials/New_ORGate"  },
     };
 
     // ── Public API ──

@@ -309,9 +309,9 @@ public class SuccessDoor : MonoBehaviour
         Debug.Log("[SuccessDoor] Door is open. Enter/stand in doorway to transition.");
 
         int sceneLevel = GetSceneLevelNumber();
-        if (sceneLevel == 7 || sceneLevel == 8)
+        if (sceneLevel == 8)
         {
-            // Level7/Level8 rule: auto-transition shortly after the truth-table success opens the door.
+            // Keep Level8 auto-transition behavior after truth-table success opens the door.
             waitingForPlayerEntryAfterOpen = false;
             int targetLevelForTransition = GetNextLevelNumber(sceneLevel);
             StartCoroutine(AutoTransitionAfterDelay(sceneLevel, targetLevelForTransition, level7And8AutoTransitionDelaySeconds));

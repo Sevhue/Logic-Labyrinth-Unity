@@ -18,6 +18,9 @@ public class GameInventoryUI : MonoBehaviour
     // SLOT DATA
     // ═══════════════════════════════════
     public const int SLOT_COUNT = 8;
+    private const int ADR_SLOT_INDEX = 5; // Slot 6
+    private const int LAN_SLOT_INDEX = 6; // Slot 7
+    private const int SCN_SLOT_INDEX = 7; // Slot 8
 
     /// <summary>Type of item that can occupy a hotbar slot.</summary>
     public enum ItemType { None, AND, OR, NOT, Key, Candle, Adrenaline, Lantern, Scanner }
@@ -359,6 +362,8 @@ public class GameInventoryUI : MonoBehaviour
             if (targetScanner > 0) { newSlots[i] = ItemType.Scanner; targetScanner--; continue; }
         }
 
+        EnforceStoreReservedSlots(newSlots, hasAdrenaline, hasLantern, hasScanner);
+
         // If gates were dropped, compact remaining gates left into open slots.
         // Non-gate items (key/candle/adrenaline) keep their current positions.
         if (targetGateTotal < oldGateTotal)
@@ -398,6 +403,62 @@ public class GameInventoryUI : MonoBehaviour
         }
 
         UpdateSlotVisuals();
+    }
+
+    private static bool IsStoreItem(ItemType item)
+    {
+        return item == ItemType.Adrenaline || item == ItemType.Lantern || item == ItemType.Scanner;
+    }
+
+    private void EnforceStoreReservedSlots(ItemType[] slots, bool hasAdrenaline, bool hasLantern, bool hasScanner)
+    {
+        if (slots == null || slots.Length != SLOT_COUNT)
+            return;
+
+        // Remove store items from non-reserved slots so each store item lives in one stable slot.
+        for (int i = 0; i < SLOT_COUNT; i++)
+        {
+            if (!IsStoreItem(slots[i]))
+                continue;
+
+            if ((slots[i] == ItemType.Adrenaline && i != ADR_SLOT_INDEX)
+                || (slots[i] == ItemType.Lantern && i != LAN_SLOT_INDEX)
+                || (slots[i] == ItemType.Scanner && i != SCN_SLOT_INDEX))
+            {
+                slots[i] = ItemType.None;
+            }
+        }
+
+        PlaceReservedItem(slots, ADR_SLOT_INDEX, ItemType.Adrenaline, hasAdrenaline, hasAdrenaline, hasLantern, hasScanner);
+        PlaceReservedItem(slots, LAN_SLOT_INDEX, ItemType.Lantern, hasLantern, hasAdrenaline, hasLantern, hasScanner);
+        PlaceReservedItem(slots, SCN_SLOT_INDEX, ItemType.Scanner, hasScanner, hasAdrenaline, hasLantern, hasScanner);
+    }
+
+    private void PlaceReservedItem(ItemType[] slots, int reservedIndex, ItemType reservedType, bool shouldExist,
+        bool hasAdrenaline, bool hasLantern, bool hasScanner)
+    {
+        if (!shouldExist)
+            return;
+
+        if (slots[reservedIndex] == reservedType)
+            return;
+
+        ItemType displaced = slots[reservedIndex];
+        slots[reservedIndex] = reservedType;
+
+        if (displaced == ItemType.None || IsStoreItem(displaced))
+            return;
+
+        for (int i = 0; i < SLOT_COUNT; i++)
+        {
+            if (i == ADR_SLOT_INDEX && hasAdrenaline) continue;
+            if (i == LAN_SLOT_INDEX && hasLantern) continue;
+            if (i == SCN_SLOT_INDEX && hasScanner) continue;
+            if (slots[i] != ItemType.None) continue;
+
+            slots[i] = displaced;
+            return;
+        }
     }
 
     private static bool IsGateItem(ItemType item)

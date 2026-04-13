@@ -6,6 +6,21 @@ public class SpearAmmoHit : MonoBehaviour
     [SerializeField] private float hitCooldown = 0.2f;
     private readonly System.Collections.Generic.Dictionary<int, float> nextDamageTimeByPlayer = new System.Collections.Generic.Dictionary<int, float>();
 
+    private void Awake()
+    {
+        // Keep spear damage fixed to the requested value.
+        damageAmount = 10f;
+
+        Collider c = GetComponent<Collider>();
+        if (c != null)
+        {
+            c.enabled = true;
+            if (c is MeshCollider meshCollider)
+                meshCollider.convex = true;
+            c.isTrigger = true;
+        }
+    }
+
     private void TryDamage(Collider other)
     {
         if (other == null) return;

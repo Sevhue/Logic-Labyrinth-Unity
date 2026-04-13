@@ -13,7 +13,7 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public class CollectibleCandle : MonoBehaviour
 {
-    private const float MaxUseSeconds = 60f;
+    private const float MaxUseSeconds = 120f;
 
     [Header("Animation")]
     public float bobSpeed = 1.2f;
@@ -471,9 +471,11 @@ public class CollectibleCandle : MonoBehaviour
         lastUsageTickTime = now;
         remainingUseSeconds -= dt;
 
-        int display = Mathf.Max(0, Mathf.CeilToInt(remainingUseSeconds));
+        int display = Mathf.Max(0, Mathf.FloorToInt(remainingUseSeconds));
+        int minutes = display / 60;
+        int seconds = display % 60;
         if (GameInventoryUI.Instance != null)
-            GameInventoryUI.Instance.SetCandleOverlayText(display.ToString(), new Color(1f, 0.86f, 0.52f, 1f));
+            GameInventoryUI.Instance.SetCandleOverlayText($"{minutes}:{seconds:00}", new Color(1f, 0.25f, 0.25f, 1f));
 
         if (remainingUseSeconds <= 0f)
             ExpireCandle();

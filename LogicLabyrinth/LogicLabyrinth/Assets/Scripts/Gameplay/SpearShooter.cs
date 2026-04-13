@@ -28,6 +28,19 @@ public class SpearShooter : MonoBehaviour
             enabled = false;
             return;
         }
+
+        Collider ammoCollider = ammo.GetComponent<Collider>();
+        if (ammoCollider != null)
+        {
+            ammoCollider.enabled = true;
+            if (ammoCollider is MeshCollider meshCollider)
+                meshCollider.convex = true;
+            ammoCollider.isTrigger = true;
+        }
+
+        if (ammo.GetComponent<SpearAmmoHit>() == null)
+            ammo.gameObject.AddComponent<SpearAmmoHit>();
+
         ammoStartLocal = ammo.localPosition;
 
         // Move perfectly straight: X increases, Y unchanged, Z unchanged

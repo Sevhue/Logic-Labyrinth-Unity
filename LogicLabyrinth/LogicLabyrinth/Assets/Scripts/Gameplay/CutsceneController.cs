@@ -208,9 +208,12 @@ public class CutsceneController : MonoBehaviour
         {
             if (CameraOnlyMode)
             {
-                // Panels 2+ ("Where am I?" etc.) — advance on any WASD key
+                // Panels 2+ ("Where am I?" etc.) — allow either keyboard or mouse click.
                 if (Input.GetKeyDown(KeyCode.W) || Input.GetKeyDown(KeyCode.A) ||
-                    Input.GetKeyDown(KeyCode.S) || Input.GetKeyDown(KeyCode.D))
+                    Input.GetKeyDown(KeyCode.S) || Input.GetKeyDown(KeyCode.D) ||
+                    Input.GetMouseButtonDown(0) ||
+                    Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.Return) ||
+                    Input.GetKeyDown(KeyCode.KeypadEnter))
                     AdvanceCutscene();
             }
             else

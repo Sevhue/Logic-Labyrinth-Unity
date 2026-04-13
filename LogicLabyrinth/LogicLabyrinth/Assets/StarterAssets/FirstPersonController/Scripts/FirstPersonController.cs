@@ -298,7 +298,9 @@ namespace StarterAssets
 			}
 
 			// Auto-restore locked gameplay cursor after UI closes.
-			if (!_tabCursorVisible && (Cursor.lockState != CursorLockMode.Locked || Cursor.visible))
+			// Do not relock during intro cutscene panels where mouse must stay visible.
+			if (!_tabCursorVisible && !CutsceneController.IsPlaying && !CutsceneController.CameraOnlyMode &&
+				(Cursor.lockState != CursorLockMode.Locked || Cursor.visible))
 				SetGameplayCursorVisible(false);
 
 #if ENABLE_INPUT_SYSTEM

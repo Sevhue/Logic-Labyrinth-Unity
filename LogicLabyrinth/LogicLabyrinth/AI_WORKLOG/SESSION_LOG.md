@@ -1,5 +1,106 @@
 # 2026-04-13
 
+### Hotfix: CDL overlay countdown now red and 2:00 duration (shows 1:59 downward)
+- **User request**: make CDL timer text red, extend cooldown/use timer from 1 minute to 2 minutes, and display as `1:59`-style downward countdown.
+- **Change** (`Assets/Scripts/Gameplay/CollectibleCandle.cs`):
+  - `MaxUseSeconds` changed from `60f` to `120f`.
+  - Overlay display changed from integer seconds to `mm:ss` format.
+  - Countdown display uses floor-based seconds so it begins at `1:59` after activation tick.
+  - Overlay color changed to red (`new Color(1f, 0.25f, 0.25f, 1f)`).
+- **Result**: CDL shows a red `mm:ss` countdown over 2 minutes.
+
+### Follow-up tweak: hide cursor after the second intro panel ("MY HEAD HURTS")
+- **User request**: after clicking past the second cutscene picture/text, mouse cursor should no longer be visible.
+- **Change** (`Assets/Scripts/Gameplay/CutsceneController.cs`):
+  - In `ShowCutscene(...)`, keep cursor visible for panels 1-2 (`index <= 1`).
+  - For camera-only intro panels (`index >= 2`), restore locked/hidden cursor.
+- **Result**: first two black-screen panels use visible mouse; after advancing beyond "MY HEAD HURTS", cursor is hidden again.
+
+### Follow-up fix: removed forced TAB requirement for Level1 intro mouse
+- **User report**: still needed to press `TAB` to see/use mouse on Level1 intro panel.
+- **Root cause**: `FirstPersonController.Update()` auto-restored locked gameplay cursor *before* cutscene-state checks, re-locking cursor every frame even while cutscene wanted it visible.
+- **Minimal fix** (`Assets/StarterAssets/FirstPersonController/Scripts/FirstPersonController.cs`):
+  - Added cutscene guard to auto-relock condition:
+    - skip relock when `CutsceneController.IsPlaying` or `CutsceneController.CameraOnlyMode` is true.
+- **Result**: Level1 intro now keeps cursor visible immediately without pressing `TAB`.
+
+### Hotfix: Level1 starts with mouse enabled in intro cutscene panels
+- **User request**: when clicking Level1, mouse cursor should already be on.
+- **Issue**: `CutsceneController` switched to `CameraOnlyMode` on later intro panels and forced cursor lock/hidden.
+- **Minimal fix** (`Assets/Scripts/Gameplay/CutsceneController.cs`):
+  - In `ShowCutscene(...)`, camera-only panels now keep cursor visible (`CursorLockMode.None`, `Cursor.visible = true`).
+  - In `Update()`, camera-only cutscene panels can now advance with left-click (plus existing keyboard options).
+- **Result**: entering Level1 now keeps mouse usable immediately during the intro sequence.
+
+### Hotfix: GateTutorial + GateJournal now use New_*Gate images; old assets removed
+- **User request**: use newly added `New_ANDGate`, `New_NOTGate`, `New_ORGate` images for journal/tutorial and remove old ones completely.
+- **Code changes**:
+  - `Assets/Scripts/UI/GateTutorialCard.cs`
+    - updated resource paths to `GateTutorials/New_NOTGate`, `GateTutorials/New_ANDGate`, `GateTutorials/New_ORGate`
+    - updated header comment and missing-image warning text
+  - `Assets/Scripts/UI/GateJournal.cs`
+    - updated resource paths to the same `New_*Gate` assets
+- **Asset cleanup**:
+  - removed old files from `Assets/Resources/GateTutorials/`:
+    - `AND_Gate.png` (+ `.meta`)
+    - `NOT_Gate.png` (+ `.meta`)
+    - `OR_Gate.png` (+ `.meta`)
+- **Result**: Gate tutorial card + Gate journal now load only the new images.
+
+### Hotfix: Level7 success door now requires trigger pass-through to reach Level8
+- **User request**: On Level7, once the success door opens, player should go to Level8 only after passing through the door trigger.
+- **Root cause**: `SuccessDoor` had an auto-transition branch for both Level7 and Level8 after open, bypassing trigger-entry requirement.
+- **Minimal fix** (`Assets/Scripts/Gameplay/SuccessDoor.cs`):
+  - Changed auto-transition branch from `sceneLevel == 7 || sceneLevel == 8` to `sceneLevel == 8` only.
+  - Level7 now uses existing trigger-entry flow (`OnTriggerEnter/Stay` -> `TryStartTransitionAfterEntry`) to transition to Level8.
+- **Result**: Level7 behaves as requested (open door -> walk through trigger -> load Level8).
+
+### Hotfix: reserve ADR/LAN/SCN hotbar slots so store items stay visible on 7-gate levels
+- **User scenario**: In levels that require up to 7 gates (Level6), buying Lantern + Scanner + Adrenaline can exceed 8-slot hotbar display pressure and hide store items.
+- **Root cause**: `GameInventoryUI.RebuildSlots()` filled generic slots in order, so store items could be pushed out of visible slots when many gate slots were occupied.
+- **Minimal fix** (`Assets/Scripts/UI/GameInventoryUI.cs`):
+  - Added dedicated reserved indices for store items:
+    - Slot 6 (`ADR`), Slot 7 (`LAN`), Slot 8 (`SCN`)
+  - Added `EnforceStoreReservedSlots(...)` to move store items into their reserved slots every rebuild.
+  - Added `PlaceReservedItem(...)` to relocate displaced non-store items to first available non-reserved empty slot when possible.
+- **Result**: owned store items remain visible and selectable in stable slots even on gate-heavy inventory states.
+
+### Hotfix: Spear trigger warning fix (concave MeshCollider) + Menu scene BackButton YAML repair
+- **User report**: Unity spammed `Triggers on concave MeshColliders are not supported` from spear scripts and also reported broken PPtrs / duplicate component in `Assets/Scenes/Menu/Main.unity` (`BackButton`).
+- **Root cause**:
+  - Spear runtime code forced `isTrigger = true` on a concave `MeshCollider`.
+  - Prior text edit left a malformed YAML block around `BackButton` in `Main.unity` (missing component headers / duplicated fields), causing broken object references.
+- **Smallest fixes applied**:
+  - `Assets/Scripts/Gameplay/SpearShooter.cs`
+    - before setting trigger on spear ammo collider, force `MeshCollider.convex = true` when collider is a `MeshCollider`
+  - `Assets/Scripts/Gameplay/SpearAmmoHit.cs`
+    - same convex safeguard before trigger mode in `Awake()`
+  - `Assets/Scenes/Menu/Main.unity`
+    - repaired `BackButton` component section by restoring valid component blocks:
+      - `--- !u!114 &359027524` (`Image`)
+      - `--- !u!222 &359027525` (`CanvasRenderer`)
+      - corrected `m_OnClick -> m_PersistentCalls -> m_Calls` structure
+- **Result**:
+  - spear trigger configuration is now valid for mesh colliders
+  - `Main.unity` `BackButton` block is structurally valid again (no broken local-file-ID references for that block)
+- Compile check: `SpearShooter.cs` and `SpearAmmoHit.cs` have no errors.
+
+### Hotfix: SpearAmmo collision hit detection re-enabled with fixed 10 damage
+- **User request / mode followed**: simplest fix first, no structural rewrite.
+- **Issue context**: Spear ammo hit behavior had effectively been disabled (collision configuration drift), and player should take 10 damage on spear hit.
+- **Smallest fix applied**:
+  - `Assets/Scripts/Gameplay/SpearShooter.cs`
+    - on `Awake()`, ensures `SpearAmmo` collider is enabled and set to trigger
+    - auto-attaches `SpearAmmoHit` if missing on `SpearAmmo`
+  - `Assets/Scripts/Gameplay/SpearAmmoHit.cs`
+    - on `Awake()`, forces collider enabled + trigger mode
+    - keeps spear hit damage fixed at `10f`
+- **Result**:
+  - spear ammo hit detection is re-enabled without reintroducing physical push/teleport side effects
+  - player takes exactly 10 damage per valid spear hit
+  - spear still deactivates on hit as before
+- Compile check: `SpearShooter.cs` and `SpearAmmoHit.cs` have no errors.
+
 ### Hotfix: Save Game is now blocked while dead
 - **User issue**: when the player dies, the pause menu still allows `Save Game`, and loading that save revives the player from the death screen state.
 - **Smallest fix applied** in `Assets/Scripts/UI/PauseMenuController.cs`:

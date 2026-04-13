@@ -1,5 +1,19 @@
 # Future Plans
 
+## Immediate validation (Burst + scene recovery after spear/menu hotfix)
+- Reopen Unity and let script/domain reload complete fully.
+- Open `Assets/Scenes/Menu/Main.unity` and confirm no `Broken text PPtr` / `BackButton duplicate component` warnings appear.
+- Enter Play Mode in a spear-trap level and confirm there is no `Triggers on concave MeshColliders are not supported` warning.
+- Confirm spear still damages player by 10 and deactivates on hit.
+- Confirm Burst no longer logs `Failed to resolve assembly: Assembly-CSharp-Editor` during this reload cycle.
+
+## Immediate validation (SpearAmmo hit re-enabled at 10 damage)
+- Enter a spear-trap level (e.g., Level5/Level6) and let `SpearAmmo` hit the player.
+- Confirm player health decreases by exactly 10 on a valid hit.
+- Confirm spear hit still does not physically fling/teleport the player on contact.
+- Confirm `SpearAmmo` still retracts/resets with normal shooter timing after hit.
+- Confirm all spear lanes work, including instances where `SpearAmmoHit` was previously missing.
+
 ## Immediate validation (no save while dead)
 - Die in a level, open the pause menu, and confirm `Save Game` is disabled.
 - If save is triggered by any alternate path, confirm the game shows `CANNOT SAVE WHILE DEAD.` and does not write a new save.

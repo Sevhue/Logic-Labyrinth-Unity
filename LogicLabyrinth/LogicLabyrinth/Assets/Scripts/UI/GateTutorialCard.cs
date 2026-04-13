@@ -9,7 +9,7 @@ using StarterAssets;
 /// Shows a full-screen parchment tutorial card the FIRST time each gate type is collected.
 /// Press E to dismiss. After closing, a TIP appears telling players about the Gate Journal (J).
 ///
-/// Place images at: Assets/Resources/GateTutorials/NOT_Gate.png, AND_Gate.png, OR_Gate.png
+/// Place images at: Assets/Resources/GateTutorials/New_NOTGate.jpg, New_ANDGate.jpg, New_ORGate.jpg
 /// </summary>
 public class GateTutorialCard : MonoBehaviour
 {
@@ -30,9 +30,9 @@ public class GateTutorialCard : MonoBehaviour
     // ── Resource paths ──
     private static readonly Dictionary<string, string> GateImagePaths = new Dictionary<string, string>
     {
-        { "NOT", "GateTutorials/NOT_Gate" },
-        { "AND", "GateTutorials/AND_Gate" },
-        { "OR",  "GateTutorials/OR_Gate"  },
+        { "NOT", "GateTutorials/New_NOTGate" },
+        { "AND", "GateTutorials/New_ANDGate" },
+        { "OR",  "GateTutorials/New_ORGate"  },
     };
 
     // ── Public API ──
@@ -104,7 +104,7 @@ public class GateTutorialCard : MonoBehaviour
         if (tex == null)
         {
             Debug.LogWarning($"[GateTutorialCard] Image not found at Resources/{GateImagePaths[key]}. " +
-                             "Make sure the PNG is in Assets/Resources/GateTutorials/");
+                             "Make sure the image is in Assets/Resources/GateTutorials/");
             yield break;
         }
 
