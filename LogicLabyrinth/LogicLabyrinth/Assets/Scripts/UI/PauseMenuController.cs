@@ -98,8 +98,13 @@ public class PauseMenuController : MonoBehaviour
     private const string MayaPublicKey = "pk-Z0OSzLvIcOI2UIvDhdTGVVfRSSeiGStnceqwUE7n0Ah";
     private const string MayaSecretKey = "sk-X8qolYjy62kIzEbr0QRK1h4b4KDVHaNcwMYk39jInSl";
 
+    // Used when CREATING a checkout (public key as username).
     private static string GetMayaAuthHeader() =>
-        "Basic " + System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(MayaPublicKey + ":" + MayaSecretKey));
+        "Basic " + System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(MayaPublicKey + ":"));
+
+    // Used when QUERYING payment status (secret key as username, per Maya API spec).
+    private static string GetMayaSecretAuthHeader() =>
+        "Basic " + System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(MayaSecretKey + ":"));
 
     private static bool IsMayaStatusPaid(string status)
     {
@@ -591,6 +596,7 @@ public class PauseMenuController : MonoBehaviour
             CacheStoreItemVisuals(kv.Key, item);
             WireStoreHoverTarget(item.gameObject, kv.Key, kv.Value);
             WireStorePurchaseTarget(item.gameObject, kv.Key);
+            RefreshStorePurchaseState(item.gameObject, kv.Key);
         }
     }
 
@@ -731,9 +737,92 @@ public class PauseMenuController : MonoBehaviour
         colors.highlightedColor = new Color(1f, 0.93f, 0.70f, 1f);
         colors.pressedColor = new Color(0.98f, 0.84f, 0.52f, 1f);
         colors.selectedColor = colors.highlightedColor;
+        colors.disabledColor = new Color(0.55f, 0.55f, 0.55f, 0.90f);
         button.colors = colors;
 
+        button.onClick.RemoveAllListeners();
         button.onClick.AddListener(() => OpenMayaSandboxCheckout(itemKey));
+    }
+
+    private void RefreshStorePurchaseState(GameObject target, string itemKey)
+    {
+        if (target == null || string.IsNullOrWhiteSpace(itemKey)) return;
+
+        bool alreadyOwned = IsPermanentStoreItem(itemKey)
+                && AccountManager.Instance != null
+                && AccountManager.Instance.HasStoreItem(itemKey)
+                && !itemKey.Equals("Adrenaline", StringComparison.OrdinalIgnoreCase);
+
+        Button button = target.GetComponent<Button>();
+        if (button != null)
+            button.interactable = !alreadyOwned;
+
+        Transform badge = target.transform.Find("SoldBadge_Runtime");
+        if (!alreadyOwned)
+        {
+            if (badge != null)
+                badge.gameObject.SetActive(false);
+            return;
+        }
+
+        if (badge == null)
+        {
+            GameObject badgeGO = new GameObject("SoldBadge_Runtime", typeof(RectTransform), typeof(Image));
+            badgeGO.transform.SetParent(target.transform, false);
+
+            RectTransform badgeRT = badgeGO.GetComponent<RectTransform>();
+            badgeRT.anchorMin = new Vector2(0.16f, 0.50f);
+            badgeRT.anchorMax = new Vector2(0.84f, 0.66f);
+            badgeRT.offsetMin = Vector2.zero;
+            badgeRT.offsetMax = Vector2.zero;
+
+            Image badgeBG = badgeGO.GetComponent<Image>();
+            badgeBG.color = new Color(0.52f, 0.14f, 0.12f, 0.94f);
+            badgeBG.raycastTarget = false;
+
+            GameObject textGO = new GameObject("Label", typeof(RectTransform));
+            textGO.transform.SetParent(badgeGO.transform, false);
+
+            RectTransform textRT = textGO.GetComponent<RectTransform>();
+            textRT.anchorMin = Vector2.zero;
+            textRT.anchorMax = Vector2.one;
+            textRT.offsetMin = Vector2.zero;
+            textRT.offsetMax = Vector2.zero;
+
+            TextMeshProUGUI soldTMP = textGO.AddComponent<TextMeshProUGUI>();
+            soldTMP.text = "SOLD";
+            soldTMP.fontSize = 26f;
+            soldTMP.fontStyle = FontStyles.Bold;
+            soldTMP.alignment = TextAlignmentOptions.Center;
+            soldTMP.color = new Color(1f, 0.94f, 0.78f, 1f);
+            soldTMP.raycastTarget = false;
+        }
+        else
+        {
+            badge.gameObject.SetActive(true);
+        }
+    }
+
+    private static bool IsPermanentStoreItem(string itemKey)
+    {
+        return !string.IsNullOrWhiteSpace(itemKey)
+            && itemKey.Equals("Lantern", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private int GetStoreQuantity(string itemKey)
+    {
+        if (!string.IsNullOrWhiteSpace(itemKey) && storeItemQuantities.TryGetValue(itemKey, out int quantity))
+            return Mathf.Max(1, quantity);
+
+        return 1;
+    }
+
+    private decimal GetStorePrice(string itemKey)
+    {
+        if (!string.IsNullOrWhiteSpace(itemKey) && storeItemPricesPhp.TryGetValue(itemKey, out decimal price))
+            return price;
+
+        return 0m;
     }
 
     private void OpenMayaSandboxCheckout(string itemKey)
@@ -745,7 +834,9 @@ public class PauseMenuController : MonoBehaviour
         pendingCheckoutItemKey = itemKey;
         int quantity = GetStoreQuantity(itemKey);
         decimal price = GetStorePrice(itemKey);
-        bool alreadyOwned = AccountManager.Instance != null && AccountManager.Instance.HasStoreItem(itemKey) && !itemKey.Equals("Adrenaline", StringComparison.OrdinalIgnoreCase);
+        bool alreadyOwned = IsPermanentStoreItem(itemKey)
+            && AccountManager.Instance != null
+            && AccountManager.Instance.HasStoreItem(itemKey);
 
         string reference = $"LL-{DateTime.UtcNow:HHmmssfff}";
         pendingCheckoutId = null;
@@ -1369,6 +1460,13 @@ public class PauseMenuController : MonoBehaviour
         AccountManager.Instance.GrantStoreItem(itemKey, quantity);
         if (GameInventoryUI.Instance != null)
             GameInventoryUI.Instance.RefreshFromInventory();
+
+        if (storeInstance != null)
+        {
+            Transform item = DeepFind(storeInstance.transform, itemKey);
+            if (item != null)
+                RefreshStorePurchaseState(item.gameObject, itemKey);
+        }
     }
 
     private void ShowAwaitingVerificationScreen(string itemKey, int quantity, decimal price, string reference)
@@ -1483,7 +1581,7 @@ public class PauseMenuController : MonoBehaviour
             using (var request = UnityWebRequest.Get(statusUrl))
             {
                 request.SetRequestHeader("Accept", "application/json");
-                request.SetRequestHeader("Authorization", GetMayaAuthHeader());
+                request.SetRequestHeader("Authorization", GetMayaSecretAuthHeader());
                 yield return request.SendWebRequest();
 
                 if (request.result == UnityWebRequest.Result.Success)
@@ -1579,11 +1677,23 @@ public class PauseMenuController : MonoBehaviour
         using (var request = UnityWebRequest.Get(statusUrl))
         {
             request.SetRequestHeader("Accept", "application/json");
-            request.SetRequestHeader("Authorization", GetMayaAuthHeader());
+            request.SetRequestHeader("Authorization", GetMayaSecretAuthHeader());
             yield return request.SendWebRequest();
 
             if (request.result != UnityWebRequest.Result.Success)
             {
+                // In sandbox: if the API call itself failed (CORS, SSL, firewall) but the payment
+                // already went through on Maya's side, grant the item rather than blocking the player.
+                if (MayaDirectApiUrl.Contains("sandbox"))
+                {
+                    Debug.LogWarning($"[PauseMenu] Sandbox status check failed ({request.responseCode}: {request.error}). Payment already confirmed — granting item.");
+                    GrantPendingStoreItem(itemKey, quantity);
+                    if (checkoutAutoPollCoroutine != null) { StopCoroutine(checkoutAutoPollCoroutine); checkoutAutoPollCoroutine = null; }
+                    checkoutInProgress = false;
+                    ShowMayaSuccessScreen(price);
+                    yield break;
+                }
+
                 if (checkoutStatusText != null)
                 {
                     checkoutStatusText.text = "Status check failed. Check internet connection.";
@@ -1648,125 +1758,104 @@ public class PauseMenuController : MonoBehaviour
     private void CloseCheckoutPanel()
     {
         checkoutInProgress = false;
+        if (checkoutAutoPollCoroutine != null)
+        {
+            StopCoroutine(checkoutAutoPollCoroutine);
+            checkoutAutoPollCoroutine = null;
+        }
+
+        if (checkoutQrPopupInstance != null)
+        {
+            Destroy(checkoutQrPopupInstance);
+            checkoutQrPopupInstance = null;
+        }
+
+        if (checkoutPanelInstance != null)
+        {
+            Destroy(checkoutPanelInstance);
+            checkoutPanelInstance = null;
+        }
+
+        checkoutStatusText = null;
+        checkoutPayButton = null;
+        checkoutLoginButton = null;
+        checkoutOpenHostedButton = null;
+        checkoutManualSandboxButton = null;
+
         pendingCheckoutItemKey = null;
-        if (checkoutInProgress) yield break;
-        checkoutInProgress = true;
+        pendingCheckoutReference = null;
+        pendingCheckoutRedirectUrl = null;
+        pendingCheckoutId = null;
+        pendingCheckoutGranted = false;
+    }
 
-        if (checkoutLoginButton != null) checkoutLoginButton.interactable = false;
-        if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = false;
-        if (checkoutManualSandboxButton != null) checkoutManualSandboxButton.interactable = false;
+    private void CacheStoreDescriptionPanels()
+    {
+        storeDescriptionPanels.Clear();
+        if (storeDescriptionRoot == null) return;
 
-        if (checkoutStatusText != null)
+        foreach (var key in storeItemDescriptions.Keys)
         {
-            checkoutStatusText.text = "Verifying payment status from backend...";
-            checkoutStatusText.color = new Color(0.70f, 0.84f, 1f, 1f);
+            Transform panel = DeepFind(storeDescriptionRoot, key);
+            if (panel != null)
+                storeDescriptionPanels[key] = panel.gameObject;
         }
 
-        if (string.IsNullOrWhiteSpace(pendingCheckoutId))
+        Debug.Log($"[PauseMenu] Store description panels found: {storeDescriptionPanels.Count}");
+
+        foreach (var p in storeDescriptionPanels.Values)
+            if (p != null) p.SetActive(false);
+    }
+
+    private void ShowStoreDescriptionForItem(string itemKey, string text)
+    {
+        bool shownPanel = false;
+        foreach (var kv in storeDescriptionPanels)
         {
-            if (checkoutStatusText != null)
-            {
-                checkoutStatusText.text = "Missing checkoutId. Please create checkout again.";
-                checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
-            }
-            checkoutInProgress = false;
-            if (checkoutLoginButton != null) checkoutLoginButton.interactable = true;
-            if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
-            if (checkoutManualSandboxButton != null) checkoutManualSandboxButton.interactable = true;
-            yield break;
+            if (kv.Value == null) continue;
+            bool isMatch = string.Equals(kv.Key, itemKey, StringComparison.OrdinalIgnoreCase);
+            kv.Value.SetActive(isMatch);
+            if (isMatch) shownPanel = true;
         }
 
-        if (IsOfflineCheckoutFlow())
+        if (!shownPanel)
+            ShowStoreDescription(text);
+    }
+
+    private void ResetStoreDescription()
+    {
+        foreach (var kv in storeDescriptionPanels)
+            if (kv.Value != null) kv.Value.SetActive(false);
+
+        if (storeDescriptionText != null)
+            storeDescriptionText.text = storeDefaultDescription;
+    }
+
+    private void ShowStoreDescription(string text)
+    {
+        if (storeDescriptionText == null) return;
+        if (!storeDescriptionText.gameObject.activeSelf)
+            storeDescriptionText.gameObject.SetActive(true);
+        if (!storeDescriptionText.enabled)
+            storeDescriptionText.enabled = true;
+        storeDescriptionText.text = text;
+    }
+
+    private void CacheStoreItemVisuals(string itemKey, Transform itemRoot)
+    {
+        if (itemRoot == null) return;
+        if (storeItemVisuals.ContainsKey(itemKey)) return;
+
+        var visuals = new List<Graphic>();
+        var rootGraphic = itemRoot.GetComponent<Graphic>();
+        var allGraphics = itemRoot.GetComponentsInChildren<Graphic>(true);
+        foreach (var g in allGraphics)
         {
-            if (checkoutStatusText != null)
-            {
-                checkoutStatusText.text = "Offline sandbox mode: payment confirmed locally.";
-                checkoutStatusText.color = new Color(0.78f, 0.96f, 0.78f, 1f);
-            }
-
-            GrantPendingStoreItem(itemKey, quantity);
-            if (checkoutAutoPollCoroutine != null)
-            {
-                StopCoroutine(checkoutAutoPollCoroutine);
-                checkoutAutoPollCoroutine = null;
-            }
-
-            checkoutInProgress = false;
-            ShowMayaSuccessScreen(price);
-            yield break;
+            if (g == null) continue;
+            if (rootGraphic != null && g == rootGraphic) continue;
+            visuals.Add(g);
         }
-
-        string statusUrl = MayaDirectApiUrl + "/checkout/v1/checkouts/" + UnityWebRequest.EscapeURL(pendingCheckoutId);
-
-        using (var request = UnityWebRequest.Get(statusUrl))
-        {
-            request.SetRequestHeader("Accept", "application/json");
-            request.SetRequestHeader("Authorization", GetMayaAuthHeader());
-            yield return request.SendWebRequest();
-
-            string json = request.downloadHandler.text;
-            Debug.Log($"[PauseMenu] Maya status check response: {request.result}, code={request.responseCode}, body={json}");
-            MayaCheckoutStatusResponse statusResp = null;
-            try { statusResp = JsonUtility.FromJson<MayaCheckoutStatusResponse>(json); }
-            catch { }
-
-            if (request.result == UnityWebRequest.Result.Success && statusResp != null && IsMayaStatusPaid(statusResp.status))
-            {
-                GrantPendingStoreItem(itemKey, quantity);
-
-                checkoutInProgress = false;
-                if (checkoutAutoPollCoroutine != null)
-                {
-                    StopCoroutine(checkoutAutoPollCoroutine);
-                    checkoutAutoPollCoroutine = null;
-                }
-                ShowMayaSuccessScreen(price);
-                yield break;
-            }
-
-            // --- BEGIN: Sandbox fallback ---
-            if (request.result != UnityWebRequest.Result.Success && MayaDirectApiUrl.Contains("sandbox"))
-            {
-                Debug.LogWarning("[PauseMenu] Status check failed in sandbox, granting item for testing.");
-                GrantPendingStoreItem(itemKey, quantity);
-                checkoutInProgress = false;
-                if (checkoutAutoPollCoroutine != null)
-                {
-                    StopCoroutine(checkoutAutoPollCoroutine);
-                    checkoutAutoPollCoroutine = null;
-                }
-                ShowMayaSuccessScreen(price);
-                yield break;
-            }
-            // --- END: Sandbox fallback ---
-
-            if (statusResp == null)
-            {
-                if (checkoutStatusText != null)
-                {
-                    checkoutStatusText.text = "Could not parse status response from backend.";
-                    checkoutStatusText.color = new Color(1f, 0.55f, 0.42f, 1f);
-                }
-                checkoutInProgress = false;
-                if (checkoutLoginButton != null) checkoutLoginButton.interactable = true;
-                if (checkoutOpenHostedButton != null) checkoutOpenHostedButton.interactable = true;
-                if (checkoutManualSandboxButton != null) checkoutManualSandboxButton.interactable = true;
-                yield break;
-            }
-
-            if (checkoutStatusText != null)
-            {
-                string statusValue = string.IsNullOrWhiteSpace(statusResp.status) ? "PENDING" : statusResp.status;
-                checkoutStatusText.text = $"Waiting for payment confirmation...\nCurrent status: {statusValue}";
-                checkoutStatusText.color = new Color(0.78f, 0.86f, 0.96f, 1f);
-            }
-        }
-
-        checkoutInProgress = false;
-
-    // Remove stray assignment and brace outside method/class
-    // All code must be inside a method or class
-    // If storeItemVisuals[itemKey] = visuals; is needed, ensure it's inside a method
+        storeItemVisuals[itemKey] = visuals;
     }
 
     private bool IsPointerOverAnyStoreItem()
@@ -2132,6 +2221,14 @@ public class PauseMenuController : MonoBehaviour
     {
         Debug.Log("[PauseMenu] ====== SAVE GAME START ======");
 
+        if (IsPlayerDead())
+        {
+            Debug.LogWarning("[PauseMenu] Save blocked because the player is dead.");
+            ShowSaveBlockedFeedback("CANNOT SAVE WHILE DEAD.");
+            onComplete?.Invoke(false);
+            return;
+        }
+
         var player = AccountManager.Instance?.GetCurrentPlayer();
         if (player == null)
         {
@@ -2342,6 +2439,7 @@ public class PauseMenuController : MonoBehaviour
         WireChildButton(pauseInstance, "Save", SaveGame);
         WireChildButton(pauseInstance, "OPTIONS", OpenSettingsFromPause);
         WireChildButton(pauseInstance, "Exit", () => ShowQuitConfirmation(QuitOrigin.PauseMenu));
+        RefreshPauseSaveButtonState();
     }
 
     private void WireChildButton(GameObject root, string childName, UnityEngine.Events.UnityAction action)
@@ -3281,6 +3379,40 @@ public class PauseMenuController : MonoBehaviour
         StartCoroutine(DestroyAfterUnscaledTime(feedbackGO, 3f));
     }
 
+    private void ShowSaveBlockedFeedback(string message)
+    {
+        if (pauseInstance == null) return;
+
+        Transform panel = DeepFind(pauseInstance.transform, "PausePanel");
+        if (panel == null) panel = pauseInstance.transform;
+
+        GameObject feedbackGO = new GameObject("SaveFeedback", typeof(RectTransform));
+        feedbackGO.transform.SetParent(panel, false);
+        feedbackGO.layer = LayerMask.NameToLayer("UI");
+
+        RectTransform rt = feedbackGO.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.1f, 0.02f);
+        rt.anchorMax = new Vector2(0.9f, 0.12f);
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+
+        feedbackGO.AddComponent<CanvasRenderer>();
+        var tmp = feedbackGO.AddComponent<TMPro.TextMeshProUGUI>();
+        tmp.text = message;
+        tmp.fontSize = 18;
+        tmp.fontStyle = TMPro.FontStyles.Bold;
+        tmp.color = new Color(0.9f, 0.3f, 0.3f);
+        tmp.alignment = TMPro.TextAlignmentOptions.Center;
+
+        var medievalFont = Resources.Load<TMPro.TMP_FontAsset>("Fonts & Materials/Cinzel-VariableFont_wght SDF");
+        if (medievalFont == null)
+            medievalFont = Resources.Load<TMPro.TMP_FontAsset>("Cinzel-VariableFont_wght SDF");
+        if (medievalFont != null)
+            tmp.font = medievalFont;
+
+        StartCoroutine(DestroyAfterUnscaledTime(feedbackGO, 2f));
+    }
+
     private static bool IsGameplaySceneName(string sceneName)
     {
         return !string.IsNullOrEmpty(sceneName) &&
@@ -3436,6 +3568,33 @@ public class PauseMenuController : MonoBehaviour
         // Last resort: return first tagged object
         Debug.LogWarning($"[FindPlayerCC] No CharacterController found on any Player-tagged object. Using '{players[0].name}' as fallback.");
         return players[0];
+    }
+
+    private bool IsPlayerDead()
+    {
+        GameObject playerGO = FindPlayerWithCharacterController();
+        if (playerGO == null) return false;
+
+        StarterAssets.FirstPersonController controller = playerGO.GetComponent<StarterAssets.FirstPersonController>();
+        if (controller == null)
+            controller = playerGO.GetComponentInChildren<StarterAssets.FirstPersonController>();
+
+        return controller != null && controller.IsDead;
+    }
+
+    private void RefreshPauseSaveButtonState()
+    {
+        if (pauseInstance == null) return;
+
+        Transform saveTransform = DeepFind(pauseInstance.transform, "Save");
+        if (saveTransform == null) return;
+
+        Button saveButton = saveTransform.GetComponent<Button>();
+        if (saveButton == null) return;
+
+        bool canSave = !IsPlayerDead();
+        saveButton.interactable = canSave;
+        Debug.Log($"[PauseMenu] Save button interactable={canSave}");
     }
 
     private Transform DeepFind(Transform parent, string childName)

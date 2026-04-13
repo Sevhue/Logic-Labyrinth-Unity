@@ -13,6 +13,8 @@ using UnityEngine.SceneManagement;
 /// </summary>
 public class CollectibleCandle : MonoBehaviour
 {
+    private const float MaxUseSeconds = 60f;
+
     [Header("Animation")]
     public float bobSpeed = 1.2f;
     public float bobHeight = 0.12f;
@@ -49,6 +51,8 @@ public class CollectibleCandle : MonoBehaviour
     private static Light equippedCandleLight;
     private static int resolvedSceneHandle = int.MinValue;
     private static int selectedCandleInstanceId = int.MinValue;
+    private static float remainingUseSeconds = 0f;
+    private static float lastUsageTickTime = -1f;
 
     private Vector3 startLocalPos;
     private Light tutorialShineLight;
@@ -161,6 +165,9 @@ public class CollectibleCandle : MonoBehaviour
         // Track in inventory
         if (InventoryManager.Instance != null)
             InventoryManager.Instance.SetHasCandle(true);
+
+        remainingUseSeconds = MaxUseSeconds;
+        lastUsageTickTime = -1f;
 
         // Notify hotbar UI
         if (GameInventoryUI.Instance != null)
@@ -383,7 +390,12 @@ public class CollectibleCandle : MonoBehaviour
     public static void Equip()
     {
         if (IsEquipped) return;
+
+        if (remainingUseSeconds <= 0f)
+            remainingUseSeconds = MaxUseSeconds;
+
         IsEquipped = true;
+        lastUsageTickTime = Time.time;
 
         Debug.Log("[CollectibleCandle] Candle equipped!");
 
@@ -410,6 +422,7 @@ public class CollectibleCandle : MonoBehaviour
         if (!IsEquipped) return;
         IsEquipped = false;
         attachedToCamera = false;
+        lastUsageTickTime = -1f;
 
         Debug.Log("[CollectibleCandle] Candle unequipped!");
 
@@ -423,6 +436,64 @@ public class CollectibleCandle : MonoBehaviour
 
         // Restore player light
         RestorePlayerLight();
+
+        if (GameInventoryUI.Instance != null)
+            GameInventoryUI.Instance.ClearCandleOverlayText();
+    }
+
+    public static void UpdateCandleUsage()
+    {
+        if (InventoryManager.Instance == null || !InventoryManager.Instance.HasCandle)
+        {
+            if (GameInventoryUI.Instance != null)
+                GameInventoryUI.Instance.ClearCandleOverlayText();
+            return;
+        }
+
+        if (remainingUseSeconds <= 0f)
+        {
+            ExpireCandle();
+            return;
+        }
+
+        if (!IsEquipped)
+        {
+            if (GameInventoryUI.Instance != null)
+                GameInventoryUI.Instance.ClearCandleOverlayText();
+            return;
+        }
+
+        float now = Time.time;
+        if (lastUsageTickTime < 0f)
+            lastUsageTickTime = now;
+
+        float dt = Mathf.Max(0f, now - lastUsageTickTime);
+        lastUsageTickTime = now;
+        remainingUseSeconds -= dt;
+
+        int display = Mathf.Max(0, Mathf.CeilToInt(remainingUseSeconds));
+        if (GameInventoryUI.Instance != null)
+            GameInventoryUI.Instance.SetCandleOverlayText(display.ToString(), new Color(1f, 0.86f, 0.52f, 1f));
+
+        if (remainingUseSeconds <= 0f)
+            ExpireCandle();
+    }
+
+    private static void ExpireCandle()
+    {
+        remainingUseSeconds = 0f;
+
+        if (IsEquipped)
+            Unequip();
+
+        if (InventoryManager.Instance != null)
+            InventoryManager.Instance.SetHasCandle(false);
+
+        if (GameInventoryUI.Instance != null)
+        {
+            GameInventoryUI.Instance.ClearCandleOverlayText();
+            GameInventoryUI.Instance.RefreshFromInventory();
+        }
     }
 
     // True when the candle is parented to the camera anchor (not a skeleton bone)

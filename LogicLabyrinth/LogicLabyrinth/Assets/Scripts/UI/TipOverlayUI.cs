@@ -2,6 +2,7 @@ using System.Collections;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Shared right-side tip overlay with typewriter text.
@@ -20,6 +21,7 @@ public class TipOverlayUI : MonoBehaviour
     public static void ShowTip(string message, float visibleSeconds = 7f, float charsPerSecond = 40f)
     {
         if (string.IsNullOrWhiteSpace(message)) return;
+        if (!IsGameplayScene(SceneManager.GetActiveScene().name)) return;
 
         message = message.ToUpperInvariant();
 
@@ -114,6 +116,42 @@ public class TipOverlayUI : MonoBehaviour
         messageTMP.color = new Color(1f, 0.92f, 0.68f, 1f);
         messageTMP.enableWordWrapping = true;
         messageTMP.raycastTarget = false;
+    }
+
+    private void OnEnable()
+    {
+        SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    private void OnDisable()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        if (IsGameplayScene(scene.name))
+            return;
+
+        if (showRoutine != null)
+        {
+            StopCoroutine(showRoutine);
+            showRoutine = null;
+        }
+
+        if (rootCanvasGroup != null)
+            rootCanvasGroup.alpha = 0f;
+
+        if (messageTMP != null)
+            messageTMP.text = string.Empty;
+    }
+
+    private static bool IsGameplayScene(string sceneName)
+    {
+        if (string.IsNullOrEmpty(sceneName))
+            return false;
+
+        return sceneName.StartsWith("Level") || sceneName == "Chapter3" || sceneName == "Chapter4";
     }
 
     private IEnumerator ShowTipRoutine(string message, float visibleSeconds, float charsPerSecond)

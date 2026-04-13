@@ -366,14 +366,12 @@ public class LevelManager : MonoBehaviour
         if (playerGO == null)
             yield break;
 
-        GameObject anchor = GameObject.Find("SpawnPoint2");
-        if (anchor == null)
+        if (!TryGetSpawnFallback(out Vector3 target, out _))
         {
-            Debug.LogWarning("[LevelManager] Level6 spawn-stabilizer: SpawnPoint2 not found; keeping current spawn.");
+            Debug.LogWarning("[LevelManager] Level6 spawn-stabilizer: no safe spawn marker found; keeping current spawn.");
             yield break;
         }
 
-        Vector3 target = anchor.transform.position;
         float distance = Vector3.Distance(playerGO.transform.position, target);
         bool looksOff = distance > 8f || playerGO.transform.position.y < -5f || playerGO.transform.position.y > 50f;
 
@@ -382,7 +380,7 @@ public class LevelManager : MonoBehaviour
 
         float yaw = playerGO.transform.eulerAngles.y;
         if (TeleportPlayer(target, yaw))
-            Debug.Log($"[LevelManager] Level6 spawn-stabilizer: snapped player to SpawnPoint2 at ({target.x:F2},{target.y:F2},{target.z:F2}).");
+            Debug.Log($"[LevelManager] Level6 spawn-stabilizer: snapped player to safe spawn marker at ({target.x:F2},{target.y:F2},{target.z:F2}).");
     }
 
     private System.Collections.IEnumerator DisableLikelyInvisibleBlockersNextFrame()

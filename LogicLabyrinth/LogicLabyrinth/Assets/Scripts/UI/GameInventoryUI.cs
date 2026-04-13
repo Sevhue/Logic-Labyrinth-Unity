@@ -20,7 +20,7 @@ public class GameInventoryUI : MonoBehaviour
     public const int SLOT_COUNT = 8;
 
     /// <summary>Type of item that can occupy a hotbar slot.</summary>
-    public enum ItemType { None, AND, OR, NOT, Key, Candle, Adrenaline }
+    public enum ItemType { None, AND, OR, NOT, Key, Candle, Adrenaline, Lantern, Scanner }
 
     private ItemType[] slotItems = new ItemType[SLOT_COUNT];
     private int selectedSlot = -1; // 0-based index of the currently selected slot, -1 when nothing is selected
@@ -31,6 +31,8 @@ public class GameInventoryUI : MonoBehaviour
     private Image[] slotBackgrounds = new Image[SLOT_COUNT];
     private Image[] slotIcons = new Image[SLOT_COUNT];
     private TextMeshProUGUI[] slotLabels = new TextMeshProUGUI[SLOT_COUNT];
+    private TextMeshProUGUI[] slotCounts = new TextMeshProUGUI[SLOT_COUNT];
+    private TextMeshProUGUI[] slotOverlays = new TextMeshProUGUI[SLOT_COUNT];
     private TextMeshProUGUI[] slotNumbers = new TextMeshProUGUI[SLOT_COUNT];
 
     // Other UI
@@ -57,6 +59,8 @@ public class GameInventoryUI : MonoBehaviour
     private Color keyColor    = new Color(0.95f, 0.82f, 0.30f, 1f);
     private Color candleColor = new Color(1f, 0.85f, 0.55f, 1f);
     private Color adrenalineColor = new Color(0.95f, 0.30f, 0.30f, 1f);
+    private Color lanternColor = new Color(1f, 0.78f, 0.20f, 1f);
+    private Color scannerColor = new Color(0.38f, 0.86f, 0.92f, 1f);
 
     // Notification
     private Color notifBGColor = new Color(0.14f, 0.11f, 0.06f, 0.93f);
@@ -91,6 +95,10 @@ public class GameInventoryUI : MonoBehaviour
     private Image qSlotIconImage;
     private TextMeshProUGUI qSlotLabelTMP;
     private Image qSlotBorderImage;
+    private string candleOverlayText = "";
+    private Color candleOverlayColor = Color.white;
+    private string scannerOverlayText = "";
+    private Color scannerOverlayColor = Color.white;
 
     // ═══════════════════════════════════
     // LIFECYCLE
@@ -118,6 +126,7 @@ public class GameInventoryUI : MonoBehaviour
     void Update()
     {
         HandleNumberKeyInput();
+        CollectibleCandle.UpdateCandleUsage();
         UpdateStaminaBar();
         UpdateHealthBar();
     }
@@ -264,6 +273,8 @@ public class GameInventoryUI : MonoBehaviour
         bool hasKey = TutorialDoor.PlayerHasKey || SuccessDoor.PlayerHasSuccessKey;
         bool hasCandle = (InventoryManager.Instance != null && InventoryManager.Instance.HasCandle);
         bool hasAdrenaline = (AccountManager.Instance != null && AccountManager.Instance.GetAdrenalineCount() > 0);
+        bool hasLantern = (AccountManager.Instance != null && AccountManager.Instance.HasStoreItem("Lantern"));
+        bool hasScanner = (AccountManager.Instance != null && AccountManager.Instance.GetScannerCount() > 0);
         int targetAnd = Mathf.Max(0, andCount);
         int targetOr = Mathf.Max(0, orCount);
         int targetNot = Mathf.Max(0, notCount);
@@ -271,6 +282,8 @@ public class GameInventoryUI : MonoBehaviour
         int targetKey = hasKey ? 1 : 0;
         int targetCandle = hasCandle ? 1 : 0;
         int targetAdrenaline = hasAdrenaline ? 1 : 0;
+        int targetLantern = hasLantern ? 1 : 0;
+        int targetScanner = hasScanner ? 1 : 0;
 
         int previousSelectedSlot = selectedSlot;
         ItemType previousSelectedItem = (previousSelectedSlot >= 0 && previousSelectedSlot < SLOT_COUNT)
@@ -319,6 +332,12 @@ public class GameInventoryUI : MonoBehaviour
                 case ItemType.Adrenaline:
                     if (targetAdrenaline > 0) { newSlots[i] = ItemType.Adrenaline; targetAdrenaline--; kept = true; }
                     break;
+                case ItemType.Lantern:
+                    if (targetLantern > 0) { newSlots[i] = ItemType.Lantern; targetLantern--; kept = true; }
+                    break;
+                case ItemType.Scanner:
+                    if (targetScanner > 0) { newSlots[i] = ItemType.Scanner; targetScanner--; kept = true; }
+                    break;
             }
 
             if (!kept)
@@ -336,6 +355,8 @@ public class GameInventoryUI : MonoBehaviour
             if (targetKey > 0) { newSlots[i] = ItemType.Key; targetKey--; continue; }
             if (targetCandle > 0) { newSlots[i] = ItemType.Candle; targetCandle--; continue; }
             if (targetAdrenaline > 0) { newSlots[i] = ItemType.Adrenaline; targetAdrenaline--; continue; }
+            if (targetLantern > 0) { newSlots[i] = ItemType.Lantern; targetLantern--; continue; }
+            if (targetScanner > 0) { newSlots[i] = ItemType.Scanner; targetScanner--; continue; }
         }
 
         // If gates were dropped, compact remaining gates left into open slots.
@@ -439,6 +460,8 @@ public class GameInventoryUI : MonoBehaviour
             case "KEY":    return ItemType.Key;
             case "CANDLE": return ItemType.Candle;
             case "ADRENALINE": return ItemType.Adrenaline;
+            case "LANTERN":   return ItemType.Lantern;
+            case "SCANNER":   return ItemType.Scanner;
             default:       return ItemType.None;
         }
     }
@@ -597,6 +620,42 @@ public class GameInventoryUI : MonoBehaviour
         if (medievalFont != null) labelTMP.font = medievalFont;
         slotLabels[index] = labelTMP;
 
+        GameObject countGO = CreateUIObject("Count", bgGO.transform);
+        countGO.AddComponent<CanvasRenderer>();
+        RectTransform countRT = countGO.GetComponent<RectTransform>();
+        countRT.anchorMin = new Vector2(0.48f, 0.56f);
+        countRT.anchorMax = new Vector2(0.95f, 0.95f);
+        countRT.offsetMin = Vector2.zero;
+        countRT.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI countTMP = countGO.AddComponent<TextMeshProUGUI>();
+        countTMP.text = "";
+        countTMP.fontSize = 12;
+        countTMP.fontStyle = FontStyles.Bold;
+        countTMP.alignment = TextAlignmentOptions.TopRight;
+        countTMP.color = creamText;
+        countTMP.raycastTarget = false;
+        if (medievalFont != null) countTMP.font = medievalFont;
+        slotCounts[index] = countTMP;
+
+        GameObject overlayGO = CreateUIObject("Overlay", bgGO.transform);
+        overlayGO.AddComponent<CanvasRenderer>();
+        RectTransform overlayRT = overlayGO.GetComponent<RectTransform>();
+        overlayRT.anchorMin = new Vector2(0f, 0.18f);
+        overlayRT.anchorMax = new Vector2(1f, 0.88f);
+        overlayRT.offsetMin = Vector2.zero;
+        overlayRT.offsetMax = Vector2.zero;
+
+        TextMeshProUGUI overlayTMP = overlayGO.AddComponent<TextMeshProUGUI>();
+        overlayTMP.text = "";
+        overlayTMP.fontSize = 16;
+        overlayTMP.fontStyle = FontStyles.Bold;
+        overlayTMP.alignment = TextAlignmentOptions.Center;
+        overlayTMP.color = scannerColor;
+        overlayTMP.raycastTarget = false;
+        if (medievalFont != null) overlayTMP.font = medievalFont;
+        slotOverlays[index] = overlayTMP;
+
         // ── Slot number (small, bottom-right corner) ──
         GameObject numGO = CreateUIObject("Number", bgGO.transform);
         numGO.AddComponent<CanvasRenderer>();
@@ -749,12 +808,28 @@ public class GameInventoryUI : MonoBehaviour
             if (slotNumbers[i] != null)
                 slotNumbers[i].color = isSelected ? goldText : dimText;
 
+            int stackCount = GetItemStackCount(item);
+            if (slotCounts[i] != null)
+            {
+                slotCounts[i].text = stackCount > 0 ? $"x{stackCount}" : "";
+                slotCounts[i].color = isSelected ? goldText : creamText;
+            }
+
+            if (slotOverlays[i] != null)
+            {
+                string overlayText = GetItemOverlayText(item);
+                slotOverlays[i].text = overlayText;
+                slotOverlays[i].color = GetItemOverlayColor(item, isSelected);
+            }
+
             // Icon + Label
             if (item == ItemType.None)
             {
                 // Empty slot
                 if (slotIcons[i] != null) slotIcons[i].color = Color.clear;
                 if (slotLabels[i] != null) slotLabels[i].text = "";
+                if (slotCounts[i] != null) slotCounts[i].text = "";
+                if (slotOverlays[i] != null) slotOverlays[i].text = "";
             }
             else
             {
@@ -789,6 +864,8 @@ public class GameInventoryUI : MonoBehaviour
             case ItemType.Key:    return keyColor;
             case ItemType.Candle: return candleColor;
             case ItemType.Adrenaline: return adrenalineColor;
+            case ItemType.Lantern:    return lanternColor;
+            case ItemType.Scanner:    return scannerColor;
             default:              return creamText;
         }
     }
@@ -803,6 +880,8 @@ public class GameInventoryUI : MonoBehaviour
             case ItemType.Key:    return "KEY";
             case ItemType.Candle: return "CDL";
             case ItemType.Adrenaline: return "ADR";
+            case ItemType.Lantern:    return "LAN";
+            case ItemType.Scanner:    return "SCN";
             default:              return "";
         }
     }
@@ -817,8 +896,83 @@ public class GameInventoryUI : MonoBehaviour
             case ItemType.Key:    return "\u26BF"; // key symbol
             case ItemType.Candle: return "\u2602"; // candle/umbrella symbol as fallback
             case ItemType.Adrenaline: return "+";
+            case ItemType.Scanner: return "?";
             default:              return "";
         }
+    }
+
+    private int GetItemStackCount(ItemType type)
+    {
+        if (AccountManager.Instance == null)
+            return 0;
+
+        switch (type)
+        {
+            case ItemType.Adrenaline:
+                return AccountManager.Instance.GetAdrenalineCount();
+            case ItemType.Scanner:
+                return AccountManager.Instance.GetScannerCount();
+            default:
+                return 0;
+        }
+    }
+
+    private string GetItemOverlayText(ItemType type)
+    {
+        switch (type)
+        {
+            case ItemType.Candle:
+                return candleOverlayText;
+            case ItemType.Scanner:
+                return scannerOverlayText;
+            default:
+                return "";
+        }
+    }
+
+    private Color GetItemOverlayColor(ItemType type, bool isSelected)
+    {
+        switch (type)
+        {
+            case ItemType.Candle:
+                return isSelected ? goldText : candleOverlayColor;
+            case ItemType.Scanner:
+                return isSelected ? goldText : scannerOverlayColor;
+            default:
+                return creamText;
+        }
+    }
+
+    public void SetCandleOverlayText(string text, Color color)
+    {
+        candleOverlayText = text ?? "";
+        candleOverlayColor = color;
+        UpdateSlotVisuals();
+    }
+
+    public void ClearCandleOverlayText()
+    {
+        if (string.IsNullOrEmpty(candleOverlayText))
+            return;
+
+        candleOverlayText = "";
+        UpdateSlotVisuals();
+    }
+
+    public void SetScannerOverlayText(string text, Color color)
+    {
+        scannerOverlayText = text ?? "";
+        scannerOverlayColor = color;
+        UpdateSlotVisuals();
+    }
+
+    public void ClearScannerOverlayText()
+    {
+        if (string.IsNullOrEmpty(scannerOverlayText))
+            return;
+
+        scannerOverlayText = "";
+        UpdateSlotVisuals();
     }
 
     // ═══════════════════════════════════

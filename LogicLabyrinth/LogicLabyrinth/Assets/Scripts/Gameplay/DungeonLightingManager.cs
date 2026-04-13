@@ -15,6 +15,8 @@ using UnityEngine.Rendering;
 /// </summary>
 public class DungeonLightingManager : MonoBehaviour
 {
+    public static DungeonLightingManager Instance { get; private set; }
+
     private struct TorchBaseline
     {
         public float intensity;
@@ -125,6 +127,9 @@ public class DungeonLightingManager : MonoBehaviour
 
     void Start()
     {
+        if (Instance == null) Instance = this;
+        else if (Instance != this) { Destroy(gameObject); return; }
+
         SetupCamera();
         SetupAmbientAndFog();
         DimDirectionalLights();
@@ -515,10 +520,12 @@ public class DungeonLightingManager : MonoBehaviour
     private float preCandleRange;
     private float preCandleIntensity;
 
+
+
     /// <summary>
     /// Called by CollectibleCandle to toggle 2× player light when candle is equipped/unequipped.
     /// </summary>
-    public void SetCandleEquipped(bool equipped)
+    public void SetCandleEquipped(bool equipped, float multiplier = 2f)
     {
         if (playerLight == null)
         {
@@ -531,25 +538,25 @@ public class DungeonLightingManager : MonoBehaviour
             candleEquipped = true;
             preCandleRange = playerLight.range;
             preCandleIntensity = playerLight.intensity;
-
-            playerLight.range = preCandleRange * 2f;
-            playerLight.intensity = preCandleIntensity * 2f;
-
-            Debug.Log($"[DungeonLighting] Candle equipped! Light: range {preCandleRange:F1}→{playerLight.range:F1}, " +
-                      $"intensity {preCandleIntensity:F1}→{playerLight.intensity:F1}");
+            playerLight.range = preCandleRange * multiplier;
+            playerLight.intensity = preCandleIntensity * multiplier;
+            Debug.Log($"[DungeonLighting] Light equipped! {multiplier}x applied.");
         }
         else if (!equipped && candleEquipped)
         {
             candleEquipped = false;
             playerLight.range = preCandleRange;
             playerLight.intensity = preCandleIntensity;
-
-            Debug.Log($"[DungeonLighting] Candle unequipped! Light restored: range {playerLight.range:F1}, intensity {playerLight.intensity:F1}");
+            Debug.Log("[DungeonLighting] Light unequipped. Restored.");
         }
     }
 
+
+
     void OnDestroy()
     {
+        if (Instance == this) Instance = null;
+
         // Restore camera
         if (mainCam != null)
         {

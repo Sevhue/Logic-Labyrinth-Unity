@@ -4,6 +4,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
+using static TipOverlayUI;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
@@ -22,6 +23,7 @@ using UnityEditor;
 /// </summary>
 public class AdrenalineConsumableController : MonoBehaviour
 {
+    private const string PrefConsumeTipShown = "LL_ADR_CONSUME_TIP_SHOWN";
     private const string PrefHandPosX = "LL_ADR_HAND_POS_X";
     private const string PrefHandPosY = "LL_ADR_HAND_POS_Y";
     private const string PrefHandPosZ = "LL_ADR_HAND_POS_Z";
@@ -92,6 +94,7 @@ public class AdrenalineConsumableController : MonoBehaviour
     private bool isDrinkingAnimation;
     private bool attachedToCamera;
     private Coroutine drinkRoutine;
+    private bool consumeTipShown;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Bootstrap()
@@ -106,6 +109,8 @@ public class AdrenalineConsumableController : MonoBehaviour
     private void Awake()
     {
         LoadSavedPose();
+        SaveLoadedPoseToPrefs();
+        consumeTipShown = PlayerPrefs.GetInt(PrefConsumeTipShown, 0) == 1;
     }
 
     private void Update()
@@ -118,17 +123,20 @@ public class AdrenalineConsumableController : MonoBehaviour
 
         bool adrSelected = IsAdrenalineSelected();
         if (adrSelected && !isDrinkingAnimation)
+        {
             EnsureEquippedModel();
+            TryShowFirstEquipTip();
+        }
         else if (!adrSelected && !isDrinkingAnimation)
             RemoveEquippedModel();
 
         if (equippedModel != null && !isDrinkingAnimation)
-            CaptureCurrentPoseFromModel();
-
-        if (WasSavePosePressed())
-            SavePoseToPrefs(true);
+            ApplyLoadedPoseToModel();
 
         if (!WasConsumePressed())
+            return;
+
+        if (GameInventoryUI.Instance == null || GameInventoryUI.Instance.GetSelectedItem() != GameInventoryUI.ItemType.Adrenaline)
             return;
 
         if (!adrSelected)
@@ -147,9 +155,6 @@ public class AdrenalineConsumableController : MonoBehaviour
             StopCoroutine(drinkRoutine);
             drinkRoutine = null;
         }
-
-        if (autoSavePoseOnDisable)
-            SavePoseToPrefs(false);
 
         if (boostActive)
             RestoreBaseSpeed();
@@ -195,6 +200,17 @@ public class AdrenalineConsumableController : MonoBehaviour
 
         int remaining = AccountManager.Instance.GetAdrenalineCount();
         ShowCenterHint($"Adrenaline active ({remaining} left)");
+    }
+
+    private void TryShowFirstEquipTip()
+    {
+        if (consumeTipShown)
+            return;
+
+        TipOverlayUI.ShowTip("Press F to consume the Adrenaline.", 7f, 40f);
+        consumeTipShown = true;
+        PlayerPrefs.SetInt(PrefConsumeTipShown, 1);
+        PlayerPrefs.Save();
     }
 
     private void CacheAndApplyBoost()
@@ -325,7 +341,7 @@ public class AdrenalineConsumableController : MonoBehaviour
         isDrinkingAnimation = false;
 
         if (equippedModel != null)
-            CaptureCurrentPoseFromModel();
+            ApplyLoadedPoseToModel();
 
         if (AccountManager.Instance == null || AccountManager.Instance.GetAdrenalineCount() <= 0 || !IsAdrenalineSelected())
             RemoveEquippedModel();
@@ -422,6 +438,34 @@ public class AdrenalineConsumableController : MonoBehaviour
             Destroy(equippedModel);
             equippedModel = null;
         }
+    }
+
+    private void ApplyLoadedPoseToModel()
+    {
+        if (equippedModel == null) return;
+
+        if (attachedToCamera)
+        {
+            equippedModel.transform.localPosition = cameraFallbackLocalPosition;
+            equippedModel.transform.localRotation = Quaternion.Euler(cameraFallbackLocalEuler);
+        }
+        else
+        {
+            equippedModel.transform.localPosition = handLocalPosition;
+            equippedModel.transform.localRotation = Quaternion.Euler(handLocalEuler);
+        }
+
+        equippedModel.transform.localScale = handLocalScale;
+    }
+
+    private void SaveLoadedPoseToPrefs()
+    {
+        SaveVector3(PrefHandPosX, PrefHandPosY, PrefHandPosZ, handLocalPosition);
+        SaveVector3(PrefHandRotX, PrefHandRotY, PrefHandRotZ, handLocalEuler);
+        SaveVector3(PrefHandScaleX, PrefHandScaleY, PrefHandScaleZ, handLocalScale);
+        SaveVector3(PrefCamPosX, PrefCamPosY, PrefCamPosZ, cameraFallbackLocalPosition);
+        SaveVector3(PrefCamRotX, PrefCamRotY, PrefCamRotZ, cameraFallbackLocalEuler);
+        PlayerPrefs.Save();
     }
 
     private void CaptureCurrentPoseFromModel()

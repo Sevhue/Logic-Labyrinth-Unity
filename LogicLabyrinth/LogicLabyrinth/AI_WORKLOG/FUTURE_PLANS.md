@@ -1,7 +1,155 @@
 # Future Plans
 
+## Immediate validation (no save while dead)
+- Die in a level, open the pause menu, and confirm `Save Game` is disabled.
+- If save is triggered by any alternate path, confirm the game shows `CANNOT SAVE WHILE DEAD.` and does not write a new save.
+- After dying, attempt `Load Game` from a previous valid save and confirm it restores the last real alive save, not the death screen state.
+- Respawn, reopen pause menu, and confirm `Save Game` becomes usable again.
 
-- PauseMenuController.cs is now error-free and game launches. Re-validate PauseMenu and store UI after hotfix: ensure all store interactions work as expected.
+## Immediate validation (logout popup cancel)
+- Click `Logout` from the logged-in menu and confirm it only opens `LogoutPopup`.
+- Click `No` and confirm the popup closes while the current logged-in menu state remains active.
+- Click `Logout` again, then click `Yes`, and confirm logout proceeds normally back to the login panel.
+- Reopen the scene and repeat once to confirm there is no leftover Inspector listener behavior.
+
+## Immediate validation (TIP only in game)
+- Trigger any known tip in a `Level*` scene and confirm it still appears.
+- Return to main menu/login and confirm no TIP panel remains visible.
+- Trigger scene transitions quickly while a tip is active and confirm tip hides on non-game scenes.
+
+## Immediate validation (candle 60-second timer)
+- Collect candle and equip `CDL`.
+- Confirm a centered countdown number appears over the CDL slot (same placement style as SCN).
+- Keep candle equipped and confirm countdown reaches zero after ~60 seconds.
+- Confirm candle auto-unequips and disappears from hotbar at expiration.
+- Re-collect candle and confirm timer resets to 60 seconds.
+- Confirm timer does not continue decreasing while candle is unequipped.
+
+## Immediate validation (Level6 spawnpoint2 regression)
+- Load `Level6` directly and confirm player does not get snapped to gate spawner `SpawnPoint2`.
+- Trigger a respawn/recovery path and confirm player returns to proper player spawn markers only.
+- Confirm no spawn correction logs mention hardcoded `SpawnPoint2`.
+
+## Immediate validation (F-key SCN vs ADR conflict)
+- Select `SCN` and press `F`.
+- Confirm `Select ADR slot first.` no longer appears.
+- Confirm Scanner reveal and SCN countdown still trigger normally.
+- Switch to `ADR` and press `F` to confirm ADR consume still works.
+
+## Immediate validation (screen-label-only scanner style)
+- Select `SCN` and press `F` on multiple gates.
+- Confirm no cyan world beam appears.
+- Confirm only the `SCANNED <gate>` screen label is shown during the reveal window.
+- Confirm the 10-second SCN countdown overlay still works and charge consumption is unchanged.
+
+## Immediate validation (scanner slab regression fix)
+- Select `SCN` and scan multiple different gate objects in different level areas.
+- Confirm the cyan beacon no longer appears as a giant slab that fills the screen.
+- Confirm beacon height remains visually reasonable across all scanned gate variants.
+- Confirm `SCANNED <gate>` label and 10-second countdown behavior still work.
+
+## Immediate validation (first-time ADR / SCN consume tips)
+- Enter a level with ADR available and select `ADR` for the first time.
+- Confirm the existing left-side tutorial tip overlay appears and says `Press F to consume the Adrenaline.`
+- Enter a level with SCN available and select `SCN` for the first time.
+- Confirm the same left-side tutorial tip overlay appears and says `Press F to consume the Scanner.`
+- Re-select ADR and SCN afterward and confirm the tips do not keep repeating.
+- If retesting in the editor with an already-seen profile, clear `LL_ADR_CONSUME_TIP_SHOWN` and `LL_SCN_CONSUME_TIP_SHOWN` from PlayerPrefs first.
+
+## Immediate validation (Scanner visible beacon + SCN cooldown overlay)
+- Buy or load Scanner charges, select `SCN`, and press `F`.
+- Confirm the targeted gate now shows a clearly visible cyan beacon plus `SCANNED <gate>` marker.
+- Confirm the reveal remains visible for 10 seconds.
+- Confirm `SCN` shows a live countdown number over the slot while the reveal is active.
+- Confirm pressing `F` during that countdown shows the cooldown message instead of consuming another charge.
+
+## Immediate validation (Scanner x10 consumable reveal)
+- Buy `Scanner` from Store and confirm the purchase grants `x10` uses.
+- Confirm `SCN` appears in hotbar only while Scanner count is above zero.
+- Select `SCN` and confirm the slot shows remaining count like `x10`.
+- Press `F` once and confirm one Scanner charge is consumed and one gate gets a temporary cyan reveal marker.
+- Press `F` repeatedly and confirm each use deducts one charge until Scanner disappears from hotbar at zero.
+- Retest an older account that previously owned Scanner and confirm the legacy save is migrated to `x10` charges on load.
+
+## Immediate validation (Burst disabled unblock)
+- Let Unity recompile scripts after the new editor bootstrap is added.
+- If Burst error still appears in the same session, fully restart the Unity Editor once so the forced EditorPrefs/menu state is reapplied from cold start.
+- After the restart, confirm Unity rebuilt `Library/ScriptAssemblies/Assembly-CSharp-Editor.dll` automatically without reintroducing the Burst resolution error.
+- Enter Play mode and confirm the previous Burst `Assembly-CSharp-Editor` resolution error no longer blocks gameplay.
+- Open Unity menu `Jobs > Burst` and confirm `Enable Compilation` is unchecked.
+- Smoke-check gameplay paths that previously failed to start.
+
+## Immediate validation (Handheld pose lock for LAN / SCN / ADR)
+- Enter Play mode and equip/select Lantern, Scanner, and Adrenaline one by one.
+- Confirm each item appears in its saved pose.
+- Try moving each equipped item in Scene during Play mode and confirm it snaps back instead of keeping the moved position.
+- Restart Play mode and confirm the same saved poses still load.
+- For ADR specifically, confirm drink animation still plays, then returns to the locked saved idle pose afterward.
+
+## Immediate validation (Scanner anti-jump follow-up)
+- Enter Play mode, select `SCN`, and select `ScannerEquipped` in Scene.
+- Drag gizmo repeatedly while moving mouse; confirm scanner no longer drifts/jumps with hand sway/look.
+- Deselect scanner and confirm gameplay look/arm animation returns to prior behavior.
+- Press `P` and verify saved pose still persists after restart.
+
+## Immediate validation (Scanner free-edit selected mode)
+- Enter Play mode in a `Level*` scene and select `SCN` slot.
+- In Scene, select `ScannerEquipped` and move/rotate with gizmo.
+- Confirm scanner no longer snaps/fights controller while selected.
+- Press `P` to save, stop Play mode, restart, and confirm saved pose loads.
+
+## Immediate validation (Scanner consumable + editable pose)
+- Open Store after owning Scanner and confirm Scanner card does NOT show `SOLD`.
+- Confirm Scanner card remains clickable/buyable after prior Scanner purchase.
+- Confirm Lantern still shows `SOLD` and remains unclickable.
+- Select `SCN` slot, move `ScannerEquipped` in Scene during Play mode, press `P`.
+- Stop and restart Play mode, select `SCN`, and confirm Scanner loads with saved pose.
+
+## Immediate validation (Scanner hotbar + hand model)
+- Buy Scanner from the Store and confirm ownership persists.
+- Confirm Scanner appears in hotbar as `SCN` after purchase/relog.
+- Select the Scanner slot and confirm Scanner appears in the player's hand.
+- Switch to another slot and confirm Scanner unequips/hides.
+- Load another `Level*` scene and confirm owned Scanner is still available and can be shown again when `SCN` is selected.
+
+## Immediate validation (Centered SOLD badge + locked Lantern pose)
+- Open Store with owned Lantern and confirm `SOLD` sits in the middle area of the Lantern card.
+- Confirm Lantern card remains disabled/unbuyable.
+- Enter a `Level*` scene, select LAN slot, and confirm lantern appears in its current saved spot.
+- Try moving Lantern in Scene during Play mode and confirm it snaps back / does not keep moved offsets.
+- Switch away from LAN slot and back again; confirm same fixed pose is still used.
+
+## Immediate validation (Lantern SOLD state and rebuy lock)
+- Buy Lantern once and reopen the Store.
+- Confirm Lantern card shows `SOLD` near the top of the card.
+- Confirm Lantern card is no longer clickable and does not reopen checkout.
+- Confirm Adrenaline remains buyable repeatedly (not marked sold).
+- Stop play mode, relog, reopen Store, confirm Lantern still shows `SOLD`.
+- Enter multiple `Level*` scenes after relog and confirm owned Lantern is still available in hotbar/in-hand when LAN slot is selected.
+
+## Immediate validation (Lantern unequip on slot switch)
+- Enter Play mode and select LAN slot; confirm lantern appears in hand.
+- Press another hotbar number (gate/key/candle/adrenaline or empty slot).
+- Confirm lantern immediately unequips (model hides).
+- Re-select LAN slot and confirm lantern reappears correctly.
+- Confirm light boost is removed when LAN is not selected and restored when LAN is selected again.
+
+## Immediate validation (Lantern free-edit Scene gizmo hotfix)
+- Enter Play mode in any `Level*` scene where LAN is shown.
+- Select `LanternEquipped` in Hierarchy and drag with green/blue gizmo axes.
+- Confirm lantern no longer snap-fights controller while selected.
+- Click child light icon in Scene/Hierarchy and confirm selection auto-redirects back to `LanternEquipped` root.
+- Press `P` to save pose, stop Play mode, start again, confirm pose persisted.
+
+## Immediate validation (Maya checkout verify fix)
+- Buy `Lantern` from Store in Play Mode, pay on Maya sandbox, return to game.
+- Click **Verify Now** — confirm payment verifies successfully (or sandbox fallback triggers) and success screen shows.
+- Confirm `hasLantern = true` is persisted (check Account Manager data after relog).
+- Confirm Lantern model appears in right hand while in any `Level*` scene.
+- If status API still returns non-success HTTP, check Unity Console for `[PauseMenu] Sandbox status check failed` warning — item should still be granted via fallback.
+- For production build: remove sandbox fallback block once a proper backend proxy is in place (never trust client-side grant in prod).
+
+
 
 ## Immediate validation (Lantern permanent ownership)
 - Buy `Lantern` from Store in Play Mode and complete Maya checkout.

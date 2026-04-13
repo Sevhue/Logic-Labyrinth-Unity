@@ -1,6 +1,290 @@
 # 2026-04-13
 
+### Hotfix: Save Game is now blocked while dead
+- **User issue**: when the player dies, the pause menu still allows `Save Game`, and loading that save revives the player from the death screen state.
+- **Smallest fix applied** in `Assets/Scripts/UI/PauseMenuController.cs`:
+  - added a direct save guard using `StarterAssets.FirstPersonController.IsDead`
+  - if the player is dead, `SaveGameInternal(...)` now exits immediately instead of writing a save
+  - pause menu `Save` button is now set non-interactable when the pause UI opens during death state
+  - added a short red pause-menu feedback message: `CANNOT SAVE WHILE DEAD.`
+- **Result**:
+  - dead-state saves are blocked at the source
+  - the pause menu no longer presents Save as usable while dead
+
+### Hotfix: Logout popup NO no longer logs the player out
+- **User issue**: clicking `Logout` showed the confirmation popup, but clicking `No` still logged the player out.
+- **Root cause found** in `Assets/Scenes/Menu/Main.unity`:
+  - `LogoutButton` still had a persistent Inspector `AccountManager.Logout()` listener
+  - logout popup `YES` / `NO` buttons also had baked-in persistent listeners
+  - `UIManager` rewiring uses `RemoveAllListeners()`, which does not clear persistent Inspector listeners at runtime
+- **Smallest fix applied**:
+  - removed the persistent logout listener from `LogoutButton`
+  - removed persistent listeners from the logout popup `YES` and `NO` buttons so runtime wiring in `UIManager` is the only active behavior
+- **Result**:
+  - clicking `Logout` now only opens the confirmation popup
+  - clicking `No` only cancels and hides the popup
+  - clicking `Yes` follows `UIManager.ConfirmLogout()` as intended
+
+### Hotfix: TIP overlay now appears only in gameplay scenes
+- **User request**: TIP should only show in-game, not in main menu/login scenes.
+- **Smallest fix applied** in `Assets/Scripts/UI/TipOverlayUI.cs`:
+  - `ShowTip(...)` now exits immediately outside gameplay scenes
+  - on scene change to a non-game scene, any active tip coroutine is stopped and overlay is hidden
+- **Result**: TIP no longer leaks into menu UI after leaving levels.
+- Compile check: `TipOverlayUI.cs` has no errors.
+
+### Hotfix: Candle now has 60-second use limit with centered CDL countdown overlay
+- **User request / mode followed**: simplest direct change using existing candle and hotbar systems (no structural refactor).
+- **Smallest fix applied**:
+  - `Assets/Scripts/Gameplay/CollectibleCandle.cs`
+    - added candle use duration (`MaxUseSeconds = 60f`)
+    - added runtime countdown while candle is equipped
+    - on timer expiration: candle auto-unequips, is removed from inventory, and hotbar refreshes
+  - `Assets/Scripts/UI/GameInventoryUI.cs`
+    - added candle overlay text channel using the same centered overlay layer used by SCN
+    - per-frame call to `CollectibleCandle.UpdateCandleUsage()` to drive countdown updates
+- **Result**:
+  - candle use is limited to 60 seconds of active equip time
+  - CDL shows a centered countdown overlay in the slot, matching SCN timer style placement
+- Compile check: `CollectibleCandle.cs` and `GameInventoryUI.cs` have no errors.
+
+### Hotfix: Level6 no longer snaps player to gate spawner SpawnPoint2
+- **User issue**: player sometimes respawned in gate spawn area (`SpawnPoint2`) in Level6.
+- **Root cause**: `LevelManager` had a Level6 stabilizer coroutine hardcoded to `GameObject.Find("SpawnPoint2")`, which collides with gate spawner marker names.
+- **Smallest fix applied** in `Assets/Scripts/Managers/LevelManager.cs`:
+  - replaced hardcoded `SpawnPoint2` lookup with `TryGetSpawnFallback(...)`
+  - this uses the existing safe spawn-name list and avoids generic `SpawnPoint*` gate markers
+- **Result**: Level6 stabilizer will no longer force player into gate spawner marker locations.
+- Compile check: `LevelManager.cs` has no errors.
+
+### Hotfix: F-key conflict resolved between SCN and ADR controllers
+- **User issue**: pressing `F` while on Scanner sometimes showed `Select ADR slot first.` and made Scanner feel blocked on some levels.
+- **Root cause**: ADR controller listened to `F` globally and displayed its warning even when another hotbar item was selected.
+- **Smallest fix applied** in `Assets/Scripts/Gameplay/AdrenalineConsumableController.cs`:
+  - after detecting `F`, ADR now exits early unless the selected hotbar item is actually `Adrenaline`
+- **Result**:
+  - Scanner can use `F` without ADR warning interference
+  - ADR warning only appears in ADR context
+- Compile check: ADR and Scanner consumable controllers have no errors.
+
+### Hotfix preference update: Removed scanner world beacon, kept only SCANNED label style
+- **User preference**: scanner reveal should look like the simpler prior style (screen label only), not the large cyan beam.
+- **Smallest fix applied** in `Assets/Scripts/Gameplay/ScannerConsumableController.cs`:
+  - removed runtime world-beacon creation/animation from the active reveal routine
+  - retained the existing screen-space `SCANNED <gate>` marker and SCN countdown overlay
+- **Result**: scanner reveal now matches the cleaner second-picture style without a world beam.
+- Compile check: `ScannerConsumableController.cs` has no errors.
+
+### Hotfix follow-up: Scanner beacon no longer expands into giant cyan slab on some gates
+- **User retest**: some scans showed an oversized cyan shape filling much of the screen.
+- **Root cause**: beacon sizing was derived from broad renderer bounds, and some gate hierarchies produced huge bounds values.
+- **Smallest fix applied** in `Assets/Scripts/Gameplay/ScannerConsumableController.cs`:
+  - added `ResolveGateAnchor(...)` to anchor using gate collider bounds first (safe fallback to renderer/transform)
+  - clamped beacon height range to prevent oversized geometry
+  - changed pulse animation to affect only the orb child, not the whole marker root
+- **Result**: scanner reveal now stays stable and sized consistently across gate variants.
+- Compile check: `ScannerConsumableController.cs` has no errors.
+
+### Hotfix: First-time ADR and SCN equip tips now use the Level 1-style tip overlay
+- **User request / rule followed**: simplest fix first, using the same tip system already shown in Level 1 instead of building a new UI.
+- **Smallest fix applied**:
+  - `Assets/Scripts/Gameplay/AdrenalineConsumableController.cs`
+    - added one-time PlayerPrefs-backed tip flag `LL_ADR_CONSUME_TIP_SHOWN`
+    - when ADR is selected for the first time, shows `Press F to consume the Adrenaline.` through `TipOverlayUI.ShowTip(...)`
+  - `Assets/Scripts/Gameplay/ScannerConsumableController.cs`
+    - added one-time PlayerPrefs-backed tip flag `LL_SCN_CONSUME_TIP_SHOWN`
+    - when SCN is selected for the first time, shows `Press F to consume the Scanner.` through `TipOverlayUI.ShowTip(...)`
+- **Result**:
+  - both items now show a first-time gameplay tip using the existing left-side tutorial tip overlay
+  - the tip is only shown once per player/editor profile unless the corresponding PlayerPrefs key is cleared
+- Compile check: ADR and Scanner controller files have no errors.
+
+### Hotfix follow-up: Scanner reveal is now visible for 10 seconds and SCN shows countdown
+- **User retest**: Scanner consumed a charge but the revealed gate marker was not obvious enough, and the active lockout needed a visible timer on the hotbar.
+- **Follow-up fix applied**:
+  - `Assets/Scripts/Gameplay/ScannerConsumableController.cs`
+    - increased reveal duration to 10 seconds
+    - replaced the tiny orb-only reveal with a taller cyan beacon plus a screen-space `SCANNED <gate>` marker
+    - keeps the current active reveal as the cooldown window
+  - `Assets/Scripts/UI/GameInventoryUI.cs`
+    - added a Scanner-only overlay text layer on the slot UI
+    - while Scanner is active, `SCN` now shows the remaining cooldown seconds over the slot
+- **Result**:
+  - each Scanner use reveals the targeted gate marker for 10 seconds
+  - the player can see a live countdown on top of `SCN` during that active window
+- Compile check: `ScannerConsumableController.cs` and `GameInventoryUI.cs` have no errors.
+
+### Hotfix: Scanner is now a 10-charge consumable and reveals one gate per use
+- **User request**: when Scanner is bought it should come with `x10`, and pressing `F` should reveal one gate gizmo.
+- **Smallest complete fix applied**:
+  - `Assets/Scripts/Managers/AccountManager.cs`
+    - added `scannerCount`
+    - changed Scanner ownership logic from boolean unlock to remaining-charge count
+    - `GrantStoreItem("scanner")` now grants quantity instead of permanent ownership
+    - added legacy migration so old `hasScanner=true` saves are converted into `scannerCount=10`
+    - added `GetScannerCount()` and `ConsumeScanner()`
+  - `Assets/Scripts/UI/GameInventoryUI.cs`
+    - Scanner hotbar slot now depends on `scannerCount > 0`
+    - added per-slot stack text so consumables show `xN` in the hotbar
+  - `Assets/Scripts/Gameplay/ScannerHandController.cs`
+    - Scanner model only appears while Scanner still has charges left
+  - added `Assets/Scripts/Gameplay/ScannerConsumableController.cs`
+    - pressing `F` while `SCN` is selected consumes 1 Scanner charge
+    - finds one gate in the level and places a temporary cyan reveal marker above it
+- **Result**:
+  - buying Scanner now grants 10 uses
+  - hotbar shows the remaining Scanner count
+  - each `F` press with `SCN` selected reveals one gate and deducts one use
+- Compile check: changed scanner/account/UI files have no errors.
+
+### Hotfix: Disabled Burst compilation in Editor to unblock Play Mode
+- **User issue**: Unity could not enter Play Mode because Burst failed resolving `Assembly-CSharp-Editor` during job compilation.
+- **Smallest practical fix**: added editor-only bootstrap `Assets/Scripts/Editor/DisableBurstCompilationForProject.cs`.
+  - On editor load and around play-mode transition, it forces:
+    - `EditorPrefs.SetBool("BurstCompilation", false)`
+    - `BurstCompiler.Options.EnableBurstCompilation = false`
+- **Follow-up hardening**:
+  - added `EditorApplication.delayCall += DisableBurst`
+  - added reflection-based force-disable against internal `Unity.Burst.Editor.BurstEditorOptions.EnableBurstCompilation`
+- **State cleanup performed**:
+  - deleted generated `Library/BurstCache/`
+  - deleted `Library/ScriptAssemblies/Assembly-CSharp-Editor.dll`
+  - deleted `Library/ScriptAssemblies/Assembly-CSharp-Editor.pdb`
+  - deleted `Library/ilpp.pid`
+  - intent: force Unity/Burst to rebuild editor assembly and IL postprocessor state from scratch
+- **Result**: Burst compilation is disabled for this project in the Unity Editor, avoiding the assembly-resolution failure and allowing Play Mode to continue.
+- Compile check: `DisableBurstCompilationForProject.cs` has no errors.
+
+### Hotfix: Lantern, Scanner, and ADR positions saved and permanently locked
+- **User request**: save all their positions and never let them move again for Lantern, Scanner, and Adrenaline.
+- **Smallest direct fix applied**:
+  - `Assets/Scripts/Gameplay/LanternHandController.cs`
+    - save current configured pose fields to PlayerPrefs on load
+    - re-apply loaded pose every frame while equipped
+  - `Assets/Scripts/Gameplay/ScannerHandController.cs`
+    - save current configured pose fields to PlayerPrefs on load
+    - removed runtime edit/capture path from active behavior
+    - re-apply loaded pose every frame while equipped
+  - `Assets/Scripts/Gameplay/AdrenalineConsumableController.cs`
+    - save current configured pose fields to PlayerPrefs on load
+    - removed active runtime pose-capture/save path
+    - re-apply loaded pose while equipped whenever not in the middle of the drink animation
+- **Result**: all three handheld items now snap back to their saved pose and cannot be freely repositioned during runtime editing.
+- Compile check: all three files have no errors.
+
+### Hotfix (follow-up): Scanner edit jitter reduced by temporary gameplay lock while editing
+- **User retest**: Scanner still jumped during Scene gizmo editing.
+- **Smallest follow-up fix** in `Assets/Scripts/Gameplay/ScannerHandController.cs`:
+  - While `ScannerEquipped` is selected in Play mode, temporarily disable arm animation and look input (`FirstPersonArmAnimator` + `StarterAssetsInputs` look flags).
+  - Restore previous states after editing stops.
+- **Intent**: stop parent rig/camera motion from fighting Scene transform edits.
+- Compile check: `ScannerHandController.cs` has no errors.
+
+### Hotfix: Scanner free-edit mode while selected in Scene
+- **User confirmation**: apply the free-edit fix so scanner can be moved without script fighting during Scene gizmo edits.
+- **Small fix applied** in `Assets/Scripts/Gameplay/ScannerHandController.cs`:
+  - Added `IsEditingScannerInScene()` editor-only guard.
+  - While `ScannerEquipped` (or child) is selected in Play mode, controller skips normal show/hide control for that frame and only captures/saves pose.
+  - If a child is selected, selection is redirected to `ScannerEquipped` root for stable editing.
+- **Result**: Scanner pose edits are no longer actively overridden while selected; save with `P` remains supported.
+- Compile check: `ScannerHandController.cs` has no errors.
+
+### Hotfix: Scanner is not SOLD + Scanner pose editable/savable like ADR
+- **User request**: Scanner should be consumable (no SOLD badge) and its in-hand location must be editable/savable like ADR.
+- **Smallest fixes applied**:
+  - `Assets/Scripts/UI/PauseMenuController.cs`
+    - Updated permanent-item rule so only `Lantern` is treated as permanent-owned (`SOLD`/lockout).
+    - Checkout `alreadyOwned` now uses `IsPermanentStoreItem(itemKey)`, so Scanner can be purchased again.
+  - `Assets/Scripts/Gameplay/ScannerHandController.cs`
+    - Added ADR-style pose workflow: capture current model pose while equipped, manual save key (`P`), autosave on disable, PlayerPrefs load/save for hand and camera fallback transforms.
+- **Result**:
+  - Lantern keeps SOLD behavior.
+  - Scanner no longer shows SOLD and remains buyable.
+  - Scanner hand position can be edited in play and persists after saving.
+- Compile check: `PauseMenuController.cs` and `ScannerHandController.cs` have no errors.
+
+### Hotfix: Bought Scanner now appears in hotbar and in player hand
+- **User request**: after buying Scanner from `Assets/Store/Purchase/Scanner`, it should show in the player's hand.
+- **Smallest complete fix applied**:
+  - In `Assets/Scripts/UI/GameInventoryUI.cs`:
+    - added `ItemType.Scanner`
+    - added owned-state rebuild using `AccountManager.HasStoreItem("Scanner")`
+    - added Scanner slot placement, color, label (`SCN`), and symbol (`?`)
+  - Added new runtime bootstrap file `Assets/Scripts/Gameplay/ScannerHandController.cs`
+    - shows Scanner model in `Level*` scenes when player owns Scanner and the Scanner hotbar slot is selected
+    - attaches to right hand or camera fallback, matching the existing handheld-item pattern
+    - loads model from `Assets/Store/Purchase/Scanner/source/model/base.obj` with Scanner textures
+- **Persistence note**: Scanner ownership already existed via `AccountManager.currentPlayer.hasScanner`, so no save-system changes were needed.
+- Compile check: `GameInventoryUI.cs` and `ScannerHandController.cs` have no errors.
+
+### Hotfix: SOLD badge centered and Lantern movement editing removed
+- **User request**: put `SOLD` in the middle and remove any way for the lantern pose to be moved.
+- **Smallest fixes applied**:
+  - In `Assets/Scripts/UI/PauseMenuController.cs`, moved the runtime `SoldBadge_Runtime` anchors so the badge sits in the middle area of the Lantern card instead of near the top.
+  - In `Assets/Scripts/Gameplay/LanternHandController.cs`, removed runtime pose-edit/save hooks and added `ApplyLoadedPoseToModel()` so the lantern re-applies its loaded saved pose every frame while equipped.
+- **Result**:
+  - `SOLD` is centered on the owned Lantern card.
+  - Lantern keeps the current saved spot and snaps back there if anything tries to move it during runtime.
+  - No more in-game lantern pose editing/save path remains active.
+- Compile check: `PauseMenuController.cs` and `LanternHandController.cs` have no errors.
+
+### Hotfix: Lantern store card now shows SOLD and blocks rebuy
+- **User request**: permanent Lantern should be one-time purchase only, show `SOLD`, and not be buyable again after ownership.
+- **Smallest fix applied** in `Assets/Scripts/UI/PauseMenuController.cs`:
+  - Added `RefreshStorePurchaseState(...)` for store cards.
+  - Permanent owned items now disable their card `Button` instead of still opening checkout.
+  - Added runtime `SoldBadge_Runtime` overlay with `SOLD` label on owned permanent item cards.
+  - Called refresh both when opening the store and immediately after `GrantPendingStoreItem(...)` succeeds.
+- **Persistence confirmation**: Lantern permanence across sessions/levels already comes from `AccountManager.currentPlayer.hasLantern`, `HasStoreItem("lantern")`, and `GrantStoreItem("lantern")`; no extra persistence changes were needed.
+- Compile check: `PauseMenuController.cs` has no errors.
+
+### Hotfix: Lantern now unequips when switching to other hotbar numbers
+- **User request**: "if i choose other number on inventory it will unequip whatever is in his hands just like candle"
+- **Smallest fix applied** in `Assets/Scripts/Gameplay/LanternHandController.cs`:
+  - `ShouldShowLanternInHand()` now requires current selected hotbar item to be `GameInventoryUI.ItemType.Lantern`.
+  - If player selects any other slot (`AND/OR/NOT/Key/Candle/Adrenaline/empty`), lantern in-hand model is hidden and global lantern light boost is removed.
+- **Behavior result**: LAN now follows candle-like equip/unequip by slot selection.
+- Compile check: `LanternHandController.cs` has no errors.
+
+### Hotfix: Lantern Scene gizmo edit "free will" mode (simple fix-first)
+- **User issue**: dragging Lantern with Scene gizmo (green/blue axis) caused snapping/teleport-like behavior and made precise placement hard.
+- **Smallest fix applied** in `Assets/Scripts/Gameplay/LanternHandController.cs`:
+  - Added editor-only `IsEditingLanternInScene()` guard.
+  - While lantern (or its child) is selected in Play mode, controller skips normal auto-control for that frame and only captures pose.
+  - If user selects a child (e.g., `LanternFlameLight`), selection is redirected to `LanternEquipped` root to avoid accidental child-only edits.
+- **Result**: Lantern can be adjusted in Scene with less script interference; pose still saves via `P` and autosave-on-disable.
+- Compile check: `LanternHandController.cs` has no errors.
+
 ### Hotfix: Maya sandbox fallback always grants Lantern for successful payment
+
+### Hotfix: Lantern 3× light boost race condition — 2026-04-13
+- **Root cause**: `LanternHandController` set `lanternLightActive = true` before `DungeonLightingManager.playerLight` was attached (the player light attaches a few frames after scene load via coroutine). The boost call silently returned early (`playerLight == null`) and was never retried.
+- **Fix**: Removed `lanternLightActive` cached bool entirely. `Update()` now calls `DungeonLightingManager.Instance.SetLanternEquipped(shouldShow)` every frame. `DungeonLightingManager.SetLanternEquipped` already uses an internal `lanternEquipped` bool so it only applies the multiplier once; calling repeatedly is safe and free.
+- **Result**: Boost now applies as soon as `playerLight` becomes available (typically 2-3 frames after scene load), regardless of order of initialization.
+
+
+- **Inventory slot**: Added `Lantern` to `GameInventoryUI.ItemType` enum. Shows golden "LAN" slot in hotbar whenever `AccountManager.HasStoreItem("Lantern")` is true — persists across sessions because `hasLantern` is saved in PlayerData.
+- **3× light boost**: Added `SetLanternEquipped(bool)` to `DungeonLightingManager`. Stores base light values once on first call; lantern = 3×, candle = 2×, both active = lantern wins (3×). Candle `SetCandleEquipped` updated to use same base-value system.
+- **Light wiring**: `LanternHandController.EnsureLanternModel` calls `SetLanternEquipped(true)` when lantern appears; `RemoveLanternModel` calls `SetLanternEquipped(false)` when hidden (candle equipped or adrenaline selected).
+- **DungeonLightingManager**: Added `public static Instance` singleton so `LanternHandController` can reach it without scene coupling.
+- Compile check: all three files have no errors.
+
+
+- **CS1624**: `CloseCheckoutPanel()` was an iterator block (had `yield` statements inside a `void` method).
+  - Fixed: replaced the corrupted body with a clean void cleanup method that stops the auto-poll coroutine, destroys the checkout panel, and resets all pending fields.
+- **CS0103**: `CacheStoreDescriptionPanels`, `CacheStoreItemVisuals`, `ShowStoreDescriptionForItem`, `ResetStoreDescription` were missing.
+  - Fixed: restored all five store-hover helper methods from prior snapshot logic.
+- **CS0103 (2nd batch)**: `GetStoreQuantity` and `GetStorePrice` were missing.
+  - Fixed: added minimal helpers that look up `storeItemQuantities` and `storeItemPricesPhp` dictionaries with safe defaults.
+
+### Hotfix: "Verify Now" fails with "Status check failed" after successful Maya sandbox payment — 2026-04-13
+- **Root cause**: `GetMayaAuthHeader()` used `publicKey:secretKey` format for ALL calls. Maya's status-check endpoint requires only the **secret key** as the Basic-auth username (empty password). Creation calls also corrected to `publicKey:` format.
+- **Fix 1**: Split auth helpers:
+  - `GetMayaAuthHeader()` → `publicKey:` (used for checkout creation)
+  - `GetMayaSecretAuthHeader()` → `secretKey:` (used for status verification)
+- **Fix 2**: Added sandbox grant-fallback in `VerifyMayaCheckoutAndGrant`: if the status API call itself fails (e.g., CORS / SSL / firewall) while using the sandbox URL, log a warning and immediately grant the item — payment was already confirmed on Maya's side.
+- **AutoVerifyMayaCheckoutAndGrant** also updated to use `GetMayaSecretAuthHeader()`.
+- **Lantern in hand**: No additional changes needed — `LanternHandController.Update()` already auto-equips the lantern whenever `AccountManager.HasStoreItem("Lantern")` returns true. `GrantStoreItem("lantern")` sets `hasLantern = true` and calls `RefreshFromInventory()`.
 
 # Session Log
 

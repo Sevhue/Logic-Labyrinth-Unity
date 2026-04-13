@@ -40163,6 +40163,7 @@ MonoBehaviour:
   baseLightRange: 3
   minSecondsAfterOpenBeforeTransition: 0.15
   recentPlayerTouchGraceSeconds: 0.75
+  level7And8AutoTransitionDelaySeconds: 3
   doorwayTriggerCount: 3
   doorwayTriggerHorizontalSpread: 0.7
 --- !u!64 &1927862195

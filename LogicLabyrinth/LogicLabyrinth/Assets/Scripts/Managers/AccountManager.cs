@@ -39,6 +39,7 @@ public class AccountManager : MonoBehaviour
         public bool hasScanner = false;
         public bool hasLantern = false;
         public int adrenalineCount = 0;
+        public int scannerCount = 0;
 
         // Saved position & rotation for mid-level save
         public float savedPosX = 0f;
@@ -295,6 +296,18 @@ public class AccountManager : MonoBehaviour
             normalized = NormalizeUsernameForLookup(data.usernameLower);
 
         data.usernameLower = normalized;
+
+        if (data.hasScanner && data.scannerCount <= 0)
+        {
+            data.scannerCount = 10;
+            data.hasScanner = false;
+        }
+
+        if (data.scannerCount < 0)
+            data.scannerCount = 0;
+
+        if (data.adrenalineCount < 0)
+            data.adrenalineCount = 0;
     }
 
     private static bool UsernamesMatch(PlayerData data, string normalizedLookup)
@@ -1851,7 +1864,7 @@ public class AccountManager : MonoBehaviour
         switch (itemId.Trim().ToLowerInvariant())
         {
             case "scanner":
-                return currentPlayer.hasScanner;
+                return currentPlayer.scannerCount > 0;
             case "lantern":
                 return currentPlayer.hasLantern;
             case "adrenaline":
@@ -1866,6 +1879,11 @@ public class AccountManager : MonoBehaviour
         return currentPlayer != null ? Mathf.Max(0, currentPlayer.adrenalineCount) : 0;
     }
 
+    public int GetScannerCount()
+    {
+        return currentPlayer != null ? Mathf.Max(0, currentPlayer.scannerCount) : 0;
+    }
+
     public bool ConsumeAdrenaline(int quantity = 1)
     {
         if (currentPlayer == null) return false;
@@ -1878,6 +1896,18 @@ public class AccountManager : MonoBehaviour
         return true;
     }
 
+    public bool ConsumeScanner(int quantity = 1)
+    {
+        if (currentPlayer == null) return false;
+
+        int amount = Mathf.Max(1, quantity);
+        if (currentPlayer.scannerCount < amount) return false;
+
+        currentPlayer.scannerCount -= amount;
+        SavePlayerProgress();
+        return true;
+    }
+
     public void GrantStoreItem(string itemId, int quantity = 1)
     {
         if (currentPlayer == null || string.IsNullOrWhiteSpace(itemId)) return;
@@ -1886,7 +1916,8 @@ public class AccountManager : MonoBehaviour
         switch (key)
         {
             case "scanner":
-                currentPlayer.hasScanner = true;
+                currentPlayer.scannerCount += Mathf.Max(1, quantity);
+                currentPlayer.hasScanner = false;
                 break;
             case "lantern":
                 currentPlayer.hasLantern = true;

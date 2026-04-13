@@ -2104,9 +2104,8 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: A temporary detection tool that reveals hidden logic gates within the environment
-    for a limited time. Once activated, it highlights interactive logic elements
-    before the effect fades.
+  m_text: A powerful boost that grants the player 30 seconds of increased sprint
+    speed, allowing faster movement and quick escapes when it matters most.
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -2894,8 +2893,9 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: A powerful boost that grants the player 30 seconds of increased sprint
-    speed, allowing faster movement and quick escapes when it matters most.
+  m_text: A temporary detection tool that reveals hidden logic gates within the environment
+    for a limited time. Once activated, it highlights interactive logic elements
+    before the effect fades.
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
