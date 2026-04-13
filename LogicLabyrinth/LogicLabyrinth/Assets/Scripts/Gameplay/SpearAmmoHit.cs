@@ -16,7 +16,21 @@ public class SpearAmmoHit : MonoBehaviour
         {
             c.enabled = true;
             if (c is MeshCollider meshCollider)
+            {
                 meshCollider.convex = true;
+
+                // If this mesh cannot be used as trigger, switch to a simple trigger fallback collider.
+                if (!meshCollider.convex)
+                {
+                    SphereCollider fallback = GetComponent<SphereCollider>();
+                    if (fallback == null)
+                        fallback = gameObject.AddComponent<SphereCollider>();
+                    fallback.radius = 0.12f;
+                    fallback.isTrigger = true;
+                    meshCollider.enabled = false;
+                    c = fallback;
+                }
+            }
             c.isTrigger = true;
         }
     }

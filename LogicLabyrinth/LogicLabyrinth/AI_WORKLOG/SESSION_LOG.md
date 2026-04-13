@@ -1,5 +1,264 @@
 # 2026-04-13
 
+### Chapter3 prompt visibility fix (door + key): LevelUI prompt-null fallback
+- **User report**: still no prompt when standing in front of DoorQuestion door; also wants key prompt.
+- **Likely root cause (simple)**: `SimpleGateCollector.ShowPrompt()` preferred `LevelUIManager` whenever present, but `LevelUIManager.interactPrompt` can be unassigned in scene and silently no-op.
+- **Smallest fix** (`Assets/Scripts/Gameplay/SimpleGateCollector.cs`):
+  - `ShowPrompt()` now only uses `LevelUIManager` path when `interactPrompt` is actually assigned.
+  - if not, it falls back to `UIManager`, then `UIManager.SafeShowInteractPrompt(...)`.
+  - same robustness added for `HidePrompt()`.
+  - also hard-matched exact names `DoorQuestion1..4` in Chapter3 fallback path (with existing contains fallback retained).
+- **Result**: prompt rendering no longer disappears just because one scene UI reference is null; applies to both door and key prompts.
+- Compile check: no script errors after patch.
+
+### Chapter3 DoorQuestion prompt reliability follow-up (player standing in front of door)
+- **User report**: even directly in front of DoorQuestion door, `Press E` prompt still missing.
+- **Smallest direct fix** (`Assets/Scripts/Gameplay/SimpleGateCollector.cs`):
+  - added a Chapter3 fallback scan for transforms named like `DoorQuestion` (case-insensitive)
+  - if in front of camera and within interact distance, set it as current Chapter3 question door target even when cast-hit routing fails
+- **Result**: prompt path is no longer dependent only on collider hits for DoorQuestion doors.
+- Compile check: no script errors after patch.
+
+### DoorQuestion name-path hotfix: Chapter3 door prompt now bound to DoorQuestion1..n
+- **User clarification**: affected doors are named `DoorQuestion1` and similar, not generic tutorial door targets.
+- **Smallest direct fix** (`Assets/Scripts/Gameplay/SimpleGateCollector.cs`):
+  - strengthened Chapter3 name detection for question doors:
+    - keep `StartsWith("DoorQuestion")`
+    - add case-insensitive contains fallback (`IndexOf("DoorQuestion", OrdinalIgnoreCase) >= 0`)
+  - changed prompt text for this exact branch from `Press E to answer question` to `Press E to open door`
+- **Result**: DoorQuestion1/2/3/4 path now shows the expected E prompt text on detection.
+- Compile check: no script errors after patch.
+
+### Chapter3 door prompt hotfix: always show `Press E to open door`
+- **User report**: Chapter door still has no `Press E` prompt.
+- **Root cause**: `SimpleGateCollector` only showed tutorial-door prompt in `Level1` and explicitly hid it in other scenes.
+- **Smallest fix** (`Assets/Scripts/Gameplay/SimpleGateCollector.cs`):
+  - for `TutorialDoor` target branch, allow prompt in Chapter scenes (`scene.StartsWith("Chapter")`) in addition to `Level1`
+  - prompt text now explicitly reads `Press E to open door`
+- **Result**: Chapter3 tutorial-door style interactions now show an E prompt instead of being force-hidden.
+- Compile check: no script errors after patch.
+
+### Chapter3 death overlay follow-up: prevent stuck `YOU DIED` screen
+- **User report**: in Chapter3, `YOU DIED` does not disappear.
+- **Root cause**: death routine waited indefinitely for manual `Space` press, so overlay could remain forever if input was missed/not captured.
+- **Smallest fix** (`Assets/StarterAssets/FirstPersonController/Scripts/FirstPersonController.cs`):
+  - in `DeathAndRespawnRoutine()`, keep `Space` respawn behavior
+  - add Chapter-scene auto-respawn fallback after short delay (`2.5s`)
+  - use unscaled time for prompt flashing while waiting
+  - clear death overlay/text alpha right before scene reload
+- **Result**: Chapter3 death screen no longer gets stuck; it auto-clears via reload even without key press.
+- Compile check: no script errors after patch.
+
+### Chapter3 prompt + key-slot + success-door glow + chapter text follow-up
+- **User report**:
+  - no `E` prompt appearing for Chapter3 keys and `Success_Door`
+  - keys should occupy separate hotbar slots (not single stacked `KEY`)
+  - `Success_Door` should glow
+  - transition text should show `CHAPTER 4`
+- **Smallest targeted fixes**:
+  - `Assets/Scripts/Gameplay/SimpleGateCollector.cs`
+    - added Chapter3 fallback detection for `SuccessDoor` when cast misses collider geometry
+    - strengthened prompt routing fallback by refreshing UI refs on-demand and using `UIManager.SafeShowInteractPrompt(...)` if needed
+  - `Assets/Scripts/Gameplay/Chapter3KeyFlowController.cs`
+    - added `CurrentCollectedKeyCount` static runtime state for exact Chapter3 key count
+  - `Assets/Scripts/UI/GameInventoryUI.cs`
+    - changed key target slot count logic:
+      - Chapter3 uses `CurrentCollectedKeyCount` (1 key = 1 slot, 2 keys = 2 slots, etc.)
+      - non-Chapter3 keeps previous single-key-slot behavior
+  - `Assets/Scripts/Gameplay/SuccessDoor.cs`
+    - auto-starts highlight in Chapter3 while closed
+    - transition overlay label now uses `CHAPTER 4` for Chapter3 scene
+- **Result**:
+  - Chapter3 key/door prompts are resilient to collider miss edge-cases
+  - collected Chapter3 keys no longer collapse into one hotbar key slot
+  - `Success_Door` visibly glows in Chapter3
+  - transition title reads `CHAPTER 4`
+- Compile check: pending Unity recompile validation.
+
+### ADR hold-pose regression fix: keep previously saved hand pose in Chapter scenes
+- **User report**: ADR model hold position changed despite earlier pose fix.
+- **Root cause**:
+  - after enabling ADR in Chapter scenes, some runs used camera fallback anchor
+  - ADR camera fallback pose can differ from saved hand pose
+  - `Awake()` also re-saved loaded defaults, which could lock in unintended fallback pose values
+- **Smallest fix** (`Assets/Scripts/Gameplay/AdrenalineConsumableController.cs`):
+  - removed automatic pose write on `Awake()` (no auto-overwrite of prefs)
+  - added `hasSavedCameraPose` tracking
+  - when camera anchor is used and no explicit ADR camera pose exists, reuse saved hand pose
+  - keep explicit camera pose behavior only when user actually saved a camera ADR pose
+- **Result**: ADR uses the previously fixed hold position consistently unless a dedicated camera pose was intentionally saved.
+- Compile check: no script errors after patch.
+
+### Hotbar position follow-up: prevent ADR from jumping ahead of LAN after global compaction
+- **User report**: item position changed after recent global hotbar update.
+- **Root cause**: second-pass fill order placed ADR before LAN when both were newly rebuilt in empty slots.
+- **Smallest fix** (`Assets/Scripts/UI/GameInventoryUI.cs`):
+  - changed second-pass fill priority to place `LAN` before `ADR` while keeping compact-left behavior.
+- **Result**: prevents unexpected ADR/LAN order flip after rebuild.
+- Compile check: no script errors after patch.
+
+### ADR visibility persistence fix across chapters
+- **User report**: ADR slot appears but ADR hand model/visibility behavior is missing in Chapter scene.
+- **Root cause**: `AdrenalineConsumableController` only ran in `Level*` scenes.
+- **Smallest fix** (`Assets/Scripts/Gameplay/AdrenalineConsumableController.cs`):
+  - widened gameplay scene check to include `Chapter*` and `SampleScene`.
+- **Result**: ADR hand model/consume behavior can run in chapter gameplay scenes, matching LAN/SCN persistence behavior.
+- Compile check: no script errors after patch.
+
+### Shop item persistence fix across chapters: Lantern/Scanner hand models now allowed in Chapter scenes
+- **User report**: Lantern appears in Level scenes but not in Chapter3 even when owned and shown in hotbar.
+- **Root cause**: hand controllers only treated scenes starting with `Level` as gameplay, excluding `Chapter*` scenes.
+- **Smallest fix applied**:
+  - `Assets/Scripts/Gameplay/LanternHandController.cs`
+    - widened gameplay-scene check to include `Chapter*` and `SampleScene`
+  - `Assets/Scripts/Gameplay/ScannerHandController.cs`
+    - same scene check update for consistency across shop hand-items
+- **Result**: owned Lantern/Scanner now persist and can render in-hand across levels and chapters.
+- Compile check: no script errors after patch.
+
+### Global hotbar policy update (all levels/chapters): always compact left + auto-select first item
+- **User request**: hotbar behavior should be fixed consistently across all levels/chapters.
+- **Smallest global fix** (`Assets/Scripts/UI/GameInventoryUI.cs`):
+  - removed chapter-specific-only compaction behavior
+  - removed reserved fixed-slot behavior causing empty gaps
+  - now always compacts all items to the left on every rebuild
+  - if no slot is selected and at least one item exists, auto-selects the first non-empty slot (slot 1 when only one item remains)
+- **Result**: consistent hotbar behavior project-wide.
+- Compile check: no script errors after patch.
+
+### Chapter3 follow-up 2: key pickup fallback, away-swing correction, and slot-1 compaction
+- **User report**:
+  - door still opens toward player
+  - key still not collectible
+  - hotbar not auto-compacting to slot 1 when only one item remains
+- **Smallest targeted fixes**:
+  - `Assets/Scripts/Gameplay/SuccessDoor.cs`
+    - flipped Chapter3 side-selection sign so door swing resolves to the opposite side from player (away-swing correction)
+  - `Assets/Scripts/Gameplay/SimpleGateCollector.cs`
+    - added Chapter3 key-detection fallback that picks nearest visible `CollectibleKey` in front of camera when cast misses trigger colliders
+  - `Assets/Scripts/UI/GameInventoryUI.cs`
+    - Chapter3-only: skip reserved store slots, compact all items left every rebuild, and auto-select first non-empty slot (slot 1 when only one item exists)
+- **Result**:
+  - Chapter3 key prompts/pickup no longer depend solely on trigger-hit spherecast
+  - Chapter3 door opening side corrected again for away-from-player behavior
+  - Chapter3 hotbar now left-compacts and auto-selects first available slot
+- Compile check: no script errors after patch.
+
+### Chapter3 follow-up: fixed non-glowing keys, pickup reliability, and door swing direction
+- **User report**: Chapter3 key was not glowing and not collectible; `Success_Door` should open to the other side (away from player).
+- **Simplest fixes applied**:
+  - `Assets/Scripts/Gameplay/Chapter3KeyFlowController.cs`
+    - for active Chapter3 keys (non-decoy):
+      - force success-key mode
+      - extend glow duration (`successGlowDuration = 999f`)
+      - boost glow visibility (`shineIntensity/range`)
+      - enlarge trigger sphere collider for easier pickup
+      - toggle active state once to re-run `OnEnable` and start glow after runtime keyType conversion
+  - `Assets/Scripts/Gameplay/SuccessDoor.cs`
+    - in Chapter3, door open angle now chooses side away from player position so swing does not move toward player
+- **Result**:
+  - Chapter3 keys glow consistently and are easier to collect
+  - Success_Door opens away from player side in Chapter3
+- Compile check: no script errors after patch.
+
+### Chapter3 key-flow update: 4 rooms with 1 random decoy, require 3 keys to unlock Success_Door
+- **User request**:
+  - 4 key rooms in Chapter3, but only 3 keys should be collectible each run
+  - one room should be a decoy with 25% chance (randomly one of four)
+  - keys should be shiny/glowing like Level1 style, collectible, and reflected as `KEY` in inventory
+- **Simplest isolated fix**:
+  - added new runtime-only controller: `Assets/Scripts/Gameplay/Chapter3KeyFlowController.cs`
+  - on Chapter3 load:
+    - finds key objects (`key`, `key (1)`, `key (2)`, `key (3)` style)
+    - forces Chapter3 keys to success-key visual mode (glow/shiny)
+    - randomly disables exactly one key object (25% each), leaving exactly 3 active keys
+  - during play:
+    - tracks collected Chapter3 keys
+    - keeps inventory `KEY` visible after first key pickup
+    - only sets `SuccessDoor.PlayerHasSuccessKey = true` after 3 collected keys
+- **Result**:
+  - exactly one decoy key room per run
+  - exactly 3 collectible keys available every run
+  - Success_Door unlocks only after 3 collected
+  - keys remain collectible and inventory updates as `KEY`
+- Compile check: no script errors after patch.
+
+### Chapter3 follow-up: removed Submit, moved X, and applied fixed Q1-Q30 answer key
+- **User request**:
+  - remove `Submit`
+  - move `X` into the top-right action lane so it is not hidden behind top-right HUD
+  - use provided Q1-Q30 Yes/No answers
+- **Simplest implementation** (`Assets/Scripts/Gameplay/TruthTableDisplay.cs`):
+  - Chapter3 canvas sorting raised so overlay is above gameplay HUD
+  - `Submit` button hidden in Chapter3 mode
+  - `X` moved into the former submit slot area (visible top-right lane)
+  - Yes/No clicks now immediately submit in Chapter3 mode
+  - added fixed Q1-Q30 bool answer key and mapped by panel name (`Q1`..`Q30`)
+  - parser evaluation kept as fallback only if a panel name is non-standard
+- **Result**: Chapter3 now uses direct Yes/No flow without submit, with explicit answer mapping from user-provided key.
+- Compile check: no script errors after patch.
+
+### Chapter3 visual overlap follow-up: show only one Q panel at a time
+- **User report**: Chapter3 question UI opens, but layered visuals appear (duplicate/stacked question text and backgrounds).
+- **Simplest fix first** (`Assets/Scripts/Gameplay/TruthTableDisplay.cs`):
+  - in `ShowChapter3QuestionAtCurrentIndex()`, disable all `Q*` panels first
+  - then enable only the currently selected question panel
+- **Why this fix**: the chapter UI build path can leave multiple `Q*` objects active, causing stacked visuals.
+- **Result**: Chapter3 now renders one question panel at a time.
+- Compile check: no script errors after patch.
+
+### Play-blocker fix: TruthTableDisplay compile error + spear concave trigger fallback
+- **User report**: Unity blocked play with `CS0104` ambiguity in `TruthTableDisplay` (`Random` between `UnityEngine.Random` and `System.Random`), plus repeated concave mesh trigger warnings from spear bootstrap path.
+- **Smallest fixes applied**:
+  - `Assets/Scripts/Gameplay/TruthTableDisplay.cs`
+    - removed unnecessary `using System;`
+    - fully qualified random calls as `UnityEngine.Random.Range(...)`
+  - `Assets/Scripts/Gameplay/SpearShooter.cs`
+    - if `SpearAmmo` mesh collider cannot remain convex, fallback to a small `SphereCollider` trigger and disable mesh collider
+  - `Assets/Scripts/Gameplay/SpearAmmoHit.cs`
+    - same fallback logic for runtime trigger setup to avoid concave trigger failures
+- **Result**:
+  - compile error resolved
+  - spear trigger setup no longer relies on unsupported concave mesh trigger path
+- Validation snapshot: workspace C# error scan currently reports no errors.
+
+### Chapter3 follow-up hotfix: missing "Press E" prompt + invisible question body
+- **User report**: DoorQuestion interaction had no `Press E` prompt, and Chapter3 question body/prefab content appeared invisible (only top strip controls visible).
+- **Root causes fixed**:
+  - `SimpleGateCollector` prioritized regular `TutorialDoor` handling before Chapter3 question targets, which hid prompts outside Level1.
+  - Chapter3 runtime display source selection could bind to a non-question scene object by name, resulting in incomplete UI content.
+- **Smallest fixes**:
+  - `Assets/Scripts/Gameplay/SimpleGateCollector.cs`
+    - moved Chapter3 question branch ahead of regular door handling in prompt selection and E-press execution flow
+    - ensures DoorQuestion targets show `Press E to answer question` and open Chapter3 quiz path first
+  - `Assets/Scripts/Gameplay/TruthTableDisplay.cs`
+    - chapter source now requires real `Q*` panel content before use
+    - added fallback source discovery by scanning transforms for valid question-panel counts
+    - supports scene-backed Chapter3 source object without forcing duplicate/invalid instantiation path
+    - logs detected question-pool size for quick runtime verification
+- **Result**: prompt path is restored for DoorQuestion interaction, and Chapter3 UI now resolves from a valid question-content source.
+- Compile check: no script errors after patch.
+
+### Chapter3 DoorQuestion interaction wiring hotfix (E now opens Chapter3 question flow)
+- **User request**: In Chapter3, interacting with `DoorQuestion1..4` via `E` should open the Chapter3 question UI flow.
+- **Smallest fix** (`Assets/Scripts/Gameplay/SimpleGateCollector.cs`):
+  - added Chapter3-specific detection for nearby transforms named `DoorQuestion*`
+  - added interaction branch to call `TruthTableDisplay.OpenChapter3ForDoor(...)` when those door targets are focused
+  - added prompt text: `Press E to answer question`
+- **Result**: Chapter3 DoorQuestion objects can now invoke the new Chapter3 truth-table challenge flow through existing `E` interaction logic.
+- Compile check: no script errors after patch.
+
+### Chapter3 question mode implemented in TruthTableDisplay (in-progress validation)
+- **User request**: use Chapter3 question pool, shuffle every run, require 3 correct, any wrong => death/game over/reset.
+- **Change** (`Assets/Scripts/Gameplay/TruthTableDisplay.cs`):
+  - added Chapter3 runtime mode entry (`OpenChapter3ForDoor`) and per-door setup
+  - added random question round selection from available `Q*` panels
+  - added Yes/No binding and per-question correctness evaluation
+  - added parser/evaluator for question text format (`Is the output of GATE(...) equal to X?`)
+  - added strict fail-on-first-wrong path (lethal game-over handling)
+  - added pass condition (3 correct opens door and closes UI)
+- **Status**: code patch applied; full in-editor behavior validation remains as the next step.
+
 ### Hotfix: CDL overlay countdown now red and 2:00 duration (shows 1:59 downward)
 - **User request**: make CDL timer text red, extend cooldown/use timer from 1 minute to 2 minutes, and display as `1:59`-style downward countdown.
 - **Change** (`Assets/Scripts/Gameplay/CollectibleCandle.cs`):

@@ -1,5 +1,122 @@
 # Future Plans
 
+## Immediate validation (door + key prompt fallback)
+- In Chapter3, approach `DoorQuestion1..4`; confirm `Press E to open door` is visible.
+- In Chapter3, approach `key`, `key (1)`, `key (2)`, `key (3)`; confirm `Press E to pick up key` is visible.
+- Verify prompt still appears when facing each target from close range without perfect angle alignment.
+- Press E and confirm interactions execute (question UI opens on DoorQuestion; key pickup works on key objects).
+
+## Immediate validation (stand-in-front DoorQuestion prompt)
+- In Chapter3, stand directly in front of each DoorQuestion door (DoorQuestion1..4) at close range.
+- Confirm prompt appears as `Press E to open door` without requiring a perfect collider hit angle.
+- Press E and confirm the question UI opens from each door.
+
+## Immediate validation (DoorQuestion1..n prompt binding)
+- In Chapter3, approach each question door object named DoorQuestion1, DoorQuestion2, DoorQuestion3, and DoorQuestion4.
+- Confirm prompt text appears as `Press E to open door` on each one.
+- Press E on each and confirm it still opens the Chapter3 question flow (no behavior regression).
+
+## Immediate validation (Chapter door E prompt visibility)
+- In Chapter3, face a `TutorialDoor`-based locked/openable door at interaction range.
+- Confirm prompt appears as `Press E to open door`.
+- Press `E` and confirm door interaction still executes correctly (open/locked message depending on key state).
+
+## Immediate validation (Chapter3 `YOU DIED` no longer stuck)
+- Trigger death in Chapter3 and do not press any keys.
+- Confirm death overlay auto-respawns/reloads after a short delay (~2.5s) instead of staying forever.
+- Trigger death again and press `Space`; confirm manual respawn still works immediately.
+
+## Immediate validation (Chapter3 prompts + multi-key slots + glow + chapter text)
+- Enter Chapter3 and approach an active key; confirm `Press E to pick up key` appears reliably.
+- Approach `Success_Door`; confirm `Press E to open` appears reliably before unlock.
+- Collect keys one-by-one and confirm hotbar shows separate `KEY` slots per collected key (1/2/3 distinct slots).
+- Confirm `Success_Door` glow is visible while closed in Chapter3.
+- Open `Success_Door` after collecting 3 keys and confirm transition overlay text shows `CHAPTER 4`.
+
+## Immediate validation (ADR hold-pose consistency)
+- Enter a Level scene and Chapter3 scene with ADR selected.
+- Confirm ADR hold position/rotation matches the previously fixed user pose in both scenes.
+- Confirm no sudden ADR pose jump when switching scenes or when fallback camera anchor is used.
+- If needed, save a new ADR pose with `P` once and verify it persists after restart.
+
+## Immediate validation (ADR/LAN ordering stability)
+- Enter scene with both Lantern ownership and ADR charges.
+- Confirm hotbar rebuild keeps `LAN` before `ADR` (no unexpected position flip).
+- Switch scenes and return; confirm ordering remains stable after refresh/rebuild.
+
+## Immediate validation (ADR in chapters)
+- Enter Chapter3 with ADR charges and select `ADR`; confirm ADR hand model appears.
+- Press `F` on ADR in Chapter3 and confirm consume flow triggers as expected.
+- Confirm ADR count decreases and hotbar updates correctly after consume.
+
+## Immediate validation (shop hand-item persistence in chapters)
+- Enter Chapter3 with owned Lantern and select `LAN`; confirm lantern model appears in hand.
+- Enter Chapter3 with Scanner charges and select `SCN`; confirm scanner model appears in hand.
+- Switch between Level and Chapter scenes and confirm Lantern/Scanner hand models persist consistently when selected.
+- Confirm deselecting/swapping slots still hides the hand model correctly.
+
+## Immediate validation (global hotbar consistency)
+- Enter multiple scenes (Level and Chapter) and collect different item combinations.
+- Confirm hotbar always fills left-to-right without reserved-slot gaps.
+- Confirm with only one item remaining it appears in slot 1.
+- Confirm when nothing is selected and items exist, first non-empty slot is auto-selected.
+
+## Immediate validation (Chapter3 pickup fallback + slot-1 compaction + door-side correction)
+- Enter Chapter3 and approach an active key; confirm `Press E to pick up key` appears and pickup succeeds.
+- Confirm KEY appears in hotbar and items are compacted from slot 1 left-to-right (no Chapter3 reserved LAN/ADR/SCN slots).
+- With only one item left, confirm it appears in slot 1 and slot 1 is auto-selected.
+- Unlock `Success_Door` and confirm door opens away from the player side.
+
+## Immediate validation (Chapter3 key glow/pickup + away-swing door)
+- Enter Chapter3 and confirm each active key has visible glow/shimmer.
+- Approach active keys and confirm `Press E to pick up key` appears and pickup succeeds reliably.
+- Confirm picked keys appear as `KEY` in inventory/hotbar.
+- Open `Success_Door` after required keys and confirm door swings to the opposite side (away from player).
+- Retest from both approach sides to ensure no toward-player swing in Chapter3.
+
+## Immediate validation (Chapter3 3-of-4 key + decoy flow)
+- Enter Chapter3 and confirm one of the four key rooms has no collectible key (decoy), while three keys are present.
+- Restart Play mode multiple times and confirm the decoy room changes randomly (25% each key slot over runs).
+- Collect 1 key and confirm `KEY` appears in hotbar/inventory.
+- Try opening `Success_Door` with fewer than 3 keys and confirm it stays locked.
+- Collect all 3 active keys and confirm `Success_Door` can then unlock/open.
+- Confirm collected keys do not reappear during the same run after pickup/open.
+
+## Immediate validation (Chapter3 submit removal + X visibility + fixed answers)
+- Open Chapter3 and interact with DoorQuestion.
+- Confirm `Submit` is not visible.
+- Confirm `X` is visible in the top-right action lane and clickable.
+- Click `Yes` or `No` and confirm it auto-submits immediately (no extra click needed).
+- Spot-check fixed key behavior on known questions (for example Q1 `Yes`, Q3 `No`, Q30 `No`).
+
+## Immediate validation (Chapter3 one-panel-only visual fix)
+- Open Chapter3 and press `E` on a DoorQuestion.
+- Confirm only one question panel is visible (no stacked duplicate text/background layers).
+- Submit correct answer and confirm next question also shows as a single panel.
+- Retry interaction and confirm randomized order still works while remaining single-panel.
+
+## Immediate validation (play-blocker compile + spear fallback)
+- Reopen Unity and let scripts recompile; confirm no `CS0104` on `TruthTableDisplay`.
+- Enter a spear-trap scene and confirm no `Triggers on concave MeshColliders are not supported` logs appear from `SpearShooter` or `SpearAmmoHit`.
+- Confirm spear still deals 10 damage and deactivates ammo on valid hit.
+- If Burst still reports missing `Assembly-CSharp-Editor`, restart Unity once after successful compile so Burst re-queries regenerated editor assemblies.
+
+## Immediate validation (Chapter3 prompt + full question body visibility follow-up)
+- Stand near each `DoorQuestion1..4` in Chapter3 and confirm prompt shows `Press E to answer question`.
+- Press `E` and confirm question UI body is visible (question text + Yes/No buttons), not only top controls.
+- Confirm Console logs include Chapter3 pool discovery line from `TruthTableDisplay` (question pool count > 0).
+- Answer one question wrong and confirm immediate death/game-over path still triggers.
+- Retry and confirm question order changes between runs (shuffle still active).
+
+## Immediate validation (Chapter3 DoorQuestion strict quiz flow)
+- Open `Assets/Scenes/Chapter 3/Chapter3.unity` and enter Play mode.
+- Interact with `DoorQuestion1`, `DoorQuestion2`, `DoorQuestion3`, and `DoorQuestion4` using `E`; confirm each opens Chapter3 question UI.
+- Confirm each interaction shuffles question order (no fixed first-three sequence across retries).
+- Confirm exactly 3 correct answers are required to pass and open that door.
+- Confirm any single wrong answer immediately triggers death/game-over/reset behavior.
+- Confirm prompt text shows `Press E to answer question` near DoorQuestion targets.
+- If any DoorQuestion object fails to open, verify object naming still starts with `DoorQuestion` and capture console logs from `[SGC]` and `TruthTableDisplay`.
+
 ## Immediate validation (Burst + scene recovery after spear/menu hotfix)
 - Reopen Unity and let script/domain reload complete fully.
 - Open `Assets/Scenes/Menu/Main.unity` and confirm no `Broken text PPtr` / `BackButton duplicate component` warnings appear.

@@ -5,6 +5,7 @@ using TMPro;
 using StarterAssets;
 using System.Collections;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 /// <summary>
 /// Attach to the TruthDoor in Level 7.
@@ -28,6 +29,13 @@ public class TruthTableDisplay : MonoBehaviour
 
     [Header("Attempts")]
     public int maxAttempts = 3;
+
+    [Header("Chapter 3 Mode")]
+    [Tooltip("When enabled, selects random Q panels and uses Yes/No evaluation from question text.")]
+    public bool useChapter3QuestionMode = false;
+    [Tooltip("How many random questions must be answered correctly per interaction.")]
+    public int chapter3QuestionsToAnswer = 3;
+
     [Header("Door")]
     [Tooltip("Door transform to rotate open when the answer is correct. Defaults to this object.")]
     public Transform doorToOpen;
@@ -53,15 +61,52 @@ public class TruthTableDisplay : MonoBehaviour
     private bool _doorOpened;
     private Quaternion _doorClosedRotation;
     private Quaternion _doorOpenRotation;
+    private int _chapter3SolvedCount;
+    private int _chapter3QuestionIndex;
+    private readonly List<Transform> _chapter3RoundQuestions = new List<Transform>();
+    private bool? _chapter3SelectedAnswer;
+    private Button _chapter3YesButton;
+    private Button _chapter3NoButton;
+    private static TruthTableDisplay _chapter3RuntimeDisplay;
+
+    private static readonly Regex Chapter3QuestionRegex = new Regex(
+        @"Is the output of\s+([A-Za-z]+)\((\d)(?:\s*,\s*(\d))?\)\s+equal to\s+(\d)\?",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex QuestionNameRegex = new Regex(@"^Q\d+$", RegexOptions.Compiled);
+    private static readonly bool[] Chapter3AnswerKey = new bool[]
+    {
+        true,  true,  false, true,  false,
+        true,  true,  false, false, true,
+        true,  false, true,  true,  true,
+        false, true,  true,  false, true,
+        true,  true,  false, true,  false,
+        true,  true,  false, false, false
+    };
 
     // ─────────────────────────────────────────────────────────────
     //  PUBLIC API
     // ─────────────────────────────────────────────────────────────
 
+    public static void OpenChapter3ForDoor(Transform doorTransform)
+    {
+        if (doorTransform == null)
+            return;
+
+        if (_chapter3RuntimeDisplay == null)
+        {
+            GameObject go = new GameObject("Chapter3TruthTableDisplayRuntime");
+            _chapter3RuntimeDisplay = go.AddComponent<TruthTableDisplay>();
+        }
+
+        _chapter3RuntimeDisplay.ConfigureChapter3Runtime(doorTransform);
+        _chapter3RuntimeDisplay.OpenDisplay();
+    }
+
     public void OpenDisplay()
     {
         if (IsOpen) return;
-        if (_solved) return;
+        if (_solved && !useChapter3QuestionMode) return;
 
         if (displayPanelPrefab == null)
         {
@@ -73,7 +118,22 @@ public class TruthTableDisplay : MonoBehaviour
             BuildUI();
 
         _canvasGO.SetActive(true);
-        RandomlySelectOneQuestionPanel();
+
+        if (useChapter3QuestionMode)
+        {
+            _solved = false;
+            _attemptsUsed = 0;
+            _chapter3SolvedCount = 0;
+            _chapter3QuestionIndex = 0;
+            _chapter3SelectedAnswer = null;
+            PrepareChapter3Round();
+            ShowChapter3QuestionAtCurrentIndex();
+        }
+        else
+        {
+            RandomlySelectOneQuestionPanel();
+        }
+
         IsOpen = true;
 
         Cursor.lockState = CursorLockMode.None;
@@ -112,22 +172,26 @@ public class TruthTableDisplay : MonoBehaviour
 
     private void BuildUI()
     {
-        // Add Canvas directly to Level7 — this is the only approach that renders.
-        // With the clean hierarchy (Level7 -> Background + Q1..Q5), no overlap occurs.
-        _canvasGO = Instantiate(displayPanelPrefab);
+        bool sourceIsSceneObject = displayPanelPrefab.scene.IsValid();
+        _canvasGO = sourceIsSceneObject ? displayPanelPrefab : Instantiate(displayPanelPrefab);
         _panelInstance = _canvasGO;
         RecursivelyEnable(_canvasGO);
 
-        Canvas canvas = _canvasGO.AddComponent<Canvas>();
+        Canvas canvas = _canvasGO.GetComponent<Canvas>();
+        if (canvas == null)
+            canvas = _canvasGO.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 500;
+        canvas.sortingOrder = useChapter3QuestionMode ? 3000 : 500;
 
-        CanvasScaler scaler = _canvasGO.AddComponent<CanvasScaler>();
+        CanvasScaler scaler = _canvasGO.GetComponent<CanvasScaler>();
+        if (scaler == null)
+            scaler = _canvasGO.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920, 1080);
         scaler.matchWidthOrHeight = 0.5f;
 
-        _canvasGO.AddComponent<GraphicRaycaster>();
+        if (_canvasGO.GetComponent<GraphicRaycaster>() == null)
+            _canvasGO.AddComponent<GraphicRaycaster>();
 
         if (doorToOpen == null)
             doorToOpen = transform;
@@ -138,9 +202,42 @@ public class TruthTableDisplay : MonoBehaviour
         }
 
         BuildControlsUI();
-        BuildBinaryInputUI();
-        BuildTutorialUI();
+        if (!useChapter3QuestionMode)
+        {
+            BuildBinaryInputUI();
+            BuildTutorialUI();
+        }
         BuildFeedbackUI();
+    }
+
+    private void ConfigureChapter3Runtime(Transform doorTransform)
+    {
+        useChapter3QuestionMode = true;
+        chapter3QuestionsToAnswer = Mathf.Max(1, chapter3QuestionsToAnswer);
+        maxAttempts = 1;
+        _doorOpened = false;
+        _solved = false;
+        doorToOpen = doorTransform;
+
+        if (doorToOpen != null)
+        {
+            _doorClosedRotation = doorToOpen.localRotation;
+            _doorOpenRotation = _doorClosedRotation * Quaternion.Euler(0f, openAngleY, 0f);
+        }
+
+        if (displayPanelPrefab == null)
+        {
+            displayPanelPrefab = FindChapter3QuestionSource();
+        }
+        else if (!HasChapter3QuestionContent(displayPanelPrefab.transform))
+        {
+            displayPanelPrefab = FindChapter3QuestionSource();
+        }
+
+        if (displayPanelPrefab == null)
+        {
+            Debug.LogError("[TruthTableDisplay] Could not find a valid Chapter3 question source with Q panels.");
+        }
     }
 
     /// <summary>
@@ -199,8 +296,17 @@ public class TruthTableDisplay : MonoBehaviour
         closeGO.transform.SetParent(_canvasGO.transform, false);
 
         RectTransform closeRect = closeGO.AddComponent<RectTransform>();
-        closeRect.anchorMin = new Vector2(0.93f, 0.91f);
-        closeRect.anchorMax = new Vector2(0.99f, 0.98f);
+        if (useChapter3QuestionMode)
+        {
+            // Chapter3: Submit is removed, so move X into the visible top-right action lane.
+            closeRect.anchorMin = new Vector2(0.78f, 0.91f);
+            closeRect.anchorMax = new Vector2(0.92f, 0.98f);
+        }
+        else
+        {
+            closeRect.anchorMin = new Vector2(0.93f, 0.91f);
+            closeRect.anchorMax = new Vector2(0.99f, 0.98f);
+        }
         closeRect.offsetMin = Vector2.zero;
         closeRect.offsetMax = Vector2.zero;
 
@@ -212,6 +318,9 @@ public class TruthTableDisplay : MonoBehaviour
         closeBtn.onClick.AddListener(CloseDisplay);
 
         AddLabel(closeGO, "X", 18);
+
+        if (useChapter3QuestionMode && _submitButton != null)
+            _submitButton.gameObject.SetActive(false);
     }
 
     private static void AddLabel(GameObject parent, string text, float size)
@@ -468,6 +577,12 @@ public class TruthTableDisplay : MonoBehaviour
 
     private void OnSubmit()
     {
+        if (useChapter3QuestionMode)
+        {
+            SubmitChapter3Answer();
+            return;
+        }
+
         if (_solved || _attemptsUsed >= maxAttempts) return;
 
         string qName = _activeQuestionPanel != null ? _activeQuestionPanel.name : string.Empty;
@@ -639,6 +754,9 @@ public class TruthTableDisplay : MonoBehaviour
 
     private void TriggerGameOver()
     {
+        if (IsOpen)
+            CloseDisplay();
+
         // Mirror PuzzleTableController.DelayedGameOver(): apply lethal damage → death overlay + respawn.
         FirstPersonController fpc = FindFirstObjectByType<FirstPersonController>();
         if (fpc != null && !fpc.IsDead)
@@ -650,6 +768,18 @@ public class TruthTableDisplay : MonoBehaviour
 
     private void RefreshAttemptsUI()
     {
+        if (useChapter3QuestionMode)
+        {
+            int target = Mathf.Max(1, chapter3QuestionsToAnswer);
+            int current = Mathf.Min(target, _chapter3SolvedCount + 1);
+            if (_attemptsText != null)
+                _attemptsText.text = $"Question: {current}/{target}";
+
+            if (_submitButton != null)
+                _submitButton.interactable = true;
+            return;
+        }
+
         int remaining = maxAttempts - _attemptsUsed;
 
         if (_attemptsText != null)
@@ -718,7 +848,7 @@ public class TruthTableDisplay : MonoBehaviour
             return;
         }
 
-        int selectedIndex = Random.Range(0, questionPanels.Count);
+        int selectedIndex = UnityEngine.Random.Range(0, questionPanels.Count);
         Transform selectedPanel = questionPanels[selectedIndex];
         for (int i = 0; i < questionPanels.Count; i++)
         {
@@ -727,5 +857,285 @@ public class TruthTableDisplay : MonoBehaviour
         }
 
         BindUnknownCells(selectedPanel);
+    }
+
+    private void PrepareChapter3Round()
+    {
+        _chapter3RoundQuestions.Clear();
+
+        if (_panelInstance == null)
+            return;
+
+        List<Transform> allQuestions = new List<Transform>();
+        foreach (Transform t in _panelInstance.GetComponentsInChildren<Transform>(true))
+        {
+            if (t == null) continue;
+            if (QuestionNameRegex.IsMatch(t.name))
+                allQuestions.Add(t);
+        }
+
+        if (allQuestions.Count == 0)
+        {
+            Debug.LogWarning("[TruthTableDisplay] Chapter 3 mode: No Q1..Qn panels found.");
+            return;
+        }
+
+        for (int i = allQuestions.Count - 1; i > 0; i--)
+        {
+            int j = UnityEngine.Random.Range(0, i + 1);
+            Transform tmp = allQuestions[i];
+            allQuestions[i] = allQuestions[j];
+            allQuestions[j] = tmp;
+        }
+
+        int need = Mathf.Clamp(chapter3QuestionsToAnswer, 1, allQuestions.Count);
+        for (int i = 0; i < need; i++)
+            _chapter3RoundQuestions.Add(allQuestions[i]);
+
+        Debug.Log($"[TruthTableDisplay] Chapter3 question pool found: {allQuestions.Count}, selected: {_chapter3RoundQuestions.Count}.");
+    }
+
+    private void ShowChapter3QuestionAtCurrentIndex()
+    {
+        if (_panelInstance == null)
+            return;
+
+        // Keep exactly one question panel active to avoid layered/duplicate visuals.
+        foreach (Transform t in _panelInstance.GetComponentsInChildren<Transform>(true))
+        {
+            if (t != null && QuestionNameRegex.IsMatch(t.name))
+                t.gameObject.SetActive(false);
+        }
+
+        if (_chapter3QuestionIndex >= 0 && _chapter3QuestionIndex < _chapter3RoundQuestions.Count)
+        {
+            Transform selected = _chapter3RoundQuestions[_chapter3QuestionIndex];
+            if (selected != null)
+                selected.gameObject.SetActive(true);
+        }
+
+        _activeQuestionPanel = (_chapter3QuestionIndex >= 0 && _chapter3QuestionIndex < _chapter3RoundQuestions.Count)
+            ? _chapter3RoundQuestions[_chapter3QuestionIndex]
+            : null;
+
+        _chapter3SelectedAnswer = null;
+        BindChapter3YesNoButtons(_activeQuestionPanel);
+        RefreshAttemptsUI();
+    }
+
+    private void BindChapter3YesNoButtons(Transform questionPanel)
+    {
+        _chapter3YesButton = null;
+        _chapter3NoButton = null;
+
+        if (questionPanel == null)
+            return;
+
+        foreach (Button b in questionPanel.GetComponentsInChildren<Button>(true))
+        {
+            if (b == null) continue;
+            string n = b.gameObject.name.Trim();
+
+            if (n.Equals("Yes", System.StringComparison.OrdinalIgnoreCase))
+                _chapter3YesButton = b;
+            else if (n.Equals("No", System.StringComparison.OrdinalIgnoreCase))
+                _chapter3NoButton = b;
+        }
+
+        if (_chapter3YesButton != null)
+        {
+            _chapter3YesButton.onClick.RemoveAllListeners();
+            _chapter3YesButton.onClick.AddListener(() =>
+            {
+                _chapter3SelectedAnswer = true;
+                SubmitChapter3Answer();
+            });
+        }
+
+        if (_chapter3NoButton != null)
+        {
+            _chapter3NoButton.onClick.RemoveAllListeners();
+            _chapter3NoButton.onClick.AddListener(() =>
+            {
+                _chapter3SelectedAnswer = false;
+                SubmitChapter3Answer();
+            });
+        }
+    }
+
+    private void SubmitChapter3Answer()
+    {
+        if (_activeQuestionPanel == null)
+            return;
+
+        if (!_chapter3SelectedAnswer.HasValue)
+        {
+            ShowFeedback("SELECT YES/NO", new Color(1f, 0.8f, 0.2f, 1f), 1.0f, 46f);
+            return;
+        }
+
+        if (!TryGetChapter3ExpectedAnswer(_activeQuestionPanel, out bool expectedAnswer))
+        {
+            if (!TryEvaluateChapter3Statement(_activeQuestionPanel, out expectedAnswer))
+            {
+                ShowFeedback("INVALID QUESTION", new Color(1f, 0.7f, 0.2f, 1f), 1.0f, 42f);
+                return;
+            }
+        }
+
+        bool isCorrect = _chapter3SelectedAnswer.Value == expectedAnswer;
+        if (!isCorrect)
+        {
+            ShowFeedback("WRONG!", new Color(1f, 0.1f, 0.1f, 1f), 0.9f, 80f);
+            TriggerGameOver();
+            return;
+        }
+
+        _chapter3SolvedCount++;
+        if (_chapter3SolvedCount >= Mathf.Max(1, chapter3QuestionsToAnswer))
+        {
+            _solved = true;
+            ShowFeedback("CORRECT!", new Color(0.2f, 1f, 0.3f, 1f), 0.9f, 70f);
+            if (AudioManager.Instance != null)
+                AudioManager.Instance.PlayCorrectAnswerSound();
+            OpenDoor();
+            StartCoroutine(CloseAfterDelay(0.35f));
+            return;
+        }
+
+        _chapter3QuestionIndex = Mathf.Min(_chapter3QuestionIndex + 1, _chapter3RoundQuestions.Count - 1);
+        ShowFeedback("CORRECT", new Color(0.2f, 1f, 0.3f, 1f), 0.45f, 62f);
+        ShowChapter3QuestionAtCurrentIndex();
+    }
+
+    private bool TryGetChapter3ExpectedAnswer(Transform questionPanel, out bool expectedAnswer)
+    {
+        expectedAnswer = false;
+        if (questionPanel == null)
+            return false;
+
+        Match m = Regex.Match(questionPanel.name, @"^Q(\d+)$", RegexOptions.IgnoreCase);
+        if (!m.Success)
+            return false;
+
+        if (!int.TryParse(m.Groups[1].Value, out int qIndex))
+            return false;
+
+        if (qIndex < 1 || qIndex > Chapter3AnswerKey.Length)
+            return false;
+
+        expectedAnswer = Chapter3AnswerKey[qIndex - 1];
+        return true;
+    }
+
+    private bool TryEvaluateChapter3Statement(Transform questionPanel, out bool statementTrue)
+    {
+        statementTrue = false;
+        if (questionPanel == null)
+            return false;
+
+        TextMeshProUGUI questionText = null;
+        foreach (TextMeshProUGUI tmp in questionPanel.GetComponentsInChildren<TextMeshProUGUI>(true))
+        {
+            if (tmp == null || string.IsNullOrWhiteSpace(tmp.text)) continue;
+            string t = tmp.text.Trim();
+            if (t.StartsWith("Is the output of", System.StringComparison.OrdinalIgnoreCase))
+            {
+                questionText = tmp;
+                break;
+            }
+        }
+
+        if (questionText == null)
+            return false;
+
+        Match m = Chapter3QuestionRegex.Match(questionText.text.Trim());
+        if (!m.Success)
+            return false;
+
+        string gate = m.Groups[1].Value.Trim().ToUpperInvariant();
+        int a = int.Parse(m.Groups[2].Value);
+        int b = m.Groups[3].Success ? int.Parse(m.Groups[3].Value) : 0;
+        int expected = int.Parse(m.Groups[4].Value);
+
+        int output;
+        switch (gate)
+        {
+            case "NOT":
+                output = (a == 0) ? 1 : 0;
+                break;
+            case "AND":
+                output = (a == 1 && b == 1) ? 1 : 0;
+                break;
+            case "OR":
+                output = (a == 1 || b == 1) ? 1 : 0;
+                break;
+            case "NAND":
+                output = (a == 1 && b == 1) ? 0 : 1;
+                break;
+            case "NOR":
+                output = (a == 1 || b == 1) ? 0 : 1;
+                break;
+            case "XOR":
+                output = (a != b) ? 1 : 0;
+                break;
+            default:
+                return false;
+        }
+
+        statementTrue = (output == expected);
+        return true;
+    }
+
+    private static GameObject FindChapter3QuestionSource()
+    {
+        GameObject named = GameObject.Find("Chapter3");
+        if (named != null && HasChapter3QuestionContent(named.transform))
+            return named;
+
+        named = GameObject.Find("Chapter 3");
+        if (named != null && HasChapter3QuestionContent(named.transform))
+            return named;
+
+        Transform[] allTransforms = FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        GameObject best = null;
+        int bestCount = 0;
+
+        for (int i = 0; i < allTransforms.Length; i++)
+        {
+            Transform t = allTransforms[i];
+            if (t == null) continue;
+
+            int questionCount = CountQuestionPanels(t);
+            if (questionCount > bestCount && questionCount >= 5)
+            {
+                bestCount = questionCount;
+                best = t.gameObject;
+            }
+        }
+
+        if (best != null)
+            Debug.Log($"[TruthTableDisplay] Auto-selected Chapter3 source '{best.name}' with {bestCount} Q panels.");
+
+        return best;
+    }
+
+    private static bool HasChapter3QuestionContent(Transform root)
+    {
+        if (root == null)
+            return false;
+
+        return CountQuestionPanels(root) >= 5;
+    }
+
+    private static int CountQuestionPanels(Transform root)
+    {
+        int count = 0;
+        foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
+        {
+            if (t != null && QuestionNameRegex.IsMatch(t.name))
+                count++;
+        }
+        return count;
     }
 }

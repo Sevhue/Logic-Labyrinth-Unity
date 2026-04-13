@@ -60,6 +60,9 @@ public class SuccessDoor : MonoBehaviour
         triggerCollider = bc;
         EnsureRedundantDoorwayTriggers(bc);
 
+        if (SceneManager.GetActiveScene().name == "Chapter3" && !IsDoorOpen)
+            StartHighlight();
+
         Debug.Log("[SuccessDoor] Component initialized on " + gameObject.name);
     }
 
@@ -289,7 +292,28 @@ public class SuccessDoor : MonoBehaviour
 
         // ── 1. Swing the door open ──
         Quaternion startRot = transform.localRotation;
-        Quaternion endRot = startRot * Quaternion.Euler(0f, 90f, 0f);
+        float openAngle = 90f;
+        if (SceneManager.GetActiveScene().name == "Chapter3")
+        {
+            // Chapter3: swing away from the player's side instead of toward the player.
+            Transform player = null;
+            GameObject playerGO = GameObject.FindGameObjectWithTag("Player");
+            if (playerGO != null)
+                player = playerGO.transform;
+
+            if (player != null)
+            {
+                Vector3 toPlayer = player.position - transform.position;
+                float side = Vector3.Dot(transform.right, toPlayer.normalized);
+                openAngle = side >= 0f ? 90f : -90f;
+            }
+            else
+            {
+                openAngle = -90f;
+            }
+        }
+
+        Quaternion endRot = startRot * Quaternion.Euler(0f, openAngle, 0f);
         float duration = 1f;
         float elapsed = 0f;
 
@@ -418,8 +442,9 @@ public class SuccessDoor : MonoBehaviour
         CanvasGroup fadeCG = fadeGO.GetComponent<CanvasGroup>();
         fadeCG.alpha = 0f;
 
-        if (targetLevelForTransition > 0)
-            AddLevelTransitionText(fadeGO.transform, targetLevelForTransition);
+        string transitionLabel = GetTransitionLabel(sceneLevelForLoad, targetLevelForTransition);
+        if (!string.IsNullOrEmpty(transitionLabel))
+            AddTransitionText(fadeGO.transform, transitionLabel);
 
         // Keep the overlay alive across scene loads so the new scene fades in from black
         Object.DontDestroyOnLoad(fadeGO);
@@ -534,9 +559,20 @@ public class SuccessDoor : MonoBehaviour
         return 2;
     }
 
-    private void AddLevelTransitionText(Transform parent, int levelNumber)
+    private string GetTransitionLabel(int sceneLevelForLoad, int targetLevelForTransition)
     {
-        if (parent == null || levelNumber <= 0) return;
+        if (SceneManager.GetActiveScene().name == "Chapter3")
+            return "CHAPTER 4";
+
+        if (targetLevelForTransition > 0)
+            return $"LEVEL {targetLevelForTransition}";
+
+        return sceneLevelForLoad > 0 ? $"LEVEL {sceneLevelForLoad + 1}" : string.Empty;
+    }
+
+    private void AddTransitionText(Transform parent, string label)
+    {
+        if (parent == null || string.IsNullOrEmpty(label)) return;
 
         GameObject textGO = new GameObject("LevelTransitionText");
         textGO.transform.SetParent(parent, false);
@@ -548,7 +584,7 @@ public class SuccessDoor : MonoBehaviour
         rt.offsetMax = Vector2.zero;
 
         TextMeshProUGUI tmp = textGO.AddComponent<TextMeshProUGUI>();
-        tmp.text = $"LEVEL {levelNumber}";
+        tmp.text = label;
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.enableAutoSizing = true;
         tmp.fontSizeMin = 64;

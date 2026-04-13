@@ -115,7 +115,8 @@ public class LanternHandController : MonoBehaviour
     private bool IsGameplayLevelScene()
     {
         string sceneName = SceneManager.GetActiveScene().name;
-        return !string.IsNullOrEmpty(sceneName) && sceneName.StartsWith("Level");
+        return !string.IsNullOrEmpty(sceneName)
+               && (sceneName.StartsWith("Level") || sceneName.StartsWith("Chapter") || sceneName == "SampleScene");
     }
 
     private void EnsureLanternModel()

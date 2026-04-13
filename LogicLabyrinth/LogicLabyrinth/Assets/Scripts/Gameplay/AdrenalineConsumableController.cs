@@ -95,6 +95,7 @@ public class AdrenalineConsumableController : MonoBehaviour
     private bool attachedToCamera;
     private Coroutine drinkRoutine;
     private bool consumeTipShown;
+    private bool hasSavedCameraPose;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Bootstrap()
@@ -109,7 +110,6 @@ public class AdrenalineConsumableController : MonoBehaviour
     private void Awake()
     {
         LoadSavedPose();
-        SaveLoadedPoseToPrefs();
         consumeTipShown = PlayerPrefs.GetInt(PrefConsumeTipShown, 0) == 1;
     }
 
@@ -370,7 +370,8 @@ public class AdrenalineConsumableController : MonoBehaviour
     private static bool IsGameplayLevelScene()
     {
         string sceneName = SceneManager.GetActiveScene().name;
-        return !string.IsNullOrEmpty(sceneName) && sceneName.StartsWith("Level");
+        return !string.IsNullOrEmpty(sceneName)
+               && (sceneName.StartsWith("Level") || sceneName.StartsWith("Chapter") || sceneName == "SampleScene");
     }
 
     private static bool IsTypingIntoInputField()
@@ -411,8 +412,16 @@ public class AdrenalineConsumableController : MonoBehaviour
 
         if (attachedToCamera)
         {
-            equippedModel.transform.localPosition = cameraFallbackLocalPosition;
-            equippedModel.transform.localRotation = Quaternion.Euler(cameraFallbackLocalEuler);
+            if (hasSavedCameraPose)
+            {
+                equippedModel.transform.localPosition = cameraFallbackLocalPosition;
+                equippedModel.transform.localRotation = Quaternion.Euler(cameraFallbackLocalEuler);
+            }
+            else
+            {
+                equippedModel.transform.localPosition = handLocalPosition;
+                equippedModel.transform.localRotation = Quaternion.Euler(handLocalEuler);
+            }
         }
         else
         {
@@ -446,8 +455,16 @@ public class AdrenalineConsumableController : MonoBehaviour
 
         if (attachedToCamera)
         {
-            equippedModel.transform.localPosition = cameraFallbackLocalPosition;
-            equippedModel.transform.localRotation = Quaternion.Euler(cameraFallbackLocalEuler);
+            if (hasSavedCameraPose)
+            {
+                equippedModel.transform.localPosition = cameraFallbackLocalPosition;
+                equippedModel.transform.localRotation = Quaternion.Euler(cameraFallbackLocalEuler);
+            }
+            else
+            {
+                equippedModel.transform.localPosition = handLocalPosition;
+                equippedModel.transform.localRotation = Quaternion.Euler(handLocalEuler);
+            }
         }
         else
         {
@@ -483,6 +500,7 @@ public class AdrenalineConsumableController : MonoBehaviour
         {
             cameraFallbackLocalPosition = p;
             cameraFallbackLocalEuler = r;
+            hasSavedCameraPose = true;
         }
         else
         {
@@ -521,11 +539,21 @@ public class AdrenalineConsumableController : MonoBehaviour
         if (!IsReasonableScale(handLocalScale))
             handLocalScale = DefaultHandScale;
 
-        if (HasVector3(PrefCamPosX, PrefCamPosY, PrefCamPosZ))
-            cameraFallbackLocalPosition = LoadVector3(PrefCamPosX, PrefCamPosY, PrefCamPosZ);
+        bool hasCamPos = HasVector3(PrefCamPosX, PrefCamPosY, PrefCamPosZ);
+        bool hasCamRot = HasVector3(PrefCamRotX, PrefCamRotY, PrefCamRotZ);
+        hasSavedCameraPose = hasCamPos && hasCamRot;
 
-        if (HasVector3(PrefCamRotX, PrefCamRotY, PrefCamRotZ))
+        if (hasSavedCameraPose)
+        {
+            cameraFallbackLocalPosition = LoadVector3(PrefCamPosX, PrefCamPosY, PrefCamPosZ);
             cameraFallbackLocalEuler = LoadVector3(PrefCamRotX, PrefCamRotY, PrefCamRotZ);
+        }
+        else
+        {
+            // Preserve the user's fixed ADR hand pose when camera fallback anchor is used.
+            cameraFallbackLocalPosition = handLocalPosition;
+            cameraFallbackLocalEuler = handLocalEuler;
+        }
     }
 
     private static bool IsReasonableScale(Vector3 scale)

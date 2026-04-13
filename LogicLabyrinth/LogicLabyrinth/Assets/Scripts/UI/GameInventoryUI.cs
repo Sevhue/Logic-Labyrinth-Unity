@@ -4,6 +4,7 @@ using TMPro;
 using System.Collections;
 using System.Collections.Generic;
 using StarterAssets;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Hotbar-style inventory UI with 8 individually selectable slots.
@@ -282,7 +283,7 @@ public class GameInventoryUI : MonoBehaviour
         int targetOr = Mathf.Max(0, orCount);
         int targetNot = Mathf.Max(0, notCount);
         int targetGateTotal = targetAnd + targetOr + targetNot;
-        int targetKey = hasKey ? 1 : 0;
+        int targetKey = GetTargetKeySlotCount(hasKey);
         int targetCandle = hasCandle ? 1 : 0;
         int targetAdrenaline = hasAdrenaline ? 1 : 0;
         int targetLantern = hasLantern ? 1 : 0;
@@ -357,12 +358,13 @@ public class GameInventoryUI : MonoBehaviour
             if (targetNot > 0) { newSlots[i] = ItemType.NOT; targetNot--; continue; }
             if (targetKey > 0) { newSlots[i] = ItemType.Key; targetKey--; continue; }
             if (targetCandle > 0) { newSlots[i] = ItemType.Candle; targetCandle--; continue; }
-            if (targetAdrenaline > 0) { newSlots[i] = ItemType.Adrenaline; targetAdrenaline--; continue; }
             if (targetLantern > 0) { newSlots[i] = ItemType.Lantern; targetLantern--; continue; }
+            if (targetAdrenaline > 0) { newSlots[i] = ItemType.Adrenaline; targetAdrenaline--; continue; }
             if (targetScanner > 0) { newSlots[i] = ItemType.Scanner; targetScanner--; continue; }
         }
 
-        EnforceStoreReservedSlots(newSlots, hasAdrenaline, hasLantern, hasScanner);
+        // Global hotbar behavior: keep items contiguous from left to right.
+        // Do not force reserved fixed slots for store items.
 
         // If gates were dropped, compact remaining gates left into open slots.
         // Non-gate items (key/candle/adrenaline) keep their current positions.
@@ -373,6 +375,8 @@ public class GameInventoryUI : MonoBehaviour
         // so slot numbering descends naturally (e.g., slot 2 shifts into slot 1).
         if (targetAdrenaline < oldAdrenalineTotal)
             CompactAllItemsLeft(newSlots);
+
+        CompactAllItemsLeft(newSlots);
 
         // Copy back to live slots.
         for (int i = 0; i < SLOT_COUNT; i++)
@@ -390,6 +394,19 @@ public class GameInventoryUI : MonoBehaviour
             selectedSlot = -1;
         }
 
+        // Global quality-of-life: if items exist but nothing is selected, auto-select first slot.
+        if (selectedSlot < 0)
+        {
+            for (int i = 0; i < SLOT_COUNT; i++)
+            {
+                if (slotItems[i] != ItemType.None)
+                {
+                    selectedSlot = i;
+                    break;
+                }
+            }
+        }
+
         if (hasAdrenaline && targetAdrenaline > 0)
             Debug.LogWarning("[Hotbar] Adrenaline available but hotbar is full, so ADR cannot be shown.");
 
@@ -403,6 +420,19 @@ public class GameInventoryUI : MonoBehaviour
         }
 
         UpdateSlotVisuals();
+    }
+
+    private int GetTargetKeySlotCount(bool hasAnyKeyFlag)
+    {
+        Scene activeScene = SceneManager.GetActiveScene();
+        if (activeScene.name == "Chapter3")
+        {
+            int chapter3Keys = Mathf.Max(0, Chapter3KeyFlowController.CurrentCollectedKeyCount);
+            if (chapter3Keys > 0)
+                return Mathf.Min(chapter3Keys, SLOT_COUNT);
+        }
+
+        return hasAnyKeyFlag ? 1 : 0;
     }
 
     private static bool IsStoreItem(ItemType item)

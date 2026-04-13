@@ -34,7 +34,21 @@ public class SpearShooter : MonoBehaviour
         {
             ammoCollider.enabled = true;
             if (ammoCollider is MeshCollider meshCollider)
+            {
                 meshCollider.convex = true;
+
+                // If this mesh still cannot be used as trigger, use a simple trigger fallback collider.
+                if (!meshCollider.convex)
+                {
+                    SphereCollider fallback = ammo.GetComponent<SphereCollider>();
+                    if (fallback == null)
+                        fallback = ammo.gameObject.AddComponent<SphereCollider>();
+                    fallback.radius = 0.12f;
+                    fallback.isTrigger = true;
+                    meshCollider.enabled = false;
+                    ammoCollider = fallback;
+                }
+            }
             ammoCollider.isTrigger = true;
         }
 

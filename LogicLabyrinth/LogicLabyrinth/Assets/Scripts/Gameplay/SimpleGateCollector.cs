@@ -25,6 +25,7 @@ public class SimpleGateCollector : MonoBehaviour
     private SuccessDoor currentSuccessDoor;
     private CollectibleCandle currentCandle;
     private TruthTableDisplay currentTruthDisplay;
+    private Transform currentChapter3QuestionDoor;
 
     // Cache UI references
     private LevelUIManager _levelUI;
@@ -109,15 +110,20 @@ public class SimpleGateCollector : MonoBehaviour
                 Debug.Log("[SGC] Interacting with success door.");
                 currentSuccessDoor.TryInteract();
             }
-            else if (currentDoor != null)
-            {
-                Debug.Log("[SGC] Interacting with door.");
-                currentDoor.TryInteract();
-            }
             else if (currentTruthDisplay != null)
             {
                 Debug.Log("[SGC] Opening truth table display.");
                 currentTruthDisplay.OpenDisplay();
+            }
+            else if (currentChapter3QuestionDoor != null)
+            {
+                Debug.Log("[SGC] Opening Chapter 3 question display.");
+                TruthTableDisplay.OpenChapter3ForDoor(currentChapter3QuestionDoor);
+            }
+            else if (currentDoor != null)
+            {
+                Debug.Log("[SGC] Interacting with door.");
+                currentDoor.TryInteract();
             }
             else
             {
@@ -224,6 +230,7 @@ public class SimpleGateCollector : MonoBehaviour
         currentSuccessDoor = null;
         currentCandle = null;
         currentTruthDisplay = null;
+        currentChapter3QuestionDoor = null;
     }
 
     /// <summary>
@@ -318,6 +325,8 @@ public class SimpleGateCollector : MonoBehaviour
         float bestSuccessDoorDistance = float.MaxValue;
         TruthTableDisplay bestTruthDisplay = null;
         float bestTruthDisplayDistance = float.MaxValue;
+        Transform bestChapter3QuestionDoor = null;
+        float bestChapter3QuestionDoorDistance = float.MaxValue;
 
         RaycastHit[] sphereHits = Physics.SphereCastAll(ray, sphereCastRadius, interactDistance);
         for (int i = 0; i < sphereHits.Length; i++)
@@ -447,6 +456,39 @@ public class SimpleGateCollector : MonoBehaviour
                     bestTruthDisplay = truthDisplayComp;
                 }
             }
+
+            // ── Check Chapter 3 question doors by name ──
+            if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == "Chapter3")
+            {
+                Transform named = sphereHits[i].collider.transform;
+                while (named != null)
+                {
+                    if (!string.IsNullOrEmpty(named.name) && named.name.StartsWith("DoorQuestion"))
+                    {
+                        float dist = hitDist == 0f ? Vector3.Distance(ray.origin, named.position) : hitDist;
+                        if (dist < bestChapter3QuestionDoorDistance)
+                        {
+                            bestChapter3QuestionDoorDistance = dist;
+                            bestChapter3QuestionDoor = named;
+                        }
+                        break;
+                    }
+
+                    if (!string.IsNullOrEmpty(named.name) &&
+                        named.name.IndexOf("DoorQuestion", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        float dist = hitDist == 0f ? Vector3.Distance(ray.origin, named.position) : hitDist;
+                        if (dist < bestChapter3QuestionDoorDistance)
+                        {
+                            bestChapter3QuestionDoorDistance = dist;
+                            bestChapter3QuestionDoor = named;
+                        }
+                        break;
+                    }
+
+                    named = named.parent;
+                }
+            }
         }
 
         // Fallback: if ray/sphere cast failed to identify a table component,
@@ -471,6 +513,88 @@ public class SimpleGateCollector : MonoBehaviour
                 {
                     nearest = dist;
                     bestTable = t;
+                }
+            }
+        }
+
+        // Chapter3 fallback: detect nearest visible key even if trigger colliders are missed by casts.
+        if (bestKey == null && UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == "Chapter3")
+        {
+            CollectibleKey[] allKeys = FindObjectsByType<CollectibleKey>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            for (int i = 0; i < allKeys.Length; i++)
+            {
+                CollectibleKey key = allKeys[i];
+                if (key == null || key.IsCollected) continue;
+
+                float dist = Vector3.Distance(ray.origin, key.transform.position);
+                if (dist > interactDistance) continue;
+
+                Vector3 toKey = (key.transform.position - ray.origin).normalized;
+                float dot = Vector3.Dot(ray.direction, toKey);
+                if (dot < 0.2f) continue;
+
+                if (dist < bestKeyDistance)
+                {
+                    bestKeyDistance = dist;
+                    bestKey = key;
+                }
+            }
+        }
+
+        // Chapter3 fallback: detect Success_Door even if casts miss thin/offset colliders.
+        if (bestSuccessDoor == null && UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == "Chapter3")
+        {
+            SuccessDoor[] allSuccessDoors = FindObjectsByType<SuccessDoor>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            for (int i = 0; i < allSuccessDoors.Length; i++)
+            {
+                SuccessDoor door = allSuccessDoors[i];
+                if (door == null || door.IsDoorOpen) continue;
+
+                float dist = Vector3.Distance(ray.origin, door.transform.position);
+                if (dist > interactDistance) continue;
+
+                Vector3 toDoor = (door.transform.position - ray.origin).normalized;
+                float dot = Vector3.Dot(ray.direction, toDoor);
+                if (dot < 0.1f) continue;
+
+                if (dist < bestSuccessDoorDistance)
+                {
+                    bestSuccessDoorDistance = dist;
+                    bestSuccessDoor = door;
+                }
+            }
+        }
+
+        // Chapter3 fallback: detect DoorQuestion1..n by name even if collider hits miss.
+        if (bestChapter3QuestionDoor == null && UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == "Chapter3")
+        {
+            Transform[] allTransforms = FindObjectsByType<Transform>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            for (int i = 0; i < allTransforms.Length; i++)
+            {
+                Transform t = allTransforms[i];
+                if (t == null) continue;
+
+                string n = t.name;
+                if (string.IsNullOrEmpty(n)) continue;
+                bool isDoorQuestionName =
+                    n.Equals("DoorQuestion1", System.StringComparison.OrdinalIgnoreCase) ||
+                    n.Equals("DoorQuestion2", System.StringComparison.OrdinalIgnoreCase) ||
+                    n.Equals("DoorQuestion3", System.StringComparison.OrdinalIgnoreCase) ||
+                    n.Equals("DoorQuestion4", System.StringComparison.OrdinalIgnoreCase) ||
+                    n.IndexOf("DoorQuestion", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                if (!isDoorQuestionName) continue;
+
+                float dist = Vector3.Distance(ray.origin, t.position);
+                if (dist > interactDistance) continue;
+
+                Vector3 toDoor = (t.position - ray.origin).normalized;
+                float dot = Vector3.Dot(ray.direction, toDoor);
+                if (dot < 0.1f) continue;
+
+                if (dist < bestChapter3QuestionDoorDistance)
+                {
+                    bestChapter3QuestionDoorDistance = dist;
+                    bestChapter3QuestionDoor = t;
                 }
             }
         }
@@ -541,20 +665,6 @@ public class SimpleGateCollector : MonoBehaviour
             currentTruthDisplay = null;
             ShowPrompt("Press E to open");
         }
-        else if (bestDoor != null)
-        {
-            currentInteractable = null;
-            currentTable = null;
-            currentKey = null;
-            currentCandle = null;
-            currentDoor = bestDoor;
-            currentSuccessDoor = null;
-            // Only show E prompt for the Level 1 tutorial door (key-finding)
-            if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == "Level1")
-                ShowPrompt("Press E to open");
-            else
-                HidePrompt();
-        }
         else if (bestTruthDisplay != null)
         {
             currentInteractable = null;
@@ -564,7 +674,38 @@ public class SimpleGateCollector : MonoBehaviour
             currentDoor = null;
             currentSuccessDoor = null;
             currentTruthDisplay = bestTruthDisplay;
+            currentChapter3QuestionDoor = null;
             ShowPrompt("Press E to view Truth Table");
+        }
+        else if (bestChapter3QuestionDoor != null)
+        {
+            currentInteractable = null;
+            currentTable = null;
+            currentKey = null;
+            currentCandle = null;
+            currentDoor = null;
+            currentSuccessDoor = null;
+            currentTruthDisplay = null;
+            currentChapter3QuestionDoor = bestChapter3QuestionDoor;
+            ShowPrompt("Press E to open door");
+        }
+        else if (bestDoor != null)
+        {
+            currentInteractable = null;
+            currentTable = null;
+            currentKey = null;
+            currentCandle = null;
+            currentDoor = bestDoor;
+            currentSuccessDoor = null;
+            currentTruthDisplay = null;
+            currentChapter3QuestionDoor = null;
+            string activeScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            bool showDoorPrompt = activeScene == "Level1" || activeScene.StartsWith("Chapter");
+
+            if (showDoorPrompt)
+                ShowPrompt("Press E to open door");
+            else
+                HidePrompt();
         }
         else
         {
@@ -575,18 +716,52 @@ public class SimpleGateCollector : MonoBehaviour
 
     private void ShowPrompt(string text)
     {
-        if (_levelUI != null)
+        if (_levelUI == null)
+            _levelUI = FindAnyObjectByType<LevelUIManager>();
+        if (_mainUI == null)
+            _mainUI = FindAnyObjectByType<UIManager>();
+
+        bool shown = false;
+
+        if (_levelUI != null && _levelUI.interactPrompt != null)
+        {
             _levelUI.ShowInteractPrompt(text);
-        else if (_mainUI != null)
+            shown = true;
+        }
+
+        if (!shown && _mainUI != null)
+        {
             _mainUI.ShowInteractPrompt(true, text);
+            shown = true;
+        }
+
+        if (!shown)
+            UIManager.SafeShowInteractPrompt(true, text);
     }
 
     private void HidePrompt()
     {
-        if (_levelUI != null)
+        if (_levelUI == null)
+            _levelUI = FindAnyObjectByType<LevelUIManager>();
+        if (_mainUI == null)
+            _mainUI = FindAnyObjectByType<UIManager>();
+
+        bool hidden = false;
+
+        if (_levelUI != null && _levelUI.interactPrompt != null)
+        {
             _levelUI.HideInteractPrompt();
-        else if (_mainUI != null)
+            hidden = true;
+        }
+
+        if (!hidden && _mainUI != null)
+        {
             _mainUI.ShowInteractPrompt(false);
+            hidden = true;
+        }
+
+        if (!hidden)
+            UIManager.SafeShowInteractPrompt(false);
     }
 
     void TryCollectGate()

@@ -1111,17 +1111,38 @@ namespace StarterAssets
 
 			yield return new WaitForSeconds(holdDuration);
 
-			// Flash the respawn prompt and wait for the player to press Space
-			while (!Input.GetKeyDown(KeyCode.Space))
+			// Flash the respawn prompt and wait for Space.
+			// In Chapter scenes, also auto-respawn after a short timeout so the death text cannot get stuck.
+			string activeSceneName = SceneManager.GetActiveScene().name;
+			bool isChapterScene = !string.IsNullOrEmpty(activeSceneName) && activeSceneName.StartsWith("Chapter");
+			float chapterAutoRespawnDelay = 2.5f;
+			float waitStart = Time.unscaledTime;
+
+			while (true)
 			{
+				if (Input.GetKeyDown(KeyCode.Space))
+					break;
+
+				#if ENABLE_INPUT_SYSTEM
+				if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
+					break;
+				#endif
+
+				if (isChapterScene && (Time.unscaledTime - waitStart) >= chapterAutoRespawnDelay)
+					break;
+
 				if (_respawnPromptTMP != null)
 				{
-					float flashAlpha = Mathf.Abs(Mathf.Sin(Time.time * 2.5f));
+					float flashAlpha = Mathf.Abs(Mathf.Sin(Time.unscaledTime * 2.5f));
 					_respawnPromptTMP.color = new Color(0.75f, 0.75f, 0.75f, flashAlpha);
 				}
 				yield return null;
 			}
 
+			if (_deathOverlayCanvasGroup != null)
+				_deathOverlayCanvasGroup.alpha = 0f;
+			if (_deathTextTMP != null)
+				_deathTextTMP.color = new Color(0.92f, 0.12f, 0.12f, 0f);
 			if (_respawnPromptTMP != null)
 				_respawnPromptTMP.color = new Color(0.75f, 0.75f, 0.75f, 0f);
 
